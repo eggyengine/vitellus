@@ -3,6 +3,11 @@ const std = @import("std");
 
 test "basic" {
     const io = std.testing.io;
-    // const gpu = try vit.GPU.init();
-    const adapter = try vit.GPU.requestAdapterAsync(io, .{}).cancel(io);
+
+    var future = vit.GPU.requestAdapterAsync(io, .{});
+    defer future.cancel(io) catch {};
+
+    const adapter = try future.await(io);
+
+    _ = adapter;
 }

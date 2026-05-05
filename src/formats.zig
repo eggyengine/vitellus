@@ -122,7 +122,7 @@ pub const TextureFormat = enum {
     astc_12x12_unorm,
     astc_12x12_unorm_srgb,
 
-    pub fn toString(self: GPUTextureFormat) []const u8 {
+    pub fn toString(self: TextureFormat) []const u8 {
         return switch (self) {
             .r8unorm => "r8unorm",
             .r8snorm => "r8snorm",
