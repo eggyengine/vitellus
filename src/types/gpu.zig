@@ -12,7 +12,7 @@ const shader = @import("shader.zig");
 
 pub const GPU = struct {
     pub fn requestAdapter(io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
-        return requestAdapter(io, options);
+        return io.async(requestAdapterInternal, .{options});
     }
 
     pub fn getPreferredCanvasFormat() texture.Texture.Format {

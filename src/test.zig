@@ -6,7 +6,7 @@ var adapter: vit.Adapter = undefined;
 var device: vit.Device = undefined;
 
 fn setup() !void {
-    var adapterF = vit.GPU.requestAdapterAsync(io, .{});
+    var adapterF = vit.GPU.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
     adapter = try adapterF.await(io);
 
@@ -17,7 +17,7 @@ fn setup() !void {
 
 test "example 4.5" {
     // the exact same code as setup()
-    var adapterF = vit.GPU.requestAdapterAsync(io, .{});
+    var adapterF = vit.GPU.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
     adapter = try adapterF.await(io);
 
@@ -101,7 +101,7 @@ test "example 8.4" {
 }
 
 test "example 26" {
-    setup();
+    try setup();
 
     const shader_content =
         \\\ var<private> pos : array<vec2<f32>, 3> = array<vec2<f32>, 3>(
