@@ -1,6 +1,6 @@
 # vitellus
 
-vitellus is a webgpu implementation written in zig, with support for web and native platforms. 
+vitellus is a webgpu implementation fully written in zig, with support for web and native platforms. 
 
 Follows the WebGPU w3 specification. 
 
@@ -28,8 +28,6 @@ and lastly in your library/executable:
 const vit = @import("vitellus");
 ```
 
-## progression
-- [ ] vulkan
-- [ ] directx
-- [ ] metal
-- [ ] navigator.gpu
+# backend availability
+
+take a look at the current status in [src/backends/README.md](src/backends/README.md)
