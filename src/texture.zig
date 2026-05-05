@@ -1,4 +1,108 @@
-pub const TextureFormat = enum {
+const def = @import("def.zig");
+
+pub const Texture = struct {
+    width: def.IntegerCoordinateOut,
+    height: def.IntegerCoordinateOut,
+    depthOrArrayLayers: def.IntegerCoordinateOut,
+    mipLevelCount: def.IntegerCoordinateOut,
+    sampleCount: def.Size32Out,
+    dimension: Dimension,
+    format: Format,
+    usage: UsageFlags,
+    textureBindingViewDimension: ?View.Dimension,
+
+    pub const UsageFlags = def.TextureUsageFlags;
+
+    pub const Extent3D = struct {
+        width: def.IntegerCoordinate,
+        height: def.IntegerCoordinate = 1,
+        depthOrArrayLayers: def.IntegerCoordinate = 1,
+    };
+
+    pub const Usage = packed struct(u32) {
+        copy_src: bool = false,
+        copy_dst: bool = false,
+        texture_binding: bool = false,
+        storage_binding: bool = false,
+        render_attachment: bool = false,
+        transient_attachment: bool = false,
+
+        _: u26 = 0,
+
+        pub const COPY_SRC: def.FlagsConstant = 0x01;
+        pub const COPY_DST: def.FlagsConstant = 0x02;
+        pub const TEXTURE_BINDING: def.FlagsConstant = 0x04;
+        pub const STORAGE_BINDING: def.FlagsConstant = 0x08;
+        pub const RENDER_ATTACHMENT: def.FlagsConstant = 0x10;
+        pub const TRANSIENT_ATTACHMENT: def.FlagsConstant = 0x20;
+
+        pub fn fromFlags(flags: UsageFlags) Usage {
+            return @bitCast(flags);
+        }
+
+        pub fn toFlags(self: Usage) UsageFlags {
+            return @bitCast(self);
+        }
+    };
+
+    pub const View = struct {
+        pub const Descriptor = struct {
+            label: ?[*:0]const u8 = null,
+            format: ?Format = null,
+            dimension: ?Texture.View.Dimension = null,
+            usage: UsageFlags = 0,
+            aspect: Texture.Aspect = .all,
+            baseMipLevel: def.IntegerCoordinate = 0,
+            mipLevelCount: ?def.IntegerCoordinate = null,
+            baseArrayLayer: def.IntegerCoordinate = 0,
+            arrayLayerCount: ?def.IntegerCoordinate = null,
+            swizzle: []const u8 = "rgba",
+        };
+
+        pub const Dimension = enum {
+            @"1d",
+            @"2d",
+            @"2d-array",
+            cube,
+            @"cube-array",
+            @"3d",
+        };
+    };
+
+    pub const Aspect = enum {
+        all,
+        stencil_only,
+        depth_only,
+    };
+
+    pub const Descriptor = struct {
+        label: ?[*:0]const u8 = null,
+        size: Extent3D,
+        mipLevelCount: def.IntegerCoordinate = 1,
+        sampleCount: def.Size32 = 1,
+        dimension: Dimension = .@"2d",
+        format: Format,
+        usage: UsageFlags,
+        viewFormats: []const Format = &.{},
+        textureBindingViewDimension: ?View.Dimension = null,
+    };
+
+    pub const Dimension = enum {
+        @"1d",
+        @"2d",
+        @"3d",
+    };
+
+    pub fn deinit(self: *Texture) void {
+        _ = self;
+    }
+
+    pub fn createView(self: *Texture, descriptor: Texture.View.Descriptor) !*Texture.View {
+        _ = self;
+        _ = descriptor;
+    }
+
+    pub const Format = enum {
     // 8-bit formats
     r8unorm,
     r8snorm,
@@ -122,7 +226,7 @@ pub const TextureFormat = enum {
     astc_12x12_unorm,
     astc_12x12_unorm_srgb,
 
-    pub fn toString(self: TextureFormat) []const u8 {
+    pub fn toString(self: Format) []const u8 {
         return switch (self) {
             .r8unorm => "r8unorm",
             .r8snorm => "r8snorm",
@@ -236,4 +340,11 @@ pub const TextureFormat = enum {
             .astc_12x12_unorm_srgb => "astc-12x12-unorm-srgb",
         };
     }
+};
+};
+
+pub const ExternalTexture = struct {
+    pub const Descriptor = struct {
+        label: ?[*:0]const u8 = null,
+    };
 };

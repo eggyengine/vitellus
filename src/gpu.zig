@@ -1,7 +1,12 @@
 const std = @import("std");
 
-const format = @import("formats.zig");
 const features = @import("features.zig");
+const buffer = @import("buffer.zig");
+const texture = @import("texture.zig");
+const sampler = @import("sampler.zig");
+const bind_group_layout = @import("bind_group_layout.zig");
+const bind_group = @import("bind_group.zig");
+const pipeline_layout = @import("pipeline_layout.zig");
 
 pub const GPU = struct {
     fn requestAdapterInternal(options: Adapter.RequestOptions) Adapter.RequestAdapterError!Adapter {
@@ -17,7 +22,7 @@ pub const GPU = struct {
         return requestAdapter(io, options);
     }
 
-    pub fn getPreferredCanvasFormat() format.TextureFormat {
+    pub fn getPreferredCanvasFormat() texture.Texture.Format {
         return .bgra8unorm;
     }
 };
@@ -54,17 +59,14 @@ pub const Adapter = struct {
         highPerformance,
     };
 
-    fn requestDeviceInternal(options: Device.Descriptor) Device.RequestDeviceError!Device {
-        _ = options;
-        return error.NotImplemented;
-    }
-
-    pub fn requestDevice(io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!Device) {
+    pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!Device) {
+        _ = self;
         return io.async(requestDeviceInternal, .{options});
     }
 
-    pub fn requestDeviceAsync(io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!Device) {
-        return requestDevice(io, options);
+    fn requestDeviceInternal(options: Device.Descriptor) Device.RequestDeviceError!Device {
+        _ = options;
+        return error.NotImplemented;
     }
 };
 
@@ -119,25 +121,24 @@ pub const Device = struct {
         _ = self;
     }
 
-    pub fn createBuffer(self: *@This(), descriptor: Buffer.Descriptor) Buffer {
+    pub fn createBuffer(self: *@This(), descriptor: buffer.Buffer.Descriptor) buffer.Buffer {
         _ = self;
         _ = descriptor;
         return .{};
     }
 
-    pub fn createTexture(self: *@This(), descriptor: Texture.Descriptor) Texture {
+    pub fn createTexture(self: *@This(), descriptor: texture.Texture.Descriptor) texture.Texture {
         _ = self;
         _ = descriptor;
         return .{};
     }
 
-    pub fn createSampler(self: *@This(), descriptor: ?Sampler.Descriptor) Sampler {
+    pub fn createSampler(self: *@This(), descriptor: ?sampler.Sampler.Descriptor) sampler.Sampler {
         _ = self;
-        _ = descriptor;
-        return .{};
+        return sampler.Sampler.init(descriptor orelse .{});
     }
 
-    pub fn importExternalTexture(self: *@This(), descriptor: ExternalTexture.Descriptor) ExternalTexture {
+    pub fn importExternalTexture(self: *@This(), descriptor: texture.ExternalTexture.Descriptor) texture.ExternalTexture {
         _ = self;
         _ = descriptor;
         return .{};
@@ -145,20 +146,17 @@ pub const Device = struct {
 
     pub fn createBindGroupLayout(self: *@This(), descriptor: BindGroupLayout.Descriptor) BindGroupLayout {
         _ = self;
-        _ = descriptor;
-        return .{};
+        return BindGroupLayout.init(descriptor);
     }
 
     pub fn createPipelineLayout(self: *@This(), descriptor: PipelineLayout.Descriptor) PipelineLayout {
         _ = self;
-        _ = descriptor;
-        return .{};
+        return PipelineLayout.init(descriptor);
     }
 
     pub fn createBindGroup(self: *@This(), descriptor: BindGroup.Descriptor) BindGroup {
         _ = self;
-        _ = descriptor;
-        return .{};
+        return BindGroup.init(descriptor);
     }
 
     pub fn createShaderModule(self: *@This(), descriptor: ShaderModule.Descriptor) ShaderModule {
@@ -267,77 +265,11 @@ pub const Queue = struct {
     }
 };
 
-pub const Buffer = struct {
-    pub const MapAsyncError = error{NotImplemented};
+pub const BindGroupLayout = bind_group_layout.BindGroupLayout;
 
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
+pub const PipelineLayout = pipeline_layout.PipelineLayout;
 
-    pub const MapMode = packed struct {
-        read: bool = false,
-        write: bool = false,
-    };
-
-    fn mapAsyncInternal(
-        self: *@This(),
-        mode: MapMode,
-        offset: u64,
-        size: ?u64,
-    ) MapAsyncError!void {
-        _ = self;
-        _ = mode;
-        _ = offset;
-        _ = size;
-        return error.NotImplemented;
-    }
-
-    pub fn mapAsync(
-        self: *@This(),
-        io: std.Io,
-        mode: MapMode,
-        offset: u64,
-        size: ?u64,
-    ) std.Io.Future(MapAsyncError!void) {
-        return io.async(mapAsyncInternal, .{ self, mode, offset, size });
-    }
-};
-
-pub const Texture = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
-
-pub const Sampler = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
-
-pub const ExternalTexture = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
-
-pub const BindGroupLayout = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
-
-pub const PipelineLayout = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
-
-pub const BindGroup = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
+pub const BindGroup = bind_group.BindGroup;
 
 pub const ShaderModule = struct {
     pub const CompilationInfoError = error{NotImplemented};
