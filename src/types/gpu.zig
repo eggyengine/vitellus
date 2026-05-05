@@ -7,23 +7,23 @@ const sampler = @import("sampler.zig");
 const bind_group_layout = @import("bind_group_layout.zig");
 const bind_group = @import("bind_group.zig");
 const pipeline_layout = @import("pipeline_layout.zig");
+const pipeline = @import("pipeline.zig");
+const shader = @import("shader.zig");
 
 pub const GPU = struct {
-    fn requestAdapterInternal(options: Adapter.RequestOptions) Adapter.RequestAdapterError!Adapter {
-        _ = options;
-        return error.NotImplemented;
-    }
-
     pub fn requestAdapter(io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
-        return io.async(requestAdapterInternal, .{options});
-    }
-
-    pub fn requestAdapterAsync(io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
         return requestAdapter(io, options);
     }
 
     pub fn getPreferredCanvasFormat() texture.Texture.Format {
         return .bgra8unorm;
+    }
+
+    // --- internal ---
+
+    fn requestAdapterInternal(options: Adapter.RequestOptions) Adapter.RequestAdapterError!Adapter {
+        _ = options;
+        return error.NotImplemented;
     }
 };
 
@@ -64,6 +64,8 @@ pub const Adapter = struct {
         return io.async(requestDeviceInternal, .{options});
     }
 
+    // --- internal ---
+
     fn requestDeviceInternal(options: Device.Descriptor) Device.RequestDeviceError!Device {
         _ = options;
         return error.NotImplemented;
@@ -85,7 +87,7 @@ pub const Device = struct {
     };
 
     pub const RequestDeviceError = error{NotImplemented};
-    pub const CreatePipelineAsyncError = error{NotImplemented};
+    pub const CreatePipelineAsyncError = pipeline.PipelineError.Error;
     pub const LostError = error{NotImplemented};
     pub const PopErrorScopeError = error{NotImplemented};
 
@@ -159,7 +161,7 @@ pub const Device = struct {
         return BindGroup.init(descriptor);
     }
 
-    pub fn createShaderModule(self: *@This(), descriptor: ShaderModule.Descriptor) ShaderModule {
+    pub fn createShaderModule(self: *@This(), descriptor: shader.ShaderModule.Descriptor) shader.ShaderModule {
         _ = self;
         _ = descriptor;
         return .{};
@@ -183,7 +185,7 @@ pub const Device = struct {
     ) CreatePipelineAsyncError!ComputePipeline {
         _ = self;
         _ = descriptor;
-        return error.NotImplemented;
+        return error.Internal;
     }
 
     fn createRenderPipelineAsyncInternal(
@@ -192,7 +194,7 @@ pub const Device = struct {
     ) CreatePipelineAsyncError!RenderPipeline {
         _ = self;
         _ = descriptor;
-        return error.NotImplemented;
+        return error.Internal;
     }
 
     pub fn createComputePipelineAsync(
@@ -271,53 +273,11 @@ pub const PipelineLayout = pipeline_layout.PipelineLayout;
 
 pub const BindGroup = bind_group.BindGroup;
 
-pub const ShaderModule = struct {
-    pub const CompilationInfoError = error{NotImplemented};
+pub const PipelineError = pipeline.PipelineError;
 
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
+pub const ComputePipeline = pipeline.ComputePipeline;
 
-    pub const CompilationInfo = struct {
-        messages: []const CompilationMessage = &.{},
-    };
-
-    pub const CompilationMessage = struct {
-        message: [*:0]const u8,
-        type: CompilationMessageType,
-        line_num: u64 = 0,
-        line_pos: u64 = 0,
-        offset: u64 = 0,
-        length: u64 = 0,
-    };
-
-    pub const CompilationMessageType = enum {
-        @"error",
-        warning,
-        info,
-    };
-
-    fn getCompilationInfoInternal(self: *@This()) CompilationInfoError!CompilationInfo {
-        _ = self;
-        return error.NotImplemented;
-    }
-
-    pub fn getCompilationInfo(self: *@This(), io: std.Io) std.Io.Future(CompilationInfoError!CompilationInfo) {
-        return io.async(getCompilationInfoInternal, .{self});
-    }
-};
-
-pub const ComputePipeline = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
-
-pub const RenderPipeline = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
+pub const RenderPipeline = pipeline.RenderPipeline;
 
 pub const CommandEncoder = struct {
     pub const Descriptor = struct {

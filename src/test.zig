@@ -99,3 +99,25 @@ test "example 8.4" {
     _ = bind_group;
     _ = pipeline_layout;
 }
+
+test "example 26" {
+    setup();
+
+    const shader_content =
+        \\\ var<private> pos : array<vec2<f32>, 3> = array<vec2<f32>, 3>(
+        \\\    vec2(-1.0, -1.0), vec2(-1.0, 3.0), vec2(3.0, -1.0));
+        \\\
+        \\\ @vertex
+        \\\ fn vertexMain(@builtin(vertex_index) vertexIndex : u32) -> @builtin(position) vec4<f32> {
+        \\\     return vec4(pos[vertexIndex], 1.0, 1.0);
+        \\\ }
+        \\\
+        \\\ @fragment
+        \\\ fn fragmentMain() -> @location(0) vec4<f32> {
+        \\\     return vec4(1.0, 0.0, 0.0, 1.0);
+        \\\ }
+    ;
+
+    const shader_module = device.createShaderModule(.{ .code = shader_content });
+    _ = shader_module;
+}
