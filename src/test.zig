@@ -29,29 +29,23 @@ test "example 4.5" {
 test "example 8.4" {
     try setup();
 
-    const entry0 = vit.BindGroupLayout.Entry{
-        .binding = 0,
-        .visibility = vit.BindGroupLayout.ShaderStage.VERTEX |
-            vit.BindGroupLayout.ShaderStage.FRAGMENT,
-        .buffer = .{},
-    };
-
-    const entry1 = vit.BindGroupLayout.Entry{
-        .binding = 1,
-        .visibility = vit.BindGroupLayout.ShaderStage.FRAGMENT,
-        .texture = .{},
-    };
-
-    const entry2 = vit.BindGroupLayout.Entry{
-        .binding = 2,
-        .visibility = vit.BindGroupLayout.ShaderStage.FRAGMENT,
-        .sampler = .{},
-    };
-
     const entries = [_]*const vit.BindGroupLayout.Entry{
-        &entry0,
-        &entry1,
-        &entry2,
+        &.{
+            .binding = 0,
+            .visibility = vit.BindGroupLayout.ShaderStage.VERTEX |
+                vit.BindGroupLayout.ShaderStage.FRAGMENT,
+            .buffer = .{},
+        },
+        &.{
+            .binding = 1,
+            .visibility = vit.BindGroupLayout.ShaderStage.FRAGMENT,
+            .texture = .{},
+        },
+        &.{
+            .binding = 2,
+            .visibility = vit.BindGroupLayout.ShaderStage.FRAGMENT,
+            .sampler = .{},
+        },
     };
 
     const bind_group_layout = device.createBindGroupLayout(.{
@@ -62,30 +56,18 @@ test "example 8.4" {
     var texture: vit.Texture = undefined;
     var sampler = device.createSampler(null);
 
-    const bind_group_entry0 = vit.BindGroup.Entry{
-        .binding = 0,
-        .resource = .{ .bufferBinding = .{ .buffer = &buffer } },
-    };
-
-    const bind_group_entry1 = vit.BindGroup.Entry{
-        .binding = 1,
-        .resource = .{ .texture = &texture },
-    };
-
-    const bind_group_entry2 = vit.BindGroup.Entry{
-        .binding = 2,
-        .resource = .{ .sampler = &sampler },
-    };
-
-    const bind_group_entries = [_]vit.BindGroup.Entry{
-        bind_group_entry0,
-        bind_group_entry1,
-        bind_group_entry2,
-    };
-
     const bind_group = device.createBindGroup(.{
         .layout = &bind_group_layout,
-        .entries = &bind_group_entries,
+        .entries = &.{ .{
+            .binding = 0,
+            .resource = .{ .bufferBinding = .{ .buffer = &buffer } },
+        }, .{
+            .binding = 1,
+            .resource = .{ .texture = &texture },
+        }, .{
+            .binding = 2,
+            .resource = .{ .sampler = &sampler },
+        } },
     });
 
     const bind_group_layouts = [_]?*const vit.BindGroupLayout{

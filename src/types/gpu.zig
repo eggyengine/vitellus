@@ -4,9 +4,7 @@ const features = @import("features.zig");
 const buffer = @import("buffer.zig");
 const texture = @import("texture.zig");
 const sampler = @import("sampler.zig");
-const bind_group_layout = @import("bind_group_layout.zig");
 const bind_group = @import("bind_group.zig");
-const pipeline_layout = @import("pipeline_layout.zig");
 const pipeline = @import("pipeline.zig");
 const shader = @import("shader.zig");
 
@@ -267,9 +265,9 @@ pub const Queue = struct {
     }
 };
 
-pub const BindGroupLayout = bind_group_layout.BindGroupLayout;
+pub const BindGroupLayout = bind_group.BindGroupLayout;
 
-pub const PipelineLayout = pipeline_layout.PipelineLayout;
+pub const PipelineLayout = pipeline.PipelineLayout;
 
 pub const BindGroup = bind_group.BindGroup;
 

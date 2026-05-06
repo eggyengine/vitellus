@@ -1,5 +1,5 @@
 const std = @import("std");
-const pipeline_layout = @import("pipeline_layout.zig");
+const pipeline = @import("pipeline.zig");
 
 pub const ShaderModule = struct {
     pub const CompilationInfoError = error{NotImplemented};
@@ -34,7 +34,7 @@ pub const ShaderModule = struct {
         layout: ?Layout = null,
 
         pub const Layout = union(enum) {
-            pipeline: *const pipeline_layout.PipelineLayout,
+            pipeline: *const pipeline.PipelineLayout,
             auto: AutoLayoutMode,
         };
     };
