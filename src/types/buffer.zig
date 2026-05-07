@@ -1,7 +1,7 @@
 const std = @import("std");
 const def = @import("def.zig");
 
-const BufferUsage = packed struct(u32) {
+pub const BufferUsage = packed struct(u32) {
     map_read: bool = false,
     map_write: bool = false,
     copy_src: bool = false,
@@ -43,13 +43,14 @@ pub const Buffer = struct {
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
-        size: def.Size64 = null,
+        size: def.Size64,
         usage: Buffer.UsageFlags,
         mappedAtCreation: bool = false,
     };
 
     pub const UsageFlags = def.BufferUsageFlags;
     pub const Usage = BufferUsage;
+    pub const MapModeFlags = def.MapModeFlags;
 
     pub const MapAsyncError = error{NotImplemented};
 
@@ -64,14 +65,14 @@ pub const Buffer = struct {
         pub const READ: def.FlagsConstant = 0x0001;
         pub const WRITE: def.FlagsConstant = 0x0002;
 
-        pub fn fromFlags(flags: def.FlagsConstant) MapMode {
+        pub fn fromFlags(flags: MapModeFlags) MapMode {
             return .{
                 .read = flags & READ != 0,
                 .write = flags & WRITE != 0,
             };
         }
 
-        pub fn toFlags(self: MapMode) def.FlagsConstant {
+        pub fn toFlags(self: MapMode) MapModeFlags {
             return (if (self.read) READ else 0) | (if (self.write) WRITE else 0);
         }
     };

@@ -5,12 +5,26 @@ const buffer = @import("buffer.zig");
 const texture = @import("texture.zig");
 const sampler = @import("sampler.zig");
 const bind_group = @import("bind_group.zig");
+const command = @import("command.zig");
+const def = @import("def.zig");
 const pipeline = @import("pipeline.zig");
 const shader = @import("shader.zig");
+const hal = @import("../backends/hal.zig");
 
 pub const GPU = struct {
+    backend: hal.Backend = hal.noop,
+    wgslLanguageFeatures: []const []const u8 = &.{},
+
     pub fn requestAdapter(io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
-        return io.async(requestAdapterInternal, .{options});
+        return hal.noop.requestAdapterAsync(io, options);
+    }
+
+    pub fn init(backend: hal.Backend) GPU {
+        return .{ .backend = backend };
+    }
+
+    pub fn requestAdapterWithBackend(self: *GPU, io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
+        return self.backend.requestAdapterAsync(io, options);
     }
 
     pub fn getPreferredCanvasFormat() texture.Texture.Format {
@@ -19,16 +33,13 @@ pub const GPU = struct {
 
     // --- internal ---
 
-    fn requestAdapterInternal(options: Adapter.RequestOptions) Adapter.RequestAdapterError!Adapter {
-        _ = options;
-        return error.NotImplemented;
-    }
 };
 
 pub const Adapter = struct {
-    features: []features.FeatureName,
-    limits: []features.SupportedLimitNumber,
+    features: []const features.FeatureName,
+    limits: []const features.SupportedLimitNumber,
     info: Info,
+    backend: hal.Backend = hal.noop,
 
     pub const RequestOptions = struct {
         label: ?[*:0]const u8 = null,
@@ -48,7 +59,7 @@ pub const Adapter = struct {
         isFallbackAdapter: bool,
     };
 
-    pub const RequestAdapterError = error{NotImplemented};
+    pub const RequestAdapterError = error{NoAdapter};
 
     pub const FeatureLevel = enum { core, compatibility };
 
@@ -58,24 +69,17 @@ pub const Adapter = struct {
     };
 
     pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!Device) {
-        _ = self;
-        return io.async(requestDeviceInternal, .{options});
-    }
-
-    // --- internal ---
-
-    fn requestDeviceInternal(options: Device.Descriptor) Device.RequestDeviceError!Device {
-        _ = options;
-        return error.NotImplemented;
+        return self.backend.requestDeviceAsync(io, self, options);
     }
 };
 
 pub const Device = struct {
-    features: []features.FeatureName,
-    limits: []features.SupportedLimitNumber,
+    features: []const features.FeatureName,
+    limits: []const features.SupportedLimitNumber,
     adapter_info: Adapter.Info,
 
     queue: Queue,
+    backend: hal.Backend = hal.noop,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
@@ -84,7 +88,10 @@ pub const Device = struct {
         default_queue: Queue.Descriptor = .{},
     };
 
-    pub const RequestDeviceError = error{NotImplemented};
+    pub const RequestDeviceError = error{
+        UnsupportedFeature,
+        UnsupportedLimit,
+    };
     pub const CreatePipelineAsyncError = pipeline.PipelineError.Error;
     pub const LostError = error{NotImplemented};
     pub const PopErrorScopeError = error{NotImplemented};
@@ -103,6 +110,17 @@ pub const Device = struct {
         validation: ValidationError,
         out_of_memory: OutOfMemoryError,
         internal: InternalError,
+    };
+
+    pub const ErrorFilter = enum {
+        validation,
+        out_of_memory,
+        internal,
+    };
+
+    pub const UncapturedErrorEvent = struct {
+        type: []const u8,
+        @"error": Error,
     };
 
     pub const ValidationError = struct {
@@ -213,8 +231,7 @@ pub const Device = struct {
 
     pub fn createCommandEncoder(self: *@This(), descriptor: ?CommandEncoder.Descriptor) CommandEncoder {
         _ = self;
-        _ = descriptor;
-        return .{};
+        return .{ .label = if (descriptor) |d| d.label else null };
     }
 
     pub fn createRenderBundleEncoder(self: *@This(), descriptor: RenderBundleEncoder.Descriptor) RenderBundleEncoder {
@@ -225,8 +242,11 @@ pub const Device = struct {
 
     pub fn createQuerySet(self: *@This(), descriptor: QuerySet.Descriptor) QuerySet {
         _ = self;
-        _ = descriptor;
-        return .{};
+        return .{
+            .label = descriptor.label,
+            .type = descriptor.type,
+            .count = descriptor.count,
+        };
     }
 
     fn lostInternal(self: *@This()) LostError!LostInfo {
@@ -246,14 +266,68 @@ pub const Device = struct {
     pub fn popErrorScope(self: *@This(), io: std.Io) std.Io.Future(PopErrorScopeError!?Error) {
         return io.async(popErrorScopeInternal, .{self});
     }
+
+    pub fn pushErrorScope(self: *@This(), filter: ErrorFilter) void {
+        _ = self;
+        _ = filter;
+    }
 };
 
 pub const Queue = struct {
+    backend: hal.Backend = hal.noop,
+
     pub const OnSubmittedWorkDoneError = error{NotImplemented};
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
     };
+
+    pub fn submit(self: *@This(), commandBuffers: []const command.CommandBuffer) void {
+        _ = self;
+        _ = commandBuffers;
+    }
+
+    pub fn writeBuffer(
+        self: *@This(),
+        target: *buffer.Buffer,
+        bufferOffset: def.Size64,
+        data: def.AllowSharedBufferSource,
+        dataOffset: def.Size64,
+        size: ?def.Size64,
+    ) void {
+        _ = self;
+        _ = target;
+        _ = bufferOffset;
+        _ = data;
+        _ = dataOffset;
+        _ = size;
+    }
+
+    pub fn writeTexture(
+        self: *@This(),
+        destination: texture.TexelCopyTextureInfo,
+        data: def.AllowSharedBufferSource,
+        dataLayout: texture.TexelCopyBufferLayout,
+        size: texture.Texture.Extent3D,
+    ) void {
+        _ = self;
+        _ = destination;
+        _ = data;
+        _ = dataLayout;
+        _ = size;
+    }
+
+    pub fn copyExternalImageToTexture(
+        self: *@This(),
+        source: texture.CopyExternalImageSourceInfo,
+        destination: texture.CopyExternalImageDestInfo,
+        copySize: texture.Texture.Extent3D,
+    ) void {
+        _ = self;
+        _ = source;
+        _ = destination;
+        _ = copySize;
+    }
 
     fn onSubmittedWorkDoneInternal(self: *@This()) OnSubmittedWorkDoneError!void {
         _ = self;
@@ -277,20 +351,35 @@ pub const ComputePipeline = pipeline.ComputePipeline;
 
 pub const RenderPipeline = pipeline.RenderPipeline;
 
-pub const CommandEncoder = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
+pub const CommandBuffer = command.CommandBuffer;
 
-pub const RenderBundleEncoder = struct {
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-    };
-};
+pub const CommandEncoder = command.CommandEncoder;
+
+pub const ComputePassEncoder = command.ComputePassEncoder;
+
+pub const RenderPassEncoder = command.RenderPassEncoder;
+
+pub const RenderBundle = command.RenderBundle;
+
+pub const RenderBundleEncoder = command.RenderBundleEncoder;
 
 pub const QuerySet = struct {
+    label: ?[*:0]const u8 = null,
+    type: Type,
+    count: def.Size32Out,
+
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
+        type: Type,
+        count: def.Size32,
     };
+
+    pub const Type = enum {
+        occlusion,
+        timestamp,
+    };
+
+    pub fn destroy(self: *@This()) void {
+        _ = self;
+    }
 };

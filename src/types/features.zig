@@ -1,8 +1,55 @@
-pub const SupportedLimits = enum {
+pub const SupportedFeatures = struct {
+    entries: []const FeatureName = &.{},
+};
+
+pub const WGSLLanguageFeatures = struct {
+    entries: []const []const u8 = &.{},
+};
+
+pub const SupportedLimits = struct {
+    maxTextureDimension1D: u32 = 0,
+    maxTextureDimension2D: u32 = 0,
+    maxTextureDimension3D: u32 = 0,
+    maxTextureArrayLayers: u32 = 0,
+    maxBindGroups: u32 = 0,
+    maxBindGroupsPlusVertexBuffers: u32 = 0,
+    maxBindingsPerBindGroup: u32 = 0,
+    maxDynamicUniformBuffersPerPipelineLayout: u32 = 0,
+    maxDynamicStorageBuffersPerPipelineLayout: u32 = 0,
+    maxSampledTexturesPerShaderStage: u32 = 0,
+    maxSamplersPerShaderStage: u32 = 0,
+    maxStorageBuffersPerShaderStage: u32 = 0,
+    maxStorageBuffersInVertexStage: u32 = 0,
+    maxStorageBuffersInFragmentStage: u32 = 0,
+    maxStorageTexturesPerShaderStage: u32 = 0,
+    maxStorageTexturesInVertexStage: u32 = 0,
+    maxStorageTexturesInFragmentStage: u32 = 0,
+    maxUniformBuffersPerShaderStage: u32 = 0,
+    maxUniformBufferBindingSize: u64 = 0,
+    maxStorageBufferBindingSize: u64 = 0,
+    minUniformBufferOffsetAlignment: u32 = 0,
+    minStorageBufferOffsetAlignment: u32 = 0,
+    maxVertexBuffers: u32 = 0,
+    maxBufferSize: u64 = 0,
+    maxVertexAttributes: u32 = 0,
+    maxVertexBufferArrayStride: u32 = 0,
+    maxInterStageShaderVariables: u32 = 0,
+    maxColorAttachments: u32 = 0,
+    maxColorAttachmentBytesPerSample: u32 = 0,
+    maxComputeWorkgroupStorageSize: u32 = 0,
+    maxComputeInvocationsPerWorkgroup: u32 = 0,
+    maxComputeWorkgroupSizeX: u32 = 0,
+    maxComputeWorkgroupSizeY: u32 = 0,
+    maxComputeWorkgroupSizeZ: u32 = 0,
+    maxComputeWorkgroupsPerDimension: u32 = 0,
+};
+
+pub const SupportedLimitName = enum {
     maxTextureDimension1D,
     maxTextureDimension2D,
     maxTextureDimension3D,
     maxTextureArrayLayers,
+    maxBindGroups,
     maxBindGroupsPlusVertexBuffers,
     maxBindingsPerBindGroup,
     maxDynamicUniformBuffersPerPipelineLayout,
@@ -36,7 +83,7 @@ pub const SupportedLimits = enum {
 };
 
 pub const SupportedLimitNumber = struct {
-    limit: SupportedLimits,
+    limit: SupportedLimitName,
     amount: ?u64,
 };
 
