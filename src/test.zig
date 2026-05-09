@@ -9,7 +9,7 @@ var device: vit.Device = undefined;
 fn setup() !void {
     instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{});
 
-    const surface = instance.createSurface()
+    // const surface = instance.createSurface(vit.windowing.sdl3.Sdl3Window.init(window: (unknown type)))
 
     var adapterF = instance.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
