@@ -28,23 +28,20 @@ pub const vkGPU = struct {
     window: candler.WindowHandle,
     display: ?candler.DisplayHandle,
 
+    const VulkanSpecificDescriptor = struct {
+        getInstanceProcAddr: fn (instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction,
+    };
+
     var self: @This() = undefined;
 
-    pub const Descriptor = struct {
-        window: candler.WindowHandle,
-        display: ?candler.DisplayHandle = null,
-        loader: vk.PfnGetInstanceProcAddr,
-    };
-
-    const gpu_vtable = hal.GPU.VTable{
+    const gpu_vtable = hal.Instance.VTable{
         .requestAdapter = requestAdapter,
         .destroy = destroyGPU,
+        .createSurfaceRaw = createSurfaceRaw,
     };
 
-    pub fn init(descriptor: Descriptor) hal.GPU {
-        self.vkb = BaseWrapper.load(descriptor.loader);
-        self.window = descriptor.window;
-        self.display = descriptor.display;
+    pub fn init(descriptor: VulkanSpecificDescriptor) hal.Instance {
+        self.vkb = BaseWrapper.load(descriptor.getInstanceProcAddr);
 
         return .{
             .ptr = &self,
@@ -55,6 +52,18 @@ pub const vkGPU = struct {
     fn destroyGPU(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = typed;
+    }
+
+    fn createSurfaceRaw(
+        ptr: *anyopaque,
+        window: candler.WindowHandle,
+        display: candler.DisplayHandle,
+    ) anyerror!hal.Surface {
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        _ = typed;
+        _ = window;
+        _ = display;
+        return error.NotImplemented;
     }
 
     fn requestAdapter(

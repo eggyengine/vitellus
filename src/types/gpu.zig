@@ -10,9 +10,11 @@ const def = @import("def.zig");
 const pipeline = @import("pipeline.zig");
 const shader = @import("shader.zig");
 const hal = @import("../backends/hal.zig");
+const candler = @import("candler");
+const root = @import("root");
 
-pub const GPU = struct {
-    backend: hal.GPU,
+pub const Instance = struct {
+    backend: hal.Instance,
     wgslLanguageFeatures: []const []const u8 = &.{},
 
     pub const Descriptor = struct {
@@ -23,38 +25,42 @@ pub const GPU = struct {
         return io.async(requestAdapterInternal, .{ self, io, options });
     }
 
-    pub fn init(comptime Backend: type, descriptor: Descriptor) GPU {
+    pub fn init(comptime Backend: type, descriptor: Descriptor) Instance {
         return .{
             .backend = Backend.init(),
             .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
         };
     }
 
-    pub fn initWithBackendDescriptor(comptime Backend: type, backend_descriptor: anytype, descriptor: Descriptor) GPU {
-        return .{
-            .backend = Backend.init(backend_descriptor),
-            .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
-        };
-    }
-
-    pub fn initFromBackend(backend: hal.GPU, descriptor: Descriptor) GPU {
+    pub fn initFromBackend(backend: hal.Instance, descriptor: Descriptor) Instance {
         return .{
             .backend = backend,
             .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
         };
     }
 
-    pub fn initFromPotentialBackends(comptime flags: hal.Backends, descriptor: Descriptor) hal.GPU.FromPotentialBackendsError!GPU {
-        const Backend = try hal.GPU.fromPotentialBackends(flags);
+    pub fn initFromPotentialBackends(comptime flags: hal.Backends, descriptor: Descriptor) hal.Instance.FromPotentialBackendsError!Instance {
+        const Backend = try hal.Instance.fromPotentialBackends(flags);
         return init(Backend, descriptor);
-    }
-
-    pub fn getPreferredCanvasFormat() texture.Texture.Format {
-        return .bgra8unorm;
     }
 
     pub fn deinit(self: *@This()) void {
         self.backend.deinit();
+    }
+
+    pub fn createSurface(
+        self: *@This(),
+        window: root.windowing.Window,
+    ) texture.Surface.CreateError!texture.Surface {
+        const window_handle = window.window_handle.windowHandle() catch return error.HandleUnavailable;
+        const display_handle = window.display_handle.displayHandle() catch return error.HandleUnavailable;
+        const backend_surface = self.backend.createSurfaceRaw(window_handle, display_handle) catch return error.BackendFailed;
+
+        return texture.Surface.init(backend_surface, window_handle, display_handle);
+    }
+
+    pub fn getPreferredCanvasFormat() texture.Texture.Format {
+        return .bgra8unorm;
     }
 
     fn requestAdapterInternal(
@@ -83,7 +89,7 @@ pub const GPU = struct {
                 .subgroupMaxSize = 0,
                 .isFallbackAdapter = false,
             },
-            .gpu = self,
+            .instance = self,
         };
     }
 };
@@ -97,7 +103,7 @@ pub const Adapter = struct {
     defaultFeatureLevel: FeatureLevel,
     state: State,
     info: Info,
-    gpu: *GPU,
+    instance: *Instance,
 
     pub const RequestOptions = struct {
         label: ?[*:0]const u8 = null,

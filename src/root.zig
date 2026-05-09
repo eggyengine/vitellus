@@ -1,8 +1,9 @@
 //! vitellus - webgpu implementation in pure zig
 //!
-//! start off at `vit.GPU`.
+//! start off at `vit.Instance`.
 
 // only place re-exports in this file.
+const build_options = @import("build_options");
 
 // only keep lower-level types in here.
 pub const types = struct {
@@ -21,8 +22,16 @@ pub const types = struct {
 pub const hal = @import("backends/hal.zig");
 pub const Backends = hal.Backends;
 
+const window = @import("windowing/windowing.zig");
+pub const windowing = if (build_options.enable_sdl3) struct {
+    pub const Window = window.Window;
+    pub const sdl3 = @import("windowing/sdl3.zig");
+} else struct {
+    pub const Window = window.Window;
+};
+
 // re-export types
-pub const GPU = types.gpu.GPU;
+pub const Instance = types.gpu.Instance;
 pub const Adapter = types.gpu.Adapter;
 pub const Device = types.gpu.Device;
 pub const Queue = types.gpu.Queue;
@@ -30,6 +39,7 @@ pub const QuerySet = types.gpu.QuerySet;
 
 pub const Buffer = types.buffer.Buffer;
 pub const Texture = types.texture.Texture;
+pub const Surface = types.texture.Surface;
 pub const ExternalTexture = types.texture.ExternalTexture;
 pub const CanvasContext = types.texture.CanvasContext;
 pub const TexelCopyBufferLayout = types.texture.TexelCopyBufferLayout;

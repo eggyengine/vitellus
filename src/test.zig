@@ -2,14 +2,16 @@ const vit = @import("root.zig");
 const std = @import("std");
 
 var io: std.Io = std.testing.io;
-var gpu: vit.GPU = undefined;
+var instance: vit.Instance = undefined;
 var adapter: vit.Adapter = undefined;
 var device: vit.Device = undefined;
 
 fn setup() !void {
-    gpu = try vit.GPU.initFromPotentialBackends(.{ .noop = true }, .{});
+    instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{});
 
-    var adapterF = gpu.requestAdapter(io, .{});
+    const surface = instance.createSurface()
+
+    var adapterF = instance.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
     adapter = try adapterF.await(io);
 
@@ -20,9 +22,9 @@ fn setup() !void {
 
 test "example 4.5" {
     // the exact same code as setup()
-    gpu = try vit.GPU.initFromPotentialBackends(.{ .noop = true }, .{});
+    instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{});
 
-    var adapterF = gpu.requestAdapter(io, .{});
+    var adapterF = instance.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
     adapter = try adapterF.await(io);
 

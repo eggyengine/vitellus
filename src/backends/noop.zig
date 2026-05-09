@@ -1,8 +1,9 @@
 //! No-operation/null backend.
 //!
-//! This is useful for tests and examples that need object plumbing without a real GPU backend, as well be used as a template in your own implementation.
+//! This is useful for tests and examples that need object plumbing without a real Instance backend, as well be used as a template in your own implementation.
 
 const std = @import("std");
+const candler = @import("candler");
 
 const bind_group = @import("../types/bind_group.zig");
 const buffer = @import("../types/buffer.zig");
@@ -17,16 +18,24 @@ const texture = @import("../types/texture.zig");
 
 var state: u8 = 0;
 
-pub fn init() hal.GPU {
+pub fn init() hal.Instance {
     return .{
         .ptr = &state,
         .vtable = &gpu_vtable,
     };
 }
 
-const gpu_vtable = hal.GPU.VTable{
+const gpu_vtable = hal.Instance.VTable{
     .requestAdapter = requestAdapter,
     .destroy = destroyGPU,
+    .createSurfaceRaw = createSurfaceRaw,
+};
+
+const surface_vtable = hal.Surface.VTable{
+    .destroy = destroySurface,
+    .configure = configureSurface,
+    .unconfigure = unconfigureSurface,
+    .getCurrentTexture = getCurrentSurfaceTexture,
 };
 
 const adapter_vtable = hal.Adapter.VTable{
@@ -66,6 +75,38 @@ const queue_vtable = hal.Queue.VTable{
 
 fn destroyGPU(ptr: *anyopaque) void {
     _ = ptr;
+}
+
+fn createSurfaceRaw(
+    ptr: *anyopaque,
+    window: candler.WindowHandle,
+    display: candler.DisplayHandle,
+) anyerror!hal.Surface {
+    _ = ptr;
+    _ = window;
+    _ = display;
+    return .{
+        .ptr = &state,
+        .vtable = &surface_vtable,
+    };
+}
+
+fn destroySurface(ptr: *anyopaque) void {
+    _ = ptr;
+}
+
+fn configureSurface(ptr: *anyopaque, configuration: texture.Surface.Configuration) void {
+    _ = ptr;
+    _ = configuration;
+}
+
+fn unconfigureSurface(ptr: *anyopaque) void {
+    _ = ptr;
+}
+
+fn getCurrentSurfaceTexture(ptr: *anyopaque) anyerror!hal.Texture {
+    _ = ptr;
+    return error.NotImplemented;
 }
 
 fn requestAdapter(

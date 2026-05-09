@@ -1,4 +1,6 @@
 const def = @import("def.zig");
+const candler = @import("candler");
+const hal = @import("../backends/hal.zig");
 
 pub const Texture = struct {
     width: def.IntegerCoordinateOut,
@@ -354,6 +356,67 @@ pub const ExternalTexture = struct {
         html_video_element: *anyopaque,
         video_frame: *anyopaque,
     };
+};
+
+pub const Surface = struct {
+    backend: hal.Surface,
+    window: candler.WindowHandle,
+    display: candler.DisplayHandle,
+    configuration: ?Configuration = null,
+
+    pub const CreateError = error{
+        HandleUnavailable,
+        UnsupportedHandle,
+        BackendFailed,
+    };
+
+    pub const AlphaMode = enum {
+        @"opaque",
+        premultiplied,
+    };
+
+    pub const Configuration = struct {
+        device: *@import("gpu.zig").Device,
+        format: Texture.Format,
+        usage: Texture.UsageFlags = Texture.Usage.RENDER_ATTACHMENT,
+        viewFormats: []const Texture.Format = &.{},
+        colorSpace: def.PredefinedColorSpace = .srgb,
+        alphaMode: AlphaMode = .@"opaque",
+        width: def.IntegerCoordinate,
+        height: def.IntegerCoordinate,
+    };
+
+    pub fn init(backend: hal.Surface, window: candler.WindowHandle, display: candler.DisplayHandle) Surface {
+        return .{
+            .backend = backend,
+            .window = window,
+            .display = display,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.backend.destroy();
+    }
+
+    pub fn configure(self: *@This(), configuration: Configuration) void {
+        self.backend.configure(configuration);
+        self.configuration = configuration;
+    }
+
+    pub fn unconfigure(self: *@This()) void {
+        self.backend.unconfigure();
+        self.configuration = null;
+    }
+
+    pub fn getConfiguration(self: *@This()) ?Configuration {
+        return self.configuration;
+    }
+
+    pub fn getCurrentTexture(self: *@This()) !Texture {
+        const backend_texture = try self.backend.getCurrentTexture();
+        _ = backend_texture;
+        return undefined;
+    }
 };
 
 pub const TexelCopyBufferLayout = struct {

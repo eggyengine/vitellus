@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const candler = @import("candler");
 
 const bind_group = @import("../types/bind_group.zig");
 const buffer = @import("../types/buffer.zig");
@@ -47,7 +48,7 @@ pub const Backends = packed struct(u32) {
     }
 };
 
-pub const GPU = struct {
+pub const Instance = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
@@ -60,6 +61,11 @@ pub const GPU = struct {
             std.Io,
             gpu.Adapter.RequestOptions,
         ) std.Io.Future(anyerror!Adapter),
+        createSurfaceRaw: *const fn (
+            *anyopaque,
+            candler.WindowHandle,
+            candler.DisplayHandle,
+        ) anyerror!Surface,
     };
 
     pub const FromPotentialBackendsError = error{
@@ -141,14 +147,22 @@ pub const GPU = struct {
     }
 
     pub fn requestAdapter(
-        self: GPU,
+        self: Instance,
         io: std.Io,
         options: gpu.Adapter.RequestOptions,
     ) std.Io.Future(anyerror!Adapter) {
         return self.vtable.requestAdapter(self.ptr, io, options);
     }
 
-    pub fn deinit(self: GPU) void {
+    pub fn createSurfaceRaw(
+        self: Instance,
+        window: candler.WindowHandle,
+        display: candler.DisplayHandle,
+    ) anyerror!Surface {
+        return self.vtable.createSurfaceRaw(self.ptr, window, display);
+    }
+
+    pub fn deinit(self: Instance) void {
         return self.vtable.destroy(self.ptr);
     }
 };
@@ -1229,6 +1243,34 @@ pub const CanvasContext = struct {
     pub fn getCurrentTexture(
         self: CanvasContext,
     ) anyerror!Texture {
+        return self.vtable.getCurrentTexture(self.ptr);
+    }
+};
+
+pub const Surface = struct {
+    ptr: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        destroy: *const fn (*anyopaque) void,
+        configure: *const fn (*anyopaque, texture.Surface.Configuration) void,
+        unconfigure: *const fn (*anyopaque) void,
+        getCurrentTexture: *const fn (*anyopaque) anyerror!Texture,
+    };
+
+    pub fn destroy(self: Surface) void {
+        return self.vtable.destroy(self.ptr);
+    }
+
+    pub fn configure(self: Surface, configuration: texture.Surface.Configuration) void {
+        return self.vtable.configure(self.ptr, configuration);
+    }
+
+    pub fn unconfigure(self: Surface) void {
+        return self.vtable.unconfigure(self.ptr);
+    }
+
+    pub fn getCurrentTexture(self: Surface) anyerror!Texture {
         return self.vtable.getCurrentTexture(self.ptr);
     }
 };
