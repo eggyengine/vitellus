@@ -12,18 +12,34 @@ const shader = @import("shader.zig");
 const hal = @import("../backends/hal.zig");
 
 pub const GPU = struct {
+    backend: hal.GPU,
     wgslLanguageFeatures: []const []const u8 = &.{},
 
     pub const Descriptor = struct {
-        backend: type,
+        wgslLanguageFeatures: []const []const u8 = &.{},
     };
 
-    pub fn requestAdapter(io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
-        return requestAdapter(io, options);
+    pub fn requestAdapter(self: *@This(), io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
+        return io.async(requestAdapterInternal, .{ self, io, options });
     }
 
-    pub fn init() GPU {
-        return .{};
+    pub fn init(comptime Backend: type, descriptor: Descriptor) GPU {
+        return .{
+            .backend = Backend.init(),
+            .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
+        };
+    }
+
+    pub fn initFromBackend(backend: hal.GPU, descriptor: Descriptor) GPU {
+        return .{
+            .backend = backend,
+            .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
+        };
+    }
+
+    pub fn initFromPotentialBackends(comptime flags: hal.Backends, descriptor: Descriptor) hal.GPU.FromPotentialBackendsError!GPU {
+        const Backend = try hal.GPU.fromPotentialBackends(flags);
+        return init(Backend, descriptor);
     }
 
     pub fn getPreferredCanvasFormat() texture.Texture.Format {
@@ -33,13 +49,40 @@ pub const GPU = struct {
     pub fn deinit(self: *@This()) void {
         _ = self;
     }
+
+    fn requestAdapterInternal(
+        self: *@This(),
+        io: std.Io,
+        options: Adapter.RequestOptions,
+    ) Adapter.RequestAdapterError!Adapter {
+        var future = self.backend.requestAdapter(io, options);
+        defer _ = future.cancel(io) catch {};
+
+        const backend_adapter = future.await(io) catch return error.NoAdapter;
+        return .{
+            .backend = backend_adapter,
+            .features = &.{},
+            .limits = &.{},
+            .info = .{
+                .vendor = "",
+                .architecture = "",
+                .device = "",
+                .description = "",
+                .subgroupMinSize = 0,
+                .subgroupMaxSize = 0,
+                .isFallbackAdapter = false,
+            },
+            .gpu = self,
+        };
+    }
 };
 
 pub const Adapter = struct {
+    backend: hal.Adapter,
     features: []const features.FeatureName,
     limits: []const features.SupportedLimitNumber,
     info: Info,
-    gpu: GPU,
+    gpu: *GPU,
 
     pub const RequestOptions = struct {
         label: ?[*:0]const u8 = null,
@@ -69,15 +112,34 @@ pub const Adapter = struct {
     };
 
     pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!Device) {
-        return self.backend.requestDeviceAsync(io, self, options);
+        return io.async(requestDeviceInternal, .{ self, io, options });
     }
 
     pub fn deinit(self: *@This()) void {
         _ = self;
     }
+
+    fn requestDeviceInternal(
+        self: *@This(),
+        io: std.Io,
+        options: Device.Descriptor,
+    ) Device.RequestDeviceError!Device {
+        var future = self.backend.requestDevice(io, options);
+        defer _ = future.cancel(io) catch {};
+
+        const backend_device = future.await(io) catch return error.UnsupportedFeature;
+        return .{
+            .backend = backend_device,
+            .adapter = self.*,
+            .queue = .{
+                .backend = backend_device.getQueue(),
+            },
+        };
+    }
 };
 
 pub const Device = struct {
+    backend: hal.Device,
     adapter: Adapter,
 
     queue: Queue,
@@ -275,7 +337,7 @@ pub const Device = struct {
 };
 
 pub const Queue = struct {
-    backend: hal.Backend = hal.noop,
+    backend: hal.Queue,
 
     pub const OnSubmittedWorkDoneError = error{NotImplemented};
 

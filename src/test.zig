@@ -2,11 +2,14 @@ const vit = @import("root.zig");
 const std = @import("std");
 
 var io: std.Io = std.testing.io;
+var gpu: vit.GPU = undefined;
 var adapter: vit.Adapter = undefined;
 var device: vit.Device = undefined;
 
 fn setup() !void {
-    var adapterF = vit.GPU.requestAdapter(io, .{});
+    gpu = try vit.GPU.initFromPotentialBackends(.{ .noop = true }, .{});
+
+    var adapterF = gpu.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
     adapter = try adapterF.await(io);
 
@@ -17,7 +20,9 @@ fn setup() !void {
 
 test "example 4.5" {
     // the exact same code as setup()
-    var adapterF = vit.GPU.requestAdapter(io, .{});
+    gpu = try vit.GPU.initFromPotentialBackends(.{ .noop = true }, .{});
+
+    var adapterF = gpu.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
     adapter = try adapterF.await(io);
 

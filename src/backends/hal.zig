@@ -1,4 +1,9 @@
+//! vitellus hardware abstraction layer (vit.hal)
+//!
+//! in this module, it is a bridge between the higher level (vit.types) and the lower-level graphics APIs.
+
 const std = @import("std");
+const builtin = @import("builtin");
 
 const bind_group = @import("../types/bind_group.zig");
 const buffer = @import("../types/buffer.zig");
@@ -9,6 +14,37 @@ const pipeline = @import("../types/pipeline.zig");
 const sampler = @import("../types/sampler.zig");
 const shader = @import("../types/shader.zig");
 const texture = @import("../types/texture.zig");
+
+pub const noop = @import("noop.zig");
+
+pub const Backends = packed struct(u32) {
+    noop: bool = false,
+    vulkan: bool = false,
+    gl: bool = false,
+    metal: bool = false,
+    directx12: bool = false,
+    browser_webgpu: bool = false,
+
+    _: u26 = 0,
+
+    pub const NOOP: u32 = 0x01;
+    pub const VULKAN: u32 = 0x02;
+    pub const GL: u32 = 0x04;
+    pub const METAL: u32 = 0x08;
+    pub const DIRECTX12: u32 = 0x10;
+    pub const BROWSER_WEBGPU: u32 = 0x20;
+
+    pub const PRIMARY: u32 = VULKAN | METAL | DIRECTX12 | BROWSER_WEBGPU;
+    pub const SECONDARY: u32 = GL;
+
+    pub fn fromFlags(flags: u32) Backends {
+        return @bitCast(flags);
+    }
+
+    pub fn toFlags(self: Backends) u32 {
+        return @bitCast(self);
+    }
+};
 
 pub const GPU = struct {
     ptr: *anyopaque,
@@ -21,6 +57,79 @@ pub const GPU = struct {
             gpu.Adapter.RequestOptions,
         ) std.Io.Future(anyerror!Adapter),
     };
+
+    pub const FromPotentialBackendsError = error{
+        NotImplemented,
+        NoBackendAvailable,
+    };
+
+    pub fn fromPotentialBackends(flags: Backends) FromPotentialBackendsError!type {
+        switch (builtin.os.tag) {
+            .windows => {
+                // dx12 takes priority on windows
+                if (flags.directx12) {
+                    return error.NotImplemented;
+                }
+            },
+
+            .linux => {
+                // vulkan
+                if (flags.vulkan) {
+                    return error.NotImplemented;
+                }
+            },
+
+            // vulkan can be supported through moltenvk
+            .macos => {
+                if (flags.metal) {
+                    return error.NotImplemented;
+                }
+            },
+            .ios => {
+                if (flags.metal) {
+                    return error.NotImplemented;
+                }
+            },
+            .watchos => {
+                if (flags.metal) {
+                    return error.NotImplemented;
+                }
+            },
+            .tvos => {
+                if (flags.metal) {
+                    return error.NotImplemented;
+                }
+            },
+            .visionos => {
+                if (flags.metal) {
+                    return error.NotImplemented;
+                }
+            },
+
+            .emscripten => {
+                if (flags.browser_webgpu) {
+                    return error.NotImplemented;
+                }
+            },
+            .wasi => {
+                if (flags.browser_webgpu) {
+                    return error.NotImplemented;
+                }
+            },
+            else => {},
+        }
+
+        // basically all platforms support some form of opengl
+        if (flags.gl) {
+            return error.NotImplemented;
+        }
+
+        if (flags.noop) {
+            return noop;
+        }
+
+        return error.NoBackendAvailable;
+    }
 
     pub fn requestAdapter(
         self: GPU,

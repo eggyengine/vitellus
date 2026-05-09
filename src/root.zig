@@ -4,19 +4,22 @@
 
 // only place re-exports in this file.
 
-// only keep lower-level types in here. do not export.
+// only keep lower-level types in here.
 pub const types = struct {
-    const gpu = @import("types/gpu.zig");
-    const buffer = @import("types/buffer.zig");
-    const texture = @import("types/texture.zig");
-    const sampler = @import("types/sampler.zig");
-    const bind_group = @import("types/bind_group.zig");
-    const pipeline = @import("types/pipeline.zig");
-    const shader = @import("types/shader.zig");
-    const command = @import("types/command.zig");
-    const features = @import("types/features.zig");
-    const def = @import("types/def.zig");
+    pub const gpu = @import("types/gpu.zig");
+    pub const buffer = @import("types/buffer.zig");
+    pub const texture = @import("types/texture.zig");
+    pub const sampler = @import("types/sampler.zig");
+    pub const bind_group = @import("types/bind_group.zig");
+    pub const pipeline = @import("types/pipeline.zig");
+    pub const shader = @import("types/shader.zig");
+    pub const command = @import("types/command.zig");
+    pub const features = @import("types/features.zig");
+    pub const def = @import("types/def.zig");
 };
+
+pub const hal = @import("backends/hal.zig");
+pub const Backends = hal.Backends;
 
 // re-export types
 pub const GPU = types.gpu.GPU;
