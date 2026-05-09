@@ -12,34 +12,34 @@ const shader = @import("shader.zig");
 const hal = @import("../backends/hal.zig");
 
 pub const GPU = struct {
-    backend: hal.Backend = hal.noop,
     wgslLanguageFeatures: []const []const u8 = &.{},
 
+    pub const Descriptor = struct {
+        backend: type,
+    };
+
     pub fn requestAdapter(io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
-        return hal.noop.requestAdapterAsync(io, options);
+        return requestAdapter(io, options);
     }
 
-    pub fn init(backend: hal.Backend) GPU {
-        return .{ .backend = backend };
-    }
-
-    pub fn requestAdapterWithBackend(self: *GPU, io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
-        return self.backend.requestAdapterAsync(io, options);
+    pub fn init() GPU {
+        return .{};
     }
 
     pub fn getPreferredCanvasFormat() texture.Texture.Format {
         return .bgra8unorm;
     }
 
-    // --- internal ---
-
+    pub fn deinit(self: *@This()) void {
+        _ = self;
+    }
 };
 
 pub const Adapter = struct {
     features: []const features.FeatureName,
     limits: []const features.SupportedLimitNumber,
     info: Info,
-    backend: hal.Backend = hal.noop,
+    gpu: GPU,
 
     pub const RequestOptions = struct {
         label: ?[*:0]const u8 = null,
@@ -71,15 +71,16 @@ pub const Adapter = struct {
     pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!Device) {
         return self.backend.requestDeviceAsync(io, self, options);
     }
+
+    pub fn deinit(self: *@This()) void {
+        _ = self;
+    }
 };
 
 pub const Device = struct {
-    features: []const features.FeatureName,
-    limits: []const features.SupportedLimitNumber,
-    adapter_info: Adapter.Info,
+    adapter: Adapter,
 
     queue: Queue,
-    backend: hal.Backend = hal.noop,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
