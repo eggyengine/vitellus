@@ -16,6 +16,7 @@ const shader = @import("../types/shader.zig");
 const texture = @import("../types/texture.zig");
 
 pub const noop = @import("noop.zig");
+pub const vulkan = @import("vulkan.zig");
 
 pub const Backends = packed struct(u32) {
     noop: bool = false,
@@ -51,6 +52,9 @@ pub const GPU = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
+        destroy: *const fn (
+            *anyopaque,
+        ) void,
         requestAdapter: *const fn (
             *anyopaque,
             std.Io,
@@ -70,12 +74,16 @@ pub const GPU = struct {
                 if (flags.directx12) {
                     return error.NotImplemented;
                 }
+
+                if (flags.vulkan) {
+                    return vulkan.vkGPU;
+                }
             },
 
             .linux => {
-                // vulkan
+                // vulkan only
                 if (flags.vulkan) {
-                    return error.NotImplemented;
+                    return vulkan.vkGPU;
                 }
             },
 
@@ -106,6 +114,7 @@ pub const GPU = struct {
                 }
             },
 
+            // wasm uses `navigator.gpu` api
             .emscripten => {
                 if (flags.browser_webgpu) {
                     return error.NotImplemented;
@@ -137,6 +146,10 @@ pub const GPU = struct {
         options: gpu.Adapter.RequestOptions,
     ) std.Io.Future(anyerror!Adapter) {
         return self.vtable.requestAdapter(self.ptr, io, options);
+    }
+
+    pub fn deinit(self: GPU) void {
+        return self.vtable.destroy(self.ptr);
     }
 };
 

@@ -3,7 +3,7 @@
 </div>
 
 Current backend status (by priority):
-- [ ] null (no-op)
+- [x] null (no-op)
 - [ ] vulkan
 - [ ] dx12
 - [ ] metal (if anyone else contributes or if i ever own a mac)

@@ -30,6 +30,13 @@ pub const GPU = struct {
         };
     }
 
+    pub fn initWithBackendDescriptor(comptime Backend: type, backend_descriptor: anytype, descriptor: Descriptor) GPU {
+        return .{
+            .backend = Backend.init(backend_descriptor),
+            .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
+        };
+    }
+
     pub fn initFromBackend(backend: hal.GPU, descriptor: Descriptor) GPU {
         return .{
             .backend = backend,
@@ -47,7 +54,7 @@ pub const GPU = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        _ = self;
+        self.backend.deinit();
     }
 
     fn requestAdapterInternal(
@@ -63,6 +70,10 @@ pub const GPU = struct {
             .backend = backend_adapter,
             .features = &.{},
             .limits = &.{},
+            .fallback = false,
+            .xrCompatible = options.xr_compatible,
+            .defaultFeatureLevel = options.feature_level,
+            .state = .valid,
             .info = .{
                 .vendor = "",
                 .architecture = "",
@@ -81,6 +92,10 @@ pub const Adapter = struct {
     backend: hal.Adapter,
     features: []const features.FeatureName,
     limits: []const features.SupportedLimitNumber,
+    fallback: bool,
+    xrCompatible: bool,
+    defaultFeatureLevel: FeatureLevel,
+    state: State,
     info: Info,
     gpu: *GPU,
 
@@ -106,6 +121,12 @@ pub const Adapter = struct {
 
     pub const FeatureLevel = enum { core, compatibility };
 
+    pub const State = enum {
+        valid,
+        consumed,
+        expired,
+    };
+
     pub const PowerPreference = enum {
         lowPower,
         highPerformance,
@@ -124,13 +145,23 @@ pub const Adapter = struct {
         io: std.Io,
         options: Device.Descriptor,
     ) Device.RequestDeviceError!Device {
+        if (self.state != .valid) {
+            return error.InvalidAdapter;
+        }
+
         var future = self.backend.requestDevice(io, options);
         defer _ = future.cancel(io) catch {};
 
         const backend_device = future.await(io) catch return error.UnsupportedFeature;
+        self.state = .consumed;
+
         return .{
             .backend = backend_device,
             .adapter = self.*,
+            .features = options.required_features,
+            .limits = options.required_limits,
+            .state = .valid,
+            .contentDevice = null,
             .queue = .{
                 .backend = backend_device.getQueue(),
             },
@@ -141,6 +172,10 @@ pub const Adapter = struct {
 pub const Device = struct {
     backend: hal.Device,
     adapter: Adapter,
+    features: []const features.FeatureName,
+    limits: []const features.SupportedLimitNumber,
+    state: State,
+    contentDevice: ?*Device,
 
     queue: Queue,
 
@@ -154,6 +189,7 @@ pub const Device = struct {
     pub const RequestDeviceError = error{
         UnsupportedFeature,
         UnsupportedLimit,
+        InvalidAdapter,
     };
     pub const CreatePipelineAsyncError = pipeline.PipelineError.Error;
     pub const LostError = error{NotImplemented};
@@ -166,6 +202,12 @@ pub const Device = struct {
 
     pub const LostReason = enum {
         unknown,
+        destroyed,
+    };
+
+    pub const State = enum {
+        valid,
+        lost,
         destroyed,
     };
 
@@ -199,7 +241,12 @@ pub const Device = struct {
     };
 
     pub fn destroy(self: *@This()) void {
-        _ = self;
+        if (self.state == .destroyed) {
+            return;
+        }
+
+        self.state = .destroyed;
+        self.backend.destroy();
     }
 
     pub fn createBuffer(self: *@This(), descriptor: buffer.Buffer.Descriptor) buffer.Buffer {

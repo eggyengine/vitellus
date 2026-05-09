@@ -1,8 +1,7 @@
-//! No-operation/null backend.
-//!
-//! This is useful for tests and examples that need object plumbing without a real GPU backend, as well be used as a template in your own implementation.
+//! vulkan backend, powered by [Snektron/vulkan-zig]
 
 const std = @import("std");
+const candler = @import("candler");
 
 const bind_group = @import("../types/bind_group.zig");
 const buffer = @import("../types/buffer.zig");
@@ -15,18 +14,66 @@ const sampler = @import("../types/sampler.zig");
 const shader = @import("../types/shader.zig");
 const texture = @import("../types/texture.zig");
 
-var state: u8 = 0;
+pub const vk = @import("vulkan");
 
-pub fn init() hal.GPU {
-    return .{
-        .ptr = &state,
-        .vtable = &gpu_vtable,
+const BaseWrapper = vk.BaseWrapper;
+const InstanceWrapper = vk.InstanceWrapper;
+const DeviceWrapper = vk.DeviceWrapper;
+
+const Instance = vk.InstanceProxy;
+const Device = vk.DeviceProxy;
+
+pub const vkGPU = struct {
+    vkb: BaseWrapper,
+    window: candler.WindowHandle,
+    display: ?candler.DisplayHandle,
+
+    var self: @This() = undefined;
+
+    pub const Descriptor = struct {
+        window: candler.WindowHandle,
+        display: ?candler.DisplayHandle = null,
+        loader: vk.PfnGetInstanceProcAddr,
     };
-}
 
-const gpu_vtable = hal.GPU.VTable{
-    .requestAdapter = requestAdapter,
-    .destroy = destroyGPU,
+    const gpu_vtable = hal.GPU.VTable{
+        .requestAdapter = requestAdapter,
+        .destroy = destroyGPU,
+    };
+
+    pub fn init(descriptor: Descriptor) hal.GPU {
+        self.vkb = BaseWrapper.load(descriptor.loader);
+        self.window = descriptor.window;
+        self.display = descriptor.display;
+
+        return .{
+            .ptr = &self,
+            .vtable = &vkGPU.gpu_vtable,
+        };
+    }
+
+    fn destroyGPU(ptr: *anyopaque) void {
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        _ = typed;
+    }
+
+    fn requestAdapter(
+        ptr: *anyopaque,
+        io: std.Io,
+        options: gpu.Adapter.RequestOptions,
+    ) std.Io.Future(anyerror!hal.Adapter) {
+        return io.async(requestAdapterInternal, .{ ptr, options });
+    }
+
+    fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        _ = options;
+
+        return .{
+            .ptr = typed,
+            .vtable = &adapter_vtable,
+        };
+    }
 };
 
 const adapter_vtable = hal.Adapter.VTable{
@@ -64,27 +111,6 @@ const queue_vtable = hal.Queue.VTable{
     .onSubmittedWorkDone = onSubmittedWorkDone,
 };
 
-fn destroyGPU(ptr: *anyopaque) void {
-    _ = ptr;
-}
-
-fn requestAdapter(
-    ptr: *anyopaque,
-    io: std.Io,
-    options: gpu.Adapter.RequestOptions,
-) std.Io.Future(anyerror!hal.Adapter) {
-    return io.async(requestAdapterInternal, .{ ptr, options });
-}
-
-fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
-    _ = ptr;
-    _ = options;
-    return .{
-        .ptr = &state,
-        .vtable = &adapter_vtable,
-    };
-}
-
 fn requestDevice(
     ptr: *anyopaque,
     io: std.Io,
@@ -97,7 +123,7 @@ fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerr
     _ = ptr;
     _ = options;
     return .{
-        .ptr = &state,
+        .ptr = &vkGPU.self,
         .vtable = &device_vtable,
     };
 }
@@ -238,7 +264,7 @@ fn pushErrorScope(ptr: *anyopaque, filter: gpu.Device.ErrorFilter) void {
 fn getQueue(ptr: *anyopaque) hal.Queue {
     _ = ptr;
     return .{
-        .ptr = &state,
+        .ptr = &vkGPU.self,
         .vtable = &queue_vtable,
     };
 }
