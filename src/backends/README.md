@@ -4,7 +4,7 @@
 
 Current backend status (by priority):
 - [x] null (no-op)
-- [ ] vulkan
+- [ ] vulkan (wip)
 - [ ] dx12
 - [ ] metal (if anyone else contributes or if i ever own a mac)
 - [ ] browser webgpu

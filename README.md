@@ -4,6 +4,10 @@ vitellus is a webgpu implementation fully written in zig, with support for web a
 
 Follows the WebGPU w3 specification. 
 
+### why not just use sysgpu
+
+albeit [sysgpu](https://code.hexops.org/hexops/mach) is a great project (and hexops' mach project), sysgpu locks you into their own custom version mach-zig version. vitellus allows you to use any zig version (you always get the most stable version). 
+
 
 ## add to project
 requires zig `0.16.0`

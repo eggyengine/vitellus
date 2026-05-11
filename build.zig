@@ -3,7 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const enable_sdl3 = b.option(bool, "sdl3", "Enable SDL3 integration (used for testing, but definitely usable)") orelse false;
+    const enable_sdl3 = b.option(bool, "sdl3", "Enable SDL3 integration (used for testing, but definitely usable)") orelse true;
 
     const mod = b.addModule("vitellus", .{
         .root_source_file = b.path("src/root.zig"),
@@ -29,17 +29,45 @@ pub fn build(b: *std.Build) void {
     mod.addImport("candler", candler.module("candler"));
     mod.addImport("vulkan", vulkan);
 
-    if (enable_sdl3) {
-        const sdl3 = b.lazyDependency("sdl3", .{
-            .target = target,
-            .optimize = optimize,
-        });
-        if (sdl3) |dep| {
-            mod.addImport("sdl3", dep.module("sdl3"));
-        }
+    const sdl3 = if (enable_sdl3) b.lazyDependency("sdl3", .{
+        .target = target,
+        .optimize = optimize,
+    }) else null;
+
+    if (sdl3) |dep| {
+        mod.addImport("sdl3", dep.module("sdl3"));
     }
 
     // ---------------
+
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_mod.addImport("vitellus", mod);
+    exe_mod.addImport("candler", candler.module("candler"));
+    exe_mod.addImport("vulkan", vulkan);
+    exe_mod.addOptions("build_options", options);
+    if (sdl3) |dep| {
+        exe_mod.addImport("sdl3", dep.module("sdl3"));
+    }
+
+    const exe = b.addExecutable(.{
+        .name = "vitellus",
+        .root_module = exe_mod,
+        .use_llvm = true,
+    });
+
+    b.installArtifact(exe);
+
+    const run_exe = b.addRunArtifact(exe);
+    if (b.args) |args| {
+        run_exe.addArgs(args);
+    }
+
+    const run_step = b.step("run", "Run the vitellus executable");
+    run_step.dependOn(&run_exe.step);
 
     const mod_tests = b.addTest(.{
         .root_module = mod,
@@ -56,14 +84,8 @@ pub fn build(b: *std.Build) void {
     example_test_mod.addImport("candler", candler.module("candler"));
     example_test_mod.addImport("vulkan", vulkan);
     example_test_mod.addOptions("build_options", options);
-    if (enable_sdl3) {
-        const sdl3 = b.lazyDependency("sdl3", .{
-            .target = target,
-            .optimize = optimize,
-        });
-        if (sdl3) |dep| {
-            example_test_mod.addImport("sdl3", dep.module("sdl3"));
-        }
+    if (sdl3) |dep| {
+        example_test_mod.addImport("sdl3", dep.module("sdl3"));
     }
 
     const example_tests = b.addTest(.{

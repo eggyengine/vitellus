@@ -16,9 +16,12 @@ const sampler = @import("../types/sampler.zig");
 const shader = @import("../types/shader.zig");
 const texture = @import("../types/texture.zig");
 
+const log = std.log.scoped(.vitellus_noop);
+
 var state: u8 = 0;
 
 pub fn init() hal.Instance {
+    log.debug("initializing noop backend", .{});
     return .{
         .ptr = &state,
         .vtable = &gpu_vtable,
@@ -28,7 +31,7 @@ pub fn init() hal.Instance {
 const gpu_vtable = hal.Instance.VTable{
     .requestAdapter = requestAdapter,
     .destroy = destroyGPU,
-    .createSurfaceRaw = createSurfaceRaw,
+    .createSurface = createSurface,
 };
 
 const surface_vtable = hal.Surface.VTable{
@@ -75,16 +78,19 @@ const queue_vtable = hal.Queue.VTable{
 
 fn destroyGPU(ptr: *anyopaque) void {
     _ = ptr;
+    log.debug("destroying noop backend", .{});
 }
 
-fn createSurfaceRaw(
+fn createSurface(
     ptr: *anyopaque,
     window: candler.WindowHandle,
     display: candler.DisplayHandle,
 ) anyerror!hal.Surface {
     _ = ptr;
-    _ = window;
-    _ = display;
+    log.debug("creating noop surface: window={s} display={s}", .{
+        @tagName(window.asRaw()),
+        @tagName(display.asRaw()),
+    });
     return .{
         .ptr = &state,
         .vtable = &surface_vtable,
@@ -93,19 +99,23 @@ fn createSurfaceRaw(
 
 fn destroySurface(ptr: *anyopaque) void {
     _ = ptr;
+    log.debug("destroying noop surface", .{});
 }
 
 fn configureSurface(ptr: *anyopaque, configuration: texture.Surface.Configuration) void {
     _ = ptr;
     _ = configuration;
+    log.debug("configuring noop surface", .{});
 }
 
 fn unconfigureSurface(ptr: *anyopaque) void {
     _ = ptr;
+    log.debug("unconfiguring noop surface", .{});
 }
 
 fn getCurrentSurfaceTexture(ptr: *anyopaque) anyerror!hal.Texture {
     _ = ptr;
+    log.debug("noop surface current texture requested", .{});
     return error.NotImplemented;
 }
 
@@ -114,12 +124,14 @@ fn requestAdapter(
     io: std.Io,
     options: gpu.Adapter.RequestOptions,
 ) std.Io.Future(anyerror!hal.Adapter) {
+    log.debug("requesting noop adapter", .{});
     return io.async(requestAdapterInternal, .{ ptr, options });
 }
 
 fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
     _ = ptr;
     _ = options;
+    log.debug("returning noop adapter", .{});
     return .{
         .ptr = &state,
         .vtable = &adapter_vtable,
@@ -131,12 +143,14 @@ fn requestDevice(
     io: std.Io,
     options: gpu.Device.Descriptor,
 ) std.Io.Future(anyerror!hal.Device) {
+    log.debug("requesting noop device", .{});
     return io.async(requestDeviceInternal, .{ ptr, options });
 }
 
 fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!hal.Device {
     _ = ptr;
     _ = options;
+    log.debug("returning noop device", .{});
     return .{
         .ptr = &state,
         .vtable = &device_vtable,
@@ -145,6 +159,7 @@ fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerr
 
 fn destroy(ptr: *anyopaque) void {
     _ = ptr;
+    log.debug("destroying noop device", .{});
 }
 
 fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {

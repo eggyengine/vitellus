@@ -19,6 +19,8 @@ const texture = @import("../types/texture.zig");
 pub const noop = @import("noop.zig");
 pub const vulkan = @import("vulkan.zig");
 
+const log = std.log.scoped(.vitellus_hal);
+
 pub const Backends = packed struct(u32) {
     noop: bool = false,
     vulkan: bool = false,
@@ -61,7 +63,7 @@ pub const Instance = struct {
             std.Io,
             gpu.Adapter.RequestOptions,
         ) std.Io.Future(anyerror!Adapter),
-        createSurfaceRaw: *const fn (
+        createSurface: *const fn (
             *anyopaque,
             candler.WindowHandle,
             candler.DisplayHandle,
@@ -151,18 +153,24 @@ pub const Instance = struct {
         io: std.Io,
         options: gpu.Adapter.RequestOptions,
     ) std.Io.Future(anyerror!Adapter) {
+        log.debug("instance.requestAdapter dispatch", .{});
         return self.vtable.requestAdapter(self.ptr, io, options);
     }
 
-    pub fn createSurfaceRaw(
+    pub fn createSurface(
         self: Instance,
         window: candler.WindowHandle,
         display: candler.DisplayHandle,
     ) anyerror!Surface {
-        return self.vtable.createSurfaceRaw(self.ptr, window, display);
+        log.debug("instance.createSurface dispatch: window={s} display={s}", .{
+            @tagName(window.asRaw()),
+            @tagName(display.asRaw()),
+        });
+        return self.vtable.createSurface(self.ptr, window, display);
     }
 
     pub fn deinit(self: Instance) void {
+        log.debug("instance.destroy dispatch", .{});
         return self.vtable.destroy(self.ptr);
     }
 };
@@ -184,6 +192,7 @@ pub const Adapter = struct {
         io: std.Io,
         options: gpu.Device.Descriptor,
     ) std.Io.Future(anyerror!Device) {
+        log.debug("adapter.requestDevice dispatch", .{});
         return self.vtable.requestDevice(self.ptr, io, options);
     }
 };
@@ -263,6 +272,7 @@ pub const Device = struct {
     };
 
     pub fn destroy(self: Device) void {
+        log.debug("device.destroy dispatch", .{});
         return self.vtable.destroy(self.ptr);
     }
 
@@ -386,6 +396,7 @@ pub const Device = struct {
     }
 
     pub fn getQueue(self: Device) Queue {
+        log.debug("device.getQueue dispatch", .{});
         return self.vtable.getQueue(self.ptr);
     }
 };
@@ -1259,18 +1270,22 @@ pub const Surface = struct {
     };
 
     pub fn destroy(self: Surface) void {
+        log.debug("surface.destroy dispatch", .{});
         return self.vtable.destroy(self.ptr);
     }
 
     pub fn configure(self: Surface, configuration: texture.Surface.Configuration) void {
+        log.debug("surface.configure dispatch", .{});
         return self.vtable.configure(self.ptr, configuration);
     }
 
     pub fn unconfigure(self: Surface) void {
+        log.debug("surface.unconfigure dispatch", .{});
         return self.vtable.unconfigure(self.ptr);
     }
 
     pub fn getCurrentTexture(self: Surface) anyerror!Texture {
+        log.debug("surface.getCurrentTexture dispatch", .{});
         return self.vtable.getCurrentTexture(self.ptr);
     }
 };

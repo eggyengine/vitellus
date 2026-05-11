@@ -1,6 +1,9 @@
+const std = @import("std");
 const def = @import("def.zig");
 const candler = @import("candler");
 const hal = @import("../backends/hal.zig");
+
+const log = std.log.scoped(.vitellus_texture);
 
 pub const Texture = struct {
     width: def.IntegerCoordinateOut,
@@ -387,6 +390,10 @@ pub const Surface = struct {
     };
 
     pub fn init(backend: hal.Surface, window: candler.WindowHandle, display: candler.DisplayHandle) Surface {
+        log.debug("initializing surface wrapper: window={s} display={s}", .{
+            @tagName(window.asRaw()),
+            @tagName(display.asRaw()),
+        });
         return .{
             .backend = backend,
             .window = window,
@@ -395,15 +402,22 @@ pub const Surface = struct {
     }
 
     pub fn deinit(self: *@This()) void {
+        log.debug("deinitializing surface wrapper", .{});
         self.backend.destroy();
     }
 
     pub fn configure(self: *@This(), configuration: Configuration) void {
+        log.debug("configuring surface: format={s} size={}x{}", .{
+            @tagName(configuration.format),
+            configuration.width,
+            configuration.height,
+        });
         self.backend.configure(configuration);
         self.configuration = configuration;
     }
 
     pub fn unconfigure(self: *@This()) void {
+        log.debug("unconfiguring surface", .{});
         self.backend.unconfigure();
         self.configuration = null;
     }
@@ -413,6 +427,7 @@ pub const Surface = struct {
     }
 
     pub fn getCurrentTexture(self: *@This()) !Texture {
+        log.debug("getting current surface texture", .{});
         const backend_texture = try self.backend.getCurrentTexture();
         _ = backend_texture;
         return undefined;
