@@ -22,20 +22,36 @@ pub const vulkan = @import("vulkan.zig");
 const log = std.log.scoped(.vitellus_hal);
 
 pub const Backends = packed struct(u32) {
+    /// No operation backend
+    ///
+    /// Typically used for testing
     noop: bool = false,
+    /// Vulkan (specifically Vulkan 1.4)
     vulkan: bool = false,
+    /// OpenGL/WebGL
     gl: bool = false,
+    /// Metal (supported on Apple devices)
     metal: bool = false,
+    /// DirectX12
     directx12: bool = false,
+    /// Browser webgpu (navigator.gpu)
     browser_webgpu: bool = false,
 
     _: u26 = 0,
 
+    /// No operation backend
+    ///
+    /// Typically used for testing
     pub const NOOP: u32 = 0x01;
+    /// Vulkan (specifically Vulkan 1.4)
     pub const VULKAN: u32 = 0x02;
+    /// OpenGL/WebGL
     pub const GL: u32 = 0x04;
+    /// Metal (supported on Apple devices)
     pub const METAL: u32 = 0x08;
+    /// DirectX12
     pub const DIRECTX12: u32 = 0x10;
+    /// Browser webgpu (navigator.gpu)
     pub const BROWSER_WEBGPU: u32 = 0x20;
 
     pub const PRIMARY: u32 = VULKAN | METAL | DIRECTX12 | BROWSER_WEBGPU;

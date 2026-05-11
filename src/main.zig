@@ -32,8 +32,7 @@ pub fn main(init: std.process.Init) !void {
         _ = dt;
 
         // Update logic.
-        const surface = try window.getSurface();
-        try surface.fillRect(null, surface.mapRgb(128, 30, 255));
+        _ = try window.getSurface();
         try window.updateSurface();
 
         // Event logic.

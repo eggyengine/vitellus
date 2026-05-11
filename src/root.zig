@@ -6,6 +6,7 @@
 const build_options = @import("build_options");
 
 // only keep lower-level types in here.
+/// Contained location for all exported types
 pub const types = struct {
     pub const gpu = @import("types/gpu.zig");
     pub const buffer = @import("types/buffer.zig");
