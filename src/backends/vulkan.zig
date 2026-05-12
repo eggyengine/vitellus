@@ -85,7 +85,7 @@ pub const vkSurface = struct {
         log.debug("vulkan surface unconfigure requested", .{});
     }
 
-    fn getCurrentTexture(ptr: *anyopaque) !hal.Texture {
+    fn getCurrentTexture(ptr: *anyopaque) !texture.Surface.CurrentSurfaceTexture {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = typed;
         log.debug("vulkan surface current texture requested", .{});

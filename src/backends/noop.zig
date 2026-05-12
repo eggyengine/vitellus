@@ -113,7 +113,7 @@ fn unconfigureSurface(ptr: *anyopaque) void {
     log.debug("unconfiguring noop surface", .{});
 }
 
-fn getCurrentSurfaceTexture(ptr: *anyopaque) anyerror!hal.Texture {
+fn getCurrentSurfaceTexture(ptr: *anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture {
     _ = ptr;
     log.debug("noop surface current texture requested", .{});
     return error.NotImplemented;

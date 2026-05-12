@@ -1282,7 +1282,7 @@ pub const Surface = struct {
         destroy: *const fn (*anyopaque) void,
         configure: *const fn (*anyopaque, texture.Surface.Configuration) void,
         unconfigure: *const fn (*anyopaque) void,
-        getCurrentTexture: *const fn (*anyopaque) anyerror!Texture,
+        getCurrentTexture: *const fn (*anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture,
     };
 
     pub fn destroy(self: Surface) void {
@@ -1300,7 +1300,7 @@ pub const Surface = struct {
         return self.vtable.unconfigure(self.ptr);
     }
 
-    pub fn getCurrentTexture(self: Surface) anyerror!Texture {
+    pub fn getCurrentTexture(self: Surface) anyerror!texture.Surface.CurrentSurfaceTexture {
         log.debug("surface.getCurrentTexture dispatch", .{});
         return self.vtable.getCurrentTexture(self.ptr);
     }

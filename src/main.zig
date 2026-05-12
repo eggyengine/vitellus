@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
     var fps_capper = sdl3.extras.FramerateCapper(f32){ .mode = .{ .limited = fps } };
 
     const wrapper = vit.windowing.sdl3.Sdl3Window.init(window);
-    try initPipeline(wrapper, init);
+    var state = try initPipeline(wrapper, init);
 
     var quit = false;
     while (!quit) {
@@ -40,19 +40,138 @@ pub fn main(init: std.process.Init) !void {
             switch (event) {
                 .quit => quit = true,
                 .terminating => quit = true,
+                .key_down => |key| {
+                    if (key.scancode) |scan| {
+                        if (scan == .escape) {
+                            quit = true;
+                        }
+                    }
+                },
+                .window_resized => |res| {
+                    if (res.width > 0 and res.height > 0) {
+                        const max = 2048; // max supported dim is 2048 for webgl
+                        state.config.width = @min(res.width, max);
+                        state.config.height = @min(res.height, max);
+                        state.surface.configure(&state.device, state.config);
+                        state.isSurfaceConfigured = true;
+                    }
+                },
                 else => {},
             };
+
+        try render_pipeline(&state);
     }
 }
 
-fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !void {
+pub const State = struct {
+    surface: vit.Surface,
+    device: vit.Device,
+    queue: vit.Queue,
+    config: vit.Surface.Configuration,
+    isSurfaceConfigured: bool,
+};
+
+fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !State {
+    const size = try wrapper.window.getSize();
+
     const instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true }, .{ .allocator = init.gpa });
     const surface = try instance.createSurface(try wrapper.asWindow());
 
     var adapterF = instance.requestAdapter(init.io, .{
+        .label = "adapter",
         .surface = surface,
     });
     defer _ = adapterF.cancel(init.io) catch {};
-    const adapter = try adapterF.await(init.io);
-    _ = adapter;
+    var adapter = try adapterF.await(init.io);
+
+    var deviceF = adapter.requestDevice(init.io, .{
+        .label = "device",
+    });
+    defer _ = deviceF.cancel(init.io) catch {};
+    var device = try deviceF.await(init.io);
+    const queue = device.queue;
+
+    const surface_caps = surface.getCapabilities(&adapter);
+
+    var surface_format = surface_caps.formats[0];
+    for (surface_caps.formats) |format| {
+        if (format.is_srgb()) {
+            surface_format = format;
+            break;
+        }
+    }
+
+    const config = vit.Surface.Configuration{
+        .usage = vit.Texture.Usage.RENDER_ATTACHMENT,
+        .format = surface_format,
+        .width = size.@"0",
+        .height = size.@"1",
+        .presentMode = surface_caps.present_modes[0],
+        .alphaMode = surface_caps.alpha_modes[0],
+        .viewFormats = [_]vit.Texture.Format{},
+        .desiredMaximumFrameLatency = 2,
+    };
+
+    return State{
+        .surface = surface,
+        .device = device,
+        .queue = queue,
+        .config = config,
+        .isSurfaceConfigured = false,
+    };
+}
+
+fn render_pipeline(state: *State) !void {
+    if (!state.isSurfaceConfigured) {
+        return;
+    }
+
+    var output = switch (try state.surface.getCurrentTexture()) {
+        .success => |texture| texture,
+        .suboptimal => |texture| texture,
+        .timeout, .occluded, .validation => return,
+        .outdated => {
+            state.surface.configure(&state.device, state.config);
+        },
+        .lost => return error.DeviceLost,
+    };
+
+    const view = try output.createView(.{});
+
+    var encoder = state.device.createCommandEncoder(.{
+        .label = "render encoder",
+    });
+
+    {
+        const color_attachments = [_]?vit.RenderPassEncoder.ColorAttachment{
+            .{
+                .view = .{ .texture_view = view },
+                .resolveTarget = null,
+                .depthSlice = null,
+                .clearValue = .{
+                    .r = 0.1,
+                    .g = 0.2,
+                    .b = 0.3,
+                    .a = 1.0,
+                },
+                .loadOp = .clear,
+                .storeOp = .store,
+            },
+        };
+
+        var render_pass = encoder.beginRenderPass(.{
+            .label = "Render Pass",
+            .colorAttachments = &color_attachments,
+            .depthStencilAttachment = null,
+            .occlusionQuerySet = null,
+            .timestampWrites = null,
+            .multiviewMask = null,
+        });
+        defer render_pass.end();
+    }
+
+    state.queue.submit(&[_]vit.CommandBuffer{encoder.finish()});
+    output.present();
+
+    return;
 }

@@ -113,9 +113,9 @@ pub const CommandEncoder = struct {
         _ = destinationOffset;
     }
 
-    pub fn finish(self: *@This(), descriptor: ?CommandBuffer.Descriptor) CommandBuffer {
+    pub fn finish(self: *@This()) CommandBuffer {
         _ = self;
-        return .{ .label = if (descriptor) |d| d.label else null };
+        return .{};
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
@@ -249,6 +249,7 @@ pub const RenderPassEncoder = struct {
         depthStencilAttachment: ?DepthStencilAttachment = null,
         occlusionQuerySet: ?*@import("gpu.zig").QuerySet = null,
         timestampWrites: ?TimestampWrites = null,
+        multiviewMask: ?u32 = null,
         maxDrawCount: def.Size64 = 50000000,
     };
 

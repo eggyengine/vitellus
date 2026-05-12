@@ -379,7 +379,6 @@ pub const Surface = struct {
     };
 
     pub const Configuration = struct {
-        device: *@import("gpu.zig").Device,
         format: Texture.Format,
         usage: Texture.UsageFlags = Texture.Usage.RENDER_ATTACHMENT,
         viewFormats: []const Texture.Format = &.{},
@@ -387,6 +386,16 @@ pub const Surface = struct {
         alphaMode: AlphaMode = .@"opaque",
         width: def.IntegerCoordinate,
         height: def.IntegerCoordinate,
+    };
+
+    pub const CurrentSurfaceTexture = union(enum) {
+        success: Texture,
+        suboptimal: Texture,
+        timeout,
+        occluded,
+        validation,
+        outdated,
+        lost,
     };
 
     pub fn init(backend: hal.Surface, window: candler.WindowHandle, display: candler.DisplayHandle) Surface {
@@ -426,11 +435,9 @@ pub const Surface = struct {
         return self.configuration;
     }
 
-    pub fn getCurrentTexture(self: *@This()) !Texture {
+    pub fn getCurrentTexture(self: *@This()) !CurrentSurfaceTexture {
         log.debug("getting current surface texture", .{});
-        const backend_texture = try self.backend.getCurrentTexture();
-        _ = backend_texture;
-        return undefined;
+        return try self.backend.getCurrentTexture();
     }
 };
 
