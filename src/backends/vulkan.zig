@@ -14,6 +14,7 @@ const sampler = @import("../types/sampler.zig");
 const shader = @import("../types/shader.zig");
 const texture = @import("../types/texture.zig");
 const vulkan_windowing = @import("../windowing/vulkan.zig");
+const DynLib = @import("../utils/dynamic_lib.zig").DynLib;
 
 pub const vk = @import("vulkan");
 
@@ -97,7 +98,7 @@ pub const vkGPU = struct {
     vki: InstanceWrapper = undefined,
     instance: Instance = undefined,
     instance_handle: vk.Instance = .null_handle,
-    loader: ?std.DynLib = null,
+    loader: ?DynLib = null,
 
     var self: @This() = .{};
 
@@ -229,13 +230,13 @@ pub const vkGPU = struct {
 fn loadDefaultGetInstanceProcAddr() !vk.PfnGetInstanceProcAddr {
     if (vkGPU.self.loader == null) {
         log.debug("opening vulkan loader: {s}", .{defaultVulkanLoaderName()});
-        vkGPU.self.loader = try std.DynLib.openZ(defaultVulkanLoaderName());
+        vkGPU.self.loader = try DynLib.open(defaultVulkanLoaderName());
     }
 
     return vkGPU.self.loader.?.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse error.MissingVkGetInstanceProcAddr;
 }
 
-fn defaultVulkanLoaderName() [*:0]const u8 {
+fn defaultVulkanLoaderName() []const u8 {
     return switch (@import("builtin").os.tag) {
         .windows => "vulkan-1.dll",
         .macos, .ios, .tvos, .watchos, .visionos => "libvulkan.1.dylib",

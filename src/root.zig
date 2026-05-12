@@ -31,6 +31,11 @@ pub const windowing = if (build_options.enable_sdl3) struct {
     pub const Window = window.Window;
 };
 
+pub const utils = struct {
+    pub const dynamic_lib = @import("utils/dynamic_lib.zig");
+    pub const DynLib = dynamic_lib.DynLib;
+};
+
 // re-export types
 pub const Instance = types.gpu.Instance;
 pub const Adapter = types.gpu.Adapter;
