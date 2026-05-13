@@ -18,17 +18,43 @@ const log = std.log.scoped(.vitellus_gpu);
 pub const Instance = struct {
     allocator: std.mem.Allocator,
     backend: hal.Instance,
-    wgslLanguageFeatures: []const []const u8 = &.{},
+    descriptor: Descriptor, 
+
+    pub const Flags = packed struct(u32) {
+        debug: bool = false,
+        validation: bool = @import("builtin").mode == .Debug,
+        discard_hal_labels: bool = false,
+        _: u29 = 0,
+
+        pub const DEBUG: def.FlagsConstant = 0x01;
+        pub const VALIDATION: def.FlagsConstant = 0x02;
+        pub const DISCARD_HAL_LABELS: def.FlagsConstant = 0x04;
+
+        pub fn fromFlags(flags: def.FlagsConstant) Flags {
+            return @bitCast(flags);
+        }
+
+        pub fn toFlags(self: Flags) def.FlagsConstant {
+            return @bitCast(self);
+        }
+    };
 
     pub const Descriptor = struct {
         allocator: std.mem.Allocator = std.heap.page_allocator,
+        flags: Flags = .{},
         wgslLanguageFeatures: []const []const u8 = &.{},
     };
 
-    pub fn enumerateAdapters(self: *const @This(), options: ?Adapter.RequestOptions) []const Adapter {
+    pub fn enumerateAdapters(self: *const @This(), options: ?Adapter.RequestOptions) ![]Adapter {
         log.debug("enumerating adapters: options={}", .{options != null});
-        _ = self.backend.enumerateAdapters(options orelse .{});
-        return &.{};
+        const backend_adapters = try self.backend.enumerateAdapters(options orelse .{});
+
+        const adapters = try self.allocator.alloc(Adapter, backend_adapters.len);
+        for (backend_adapters, adapters) |backend_adapter, *adapter| {
+            adapter.* = self.adapterFromBackend(backend_adapter, options orelse .{});
+        }
+
+        return adapters;
     }
 
     pub fn requestAdapter(self: *@This(), io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
@@ -42,9 +68,16 @@ pub const Instance = struct {
 
     pub fn init(comptime Backend: type, descriptor: Descriptor) Instance {
         log.debug("initializing instance with backend {s}", .{@typeName(Backend)});
+        const backend = if (@hasDecl(Backend, "initWithDescriptor"))
+            Backend.initWithDescriptor(.{
+                .enable_validation = descriptor.flags.validation,
+            }) catch @panic("failed to initialize backend")
+        else
+            Backend.init();
+
         return .{
-            .backend = Backend.init(),
-            .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
+            .backend = backend,
+            .descriptor = descriptor,
             .allocator = descriptor.allocator,
         };
     }
@@ -53,7 +86,7 @@ pub const Instance = struct {
         log.debug("initializing instance from backend handle", .{});
         return .{
             .backend = backend,
-            .wgslLanguageFeatures = descriptor.wgslLanguageFeatures,
+            .descriptor = descriptor,
             .allocator = descriptor.allocator,
         };
     }
@@ -71,14 +104,14 @@ pub const Instance = struct {
 
     pub fn createSurface(
         self: @This(),
-        window: windowing.Window,
+        window: anytype,
     ) texture.Surface.CreateError!texture.Surface {
         log.debug("creating surface from window", .{});
-        const window_handle = window.window_handle.windowHandle() catch |err| {
+        const window_handle = getWindowHandle(window) catch |err| {
             log.debug("window handle unavailable: {s}", .{@errorName(err)});
             return error.HandleUnavailable;
         };
-        const display_handle = window.display_handle.displayHandle() catch |err| {
+        const display_handle = getDisplayHandle(window) catch |err| {
             log.debug("display handle unavailable: {s}", .{@errorName(err)});
             return error.HandleUnavailable;
         };
@@ -122,8 +155,12 @@ pub const Instance = struct {
             log.debug("adapter request failed: {s}", .{@errorName(err)});
             return error.NoAdapter;
         };
-        const info = backend_adapter.getInfo();
         log.debug("adapter request completed", .{});
+        return self.adapterFromBackend(backend_adapter, options);
+    }
+
+    fn adapterFromBackend(self: *const @This(), backend_adapter: hal.Adapter, options: Adapter.RequestOptions) Adapter {
+        const info = backend_adapter.getInfo();
         return .{
             .backend = backend_adapter,
             .features = &.{},
@@ -261,6 +298,11 @@ pub const Adapter = struct {
     ) TextureFormatFeatures {
         log.debug("getting adapter texture format features: format={s}", .{@tagName(format)});
         return self.backend.getTextureFormatFeatures(format);
+    }
+
+    pub fn isSurfaceSupported(self: *const @This(), surface: *const texture.Surface) bool {
+        log.debug("checking adapter surface support", .{});
+        return self.backend.isSurfaceSupported(surface.backend);
     }
 
     fn requestDeviceInternal(

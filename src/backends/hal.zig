@@ -64,6 +64,17 @@ pub const Backends = packed struct(u32) {
     pub fn toFlags(self: Backends) u32 {
         return @bitCast(self);
     }
+
+    pub fn all() Backends {
+        return .{
+            .noop = true,
+            .vulkan = true,
+            .gl = true,
+            .metal = true,
+            .directx12 = true,
+            .browser_webgpu = true,
+        };
+    }
 };
 
 pub const Instance = struct {
@@ -77,7 +88,7 @@ pub const Instance = struct {
         enumerateAdapters: *const fn (
             *anyopaque,
             gpu.Adapter.RequestOptions,
-        ) []const Adapter,
+        ) anyerror![]const Adapter,
         requestAdapter: *const fn (
             *anyopaque,
             std.Io,
@@ -180,7 +191,7 @@ pub const Instance = struct {
     pub fn enumerateAdapters(
         self: Instance,
         options: gpu.Adapter.RequestOptions,
-    ) []const Adapter {
+    ) anyerror![]const Adapter {
         log.debug("instance.enumerateAdapters dispatch", .{});
         return self.vtable.enumerateAdapters(self.ptr, options);
     }
@@ -219,6 +230,7 @@ pub const Adapter = struct {
             *anyopaque,
             texture.Texture.Format,
         ) gpu.Adapter.TextureFormatFeatures,
+        isSurfaceSupported: *const fn (*anyopaque, Surface) bool,
     };
 
     pub fn requestDevice(
@@ -246,6 +258,11 @@ pub const Adapter = struct {
     ) gpu.Adapter.TextureFormatFeatures {
         log.debug("adapter.getTextureFormatFeatures dispatch", .{});
         return self.vtable.getTextureFormatFeatures(self.ptr, format);
+    }
+
+    pub fn isSurfaceSupported(self: Adapter, surface: Surface) bool {
+        log.debug("adapter.isSurfaceSupported dispatch", .{});
+        return self.vtable.isSurfaceSupported(self.ptr, surface);
     }
 };
 

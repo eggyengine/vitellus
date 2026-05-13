@@ -73,10 +73,17 @@ pub const State = struct {
 
 fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !State {
     const size = try wrapper.window.getSize();
-
-    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true }, .{ .allocator = init.gpa });
+    // initialise the instance
+    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true }, .{ 
+        .allocator = init.gpa,
+        .flags = .{
+            .validation = true
+        }
+    });
+    // create the surface from the window
     const surface = try instance.createSurface(try wrapper.asWindow());
 
+    // request the adapter
     var adapterF = instance.requestAdapter(init.io, .{
         .label = "adapter",
         .surface = surface,
@@ -84,6 +91,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     defer _ = adapterF.cancel(init.io) catch {};
     var adapter = try adapterF.await(init.io);
 
+    // request the device and queue
     var deviceF = adapter.requestDevice(init.io, .{
         .label = "device",
     });

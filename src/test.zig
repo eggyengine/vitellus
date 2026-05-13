@@ -1,10 +1,23 @@
 const vit = @import("root.zig");
 const std = @import("std");
+const candler = @import("candler");
 
 var io: std.Io = std.testing.io;
 var instance: vit.Instance = undefined;
 var adapter: vit.Adapter = undefined;
 var device: vit.Device = undefined;
+
+const DummyWindow = struct {
+    pub fn windowHandle(_: @This()) candler.HandleError!candler.WindowHandle {
+        const ptr: *anyopaque = @ptrFromInt(1);
+        return candler.WindowHandle.borrowRaw(candler.WaylandWindowHandle.new(ptr).intoRaw());
+    }
+
+    pub fn displayHandle(_: @This()) candler.HandleError!candler.DisplayHandle {
+        const ptr: *anyopaque = @ptrFromInt(1);
+        return candler.DisplayHandle.borrowRaw(candler.WaylandDisplayHandle.new(ptr).intoRaw());
+    }
+};
 
 fn setup() !void {
     instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{});
@@ -31,6 +44,28 @@ test "example 4.5" {
     var deviceF = adapter.requestDevice(io, .{});
     defer _ = deviceF.cancel(io) catch {};
     device, _ = try deviceF.await(io);
+}
+
+test "enumerate adapters and filter by surface support" {
+    instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{
+        .allocator = std.testing.allocator,
+    });
+
+    var surface = try instance.createSurface(DummyWindow{});
+    defer surface.deinit();
+
+    const adapters = try instance.enumerateAdapters(.{});
+    defer std.testing.allocator.free(adapters);
+
+    var supported: ?vit.Adapter = null;
+    for (adapters) |candidate| {
+        if (candidate.isSurfaceSupported(&surface)) {
+            supported = candidate;
+            break;
+        }
+    }
+
+    try std.testing.expect(supported != null);
 }
 
 test "example 8.4" {

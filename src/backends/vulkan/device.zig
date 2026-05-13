@@ -1,212 +1,32 @@
-//! No-operation/null backend.
-//!
-//! This is useful for tests and examples that need object plumbing without a real Instance backend, as well be used as a template in your own implementation.
-
 const std = @import("std");
-const candler = @import("candler");
+const vk = @import("vulkan");
 
-const bind_group = @import("../types/bind_group.zig");
-const buffer = @import("../types/buffer.zig");
-const command = @import("../types/command.zig");
-const def = @import("../types/def.zig");
-const gpu = @import("../types/gpu.zig");
-const hal = @import("hal.zig");
-const pipeline = @import("../types/pipeline.zig");
-const sampler = @import("../types/sampler.zig");
-const shader = @import("../types/shader.zig");
-const texture = @import("../types/texture.zig");
+const bind_group = @import("../../types/bind_group.zig");
+const buffer = @import("../../types/buffer.zig");
+const command = @import("../../types/command.zig");
+const def = @import("../../types/def.zig");
+const gpu = @import("../../types/gpu.zig");
+const hal = @import("../hal.zig");
+const pipeline = @import("../../types/pipeline.zig");
+const sampler = @import("../../types/sampler.zig");
+const shader = @import("../../types/shader.zig");
+const texture = @import("../../types/texture.zig");
+const adapter_backend = @import("adapter.zig");
 
-const log = std.log.scoped(.vitellus_noop);
+const log = std.log.scoped(.vitellus_vulkan);
 
-const NoopInstance = struct {
-    const vtable = hal.Instance.VTable{
-        .enumerateAdapters = enumerateAdapters,
-        .requestAdapter = requestAdapter,
-        .destroy = destroyGPU,
-        .createSurface = createSurface,
-    };
+pub const vkDevice = struct {
+    adapter: *adapter_backend.vkAdapter,
+    vkd: vk.DeviceWrapper,
+    device: vk.DeviceProxy,
+    device_handle: vk.Device,
+    graphics_queue_family: u32,
+    present_queue_family: u32,
+    graphics_queue: vk.Queue,
+    present_queue: vk.Queue,
+    queue: vkQueue,
 
-    fn destroyGPU(ptr: *anyopaque) void {
-        _ = ptr;
-        log.debug("destroying noop backend", .{});
-    }
-
-    const adapters = [_]hal.Adapter{
-        .{
-            .ptr = &adapter_state,
-            .vtable = &NoopAdapter.vtable,
-        },
-    };
-
-    fn enumerateAdapters(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror![]const hal.Adapter {
-        _ = ptr;
-        _ = options;
-        log.debug("enumerating noop adapters", .{});
-        return &adapters;
-    }
-
-    fn createSurface(
-        ptr: *anyopaque,
-        window: candler.WindowHandle,
-        display: candler.DisplayHandle,
-    ) anyerror!hal.Surface {
-        _ = ptr;
-        log.debug("creating noop surface: window={s} display={s}", .{
-            @tagName(window.asRaw()),
-            @tagName(display.asRaw()),
-        });
-        return .{
-            .ptr = &surface_state,
-            .vtable = &NoopSurface.vtable,
-        };
-    }
-
-    fn requestAdapter(
-        ptr: *anyopaque,
-        io: std.Io,
-        options: gpu.Adapter.RequestOptions,
-    ) std.Io.Future(anyerror!hal.Adapter) {
-        log.debug("requesting noop adapter", .{});
-        return io.async(requestAdapterInternal, .{ ptr, options });
-    }
-
-    fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
-        _ = ptr;
-        _ = options;
-        log.debug("returning noop adapter", .{});
-        return .{
-            .ptr = &adapter_state,
-            .vtable = &NoopAdapter.vtable,
-        };
-    }
-};
-
-const NoopSurface = struct {
-    const vtable = hal.Surface.VTable{
-        .destroy = destroySurface,
-        .getCapabilities = getSurfaceCapabilities,
-        .configure = configureSurface,
-        .unconfigure = unconfigureSurface,
-        .getCurrentTexture = getCurrentSurfaceTexture,
-    };
-
-    const formats = [_]texture.Texture.Format{
-        .bgra8unorm,
-        .bgra8unorm_srgb,
-        .rgba8unorm,
-        .rgba8unorm_srgb,
-    };
-    const present_modes = [_]texture.Surface.PresentMode{.fifo};
-    const alpha_modes = [_]texture.Surface.AlphaMode{.@"opaque"};
-
-    fn destroySurface(ptr: *anyopaque) void {
-        _ = ptr;
-        log.debug("destroying noop surface", .{});
-    }
-
-    fn getSurfaceCapabilities(ptr: *anyopaque, adapter: hal.Adapter) texture.Surface.Capabilities {
-        _ = ptr;
-        _ = adapter;
-        log.debug("getting noop surface capabilities", .{});
-        return .{
-            .formats = &formats,
-            .present_modes = &present_modes,
-            .alpha_modes = &alpha_modes,
-        };
-    }
-
-    fn configureSurface(ptr: *anyopaque, device: hal.Device, configuration: texture.Surface.Configuration) void {
-        _ = ptr;
-        _ = device;
-        _ = configuration;
-        log.debug("configuring noop surface", .{});
-    }
-
-    fn unconfigureSurface(ptr: *anyopaque) void {
-        _ = ptr;
-        log.debug("unconfiguring noop surface", .{});
-    }
-
-    fn getCurrentSurfaceTexture(ptr: *anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture {
-        _ = ptr;
-        log.debug("noop surface current texture requested", .{});
-        return error.NotImplemented;
-    }
-};
-
-const NoopAdapter = struct {
-    const vtable = hal.Adapter.VTable{
-        .requestDevice = requestDevice,
-        .getInfo = getAdapterInfo,
-        .getDownlevelCapabilities = getDownlevelCapabilities,
-        .getTextureFormatFeatures = getTextureFormatFeatures,
-        .isSurfaceSupported = isSurfaceSupported,
-    };
-
-    fn requestDevice(
-        ptr: *anyopaque,
-        io: std.Io,
-        options: gpu.Device.Descriptor,
-    ) std.Io.Future(anyerror!struct { hal.Device, hal.Queue }) {
-        log.debug("requesting noop device", .{});
-        return io.async(requestDeviceInternal, .{ ptr, options });
-    }
-
-    fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
-        _ = ptr;
-        _ = options;
-        log.debug("returning noop device", .{});
-        const device = hal.Device{
-            .ptr = &device_state,
-            .vtable = &NoopDevice.vtable,
-        };
-        const queue = hal.Queue{
-            .ptr = &queue_state,
-            .vtable = &NoopQueue.vtable,
-        };
-        return .{ device, queue };
-    }
-
-    fn getAdapterInfo(ptr: *anyopaque) gpu.Adapter.Info {
-        _ = ptr;
-        log.debug("getting noop adapter info", .{});
-        return .{
-            .vendor = "",
-            .architecture = "",
-            .device = "",
-            .description = "",
-            .subgroupMinSize = 0,
-            .subgroupMaxSize = 0,
-            .isFallbackAdapter = false,
-        };
-    }
-
-    fn getDownlevelCapabilities(ptr: *anyopaque) gpu.Adapter.DownlevelCapabilities {
-        _ = ptr;
-        log.debug("getting noop adapter downlevel capabilities", .{});
-        return .{};
-    }
-
-    fn getTextureFormatFeatures(
-        ptr: *anyopaque,
-        format: texture.Texture.Format,
-    ) gpu.Adapter.TextureFormatFeatures {
-        _ = ptr;
-        _ = format;
-        log.debug("getting noop texture format features", .{});
-        return .{};
-    }
-
-    fn isSurfaceSupported(ptr: *anyopaque, surface: hal.Surface) bool {
-        _ = ptr;
-        _ = surface;
-        log.debug("checking noop surface support", .{});
-        return true;
-    }
-};
-
-const NoopDevice = struct {
-    const vtable = hal.Device.VTable{
+    pub const vtable = hal.Device.VTable{
         .destroy = destroy,
         .createBuffer = createBuffer,
         .createTexture = createTexture,
@@ -230,8 +50,13 @@ const NoopDevice = struct {
     };
 
     fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        log.debug("destroying noop device", .{});
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        if (typed.device_handle != .null_handle) {
+            log.debug("destroying vulkan logical device: handle=0x{x}", .{@intFromEnum(typed.device_handle)});
+            typed.device.destroyDevice(null);
+            typed.device_handle = .null_handle;
+        }
+        std.heap.page_allocator.destroy(typed);
     }
 
     fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {
@@ -364,16 +189,19 @@ const NoopDevice = struct {
     }
 
     fn getQueue(ptr: *anyopaque) hal.Queue {
-        _ = ptr;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
         return .{
-            .ptr = &queue_state,
-            .vtable = &NoopQueue.vtable,
+            .ptr = &typed.queue,
+            .vtable = &vkQueue.vtable,
         };
     }
 };
 
-const NoopQueue = struct {
-    const vtable = hal.Queue.VTable{
+pub const vkQueue = struct {
+    device: *vkDevice,
+    handle: vk.Queue,
+
+    pub const vtable = hal.Queue.VTable{
         .submit = submit,
         .writeBuffer = writeBuffer,
         .writeTexture = writeTexture,
@@ -382,7 +210,8 @@ const NoopQueue = struct {
     };
 
     fn submit(ptr: *anyopaque, command_buffers: []const hal.CommandBuffer) void {
-        _ = ptr;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        _ = typed;
         _ = command_buffers;
     }
 
@@ -436,17 +265,3 @@ const NoopQueue = struct {
         _ = ptr;
     }
 };
-
-var instance_state: NoopInstance = .{};
-var surface_state: NoopSurface = .{};
-var adapter_state: NoopAdapter = .{};
-var device_state: NoopDevice = .{};
-var queue_state: NoopQueue = .{};
-
-pub fn init() hal.Instance {
-    log.debug("initializing noop backend", .{});
-    return .{
-        .ptr = &instance_state,
-        .vtable = &NoopInstance.vtable,
-    };
-}
