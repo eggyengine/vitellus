@@ -25,7 +25,13 @@ pub const Instance = struct {
         wgslLanguageFeatures: []const []const u8 = &.{},
     };
 
-    pub fn requestAdapter(self: *const @This(), io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
+    pub fn enumerateAdapters(self: *const @This(), options: ?Adapter.RequestOptions) []const Adapter {
+        log.debug("enumerating adapters: options={}", .{options != null});
+        _ = self.backend.enumerateAdapters(options orelse .{});
+        return &.{};
+    }
+
+    pub fn requestAdapter(self: *@This(), io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
         log.debug("requesting adapter: feature_level={s} fallback={} surface={}", .{
             @tagName(options.feature_level),
             options.force_fallback_adapter,
@@ -105,7 +111,7 @@ pub const Instance = struct {
     }
 
     fn requestAdapterInternal(
-        self: *const @This(),
+        self: *@This(),
         io: std.Io,
         options: Adapter.RequestOptions,
     ) Adapter.RequestAdapterError!Adapter {
@@ -116,6 +122,7 @@ pub const Instance = struct {
             log.debug("adapter request failed: {s}", .{@errorName(err)});
             return error.NoAdapter;
         };
+        const info = backend_adapter.getInfo();
         log.debug("adapter request completed", .{});
         return .{
             .backend = backend_adapter,
@@ -124,15 +131,7 @@ pub const Instance = struct {
             .fallback = false,
             .defaultFeatureLevel = options.feature_level,
             .state = .valid,
-            .info = .{
-                .vendor = "",
-                .architecture = "",
-                .device = "",
-                .description = "",
-                .subgroupMinSize = 0,
-                .subgroupMaxSize = 0,
-                .isFallbackAdapter = false,
-            },
+            .info = info,
             .instance = self,
         };
     }
@@ -166,6 +165,59 @@ pub const Adapter = struct {
         isFallbackAdapter: bool,
     };
 
+    pub const DownlevelCapabilities = struct {
+        flags: DownlevelFlags = .{},
+        limits: DownlevelLimits = .{},
+        shaderModel: ShaderModel = .unknown,
+    };
+
+    pub const DownlevelFlags = packed struct(u32) {
+        compute_shaders: bool = false,
+        fragment_storage: bool = false,
+        indirect_execution: bool = false,
+        base_vertex: bool = false,
+        read_only_depth_stencil: bool = false,
+        non_power_of_two_mipmapped_textures: bool = false,
+        cube_array_textures: bool = false,
+        comparison_samplers: bool = false,
+        independent_blend: bool = false,
+        vertex_storage: bool = false,
+        multisampled_shading: bool = false,
+        depth_texture_and_buffer_copies: bool = false,
+
+        _: u20 = 0,
+    };
+
+    pub const DownlevelLimits = struct {
+        maxTextureDimension1D: def.IntegerCoordinate = 0,
+        maxTextureDimension2D: def.IntegerCoordinate = 0,
+        maxTextureDimension3D: def.IntegerCoordinate = 0,
+        maxTextureArrayLayers: def.IntegerCoordinate = 0,
+        maxBindGroups: def.Size32 = 0,
+    };
+
+    pub const ShaderModel = enum {
+        unknown,
+        sm5,
+        sm6,
+    };
+
+    pub const TextureFormatFeatures = struct {
+        allowedUsages: texture.Texture.UsageFlags = 0,
+        flags: TextureFormatFeatureFlags = .{},
+    };
+
+    pub const TextureFormatFeatureFlags = packed struct(u32) {
+        filterable: bool = false,
+        blendable: bool = false,
+        multisample_x2: bool = false,
+        multisample_x4: bool = false,
+        multisample_x8: bool = false,
+        multisample_x16: bool = false,
+
+        _: u26 = 0,
+    };
+
     pub const RequestAdapterError = error{NoAdapter};
 
     pub const FeatureLevel = enum { core, compatibility };
@@ -181,7 +233,7 @@ pub const Adapter = struct {
         highPerformance,
     };
 
-    pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!Device) {
+    pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!struct { Device, Queue }) {
         log.debug("requesting device: required_features={} required_limits={}", .{
             options.required_features.len,
             options.required_limits.len,
@@ -193,11 +245,29 @@ pub const Adapter = struct {
         log.debug("deinitializing adapter: state={s}", .{@tagName(self.state)});
     }
 
+    pub fn getInfo(self: *const @This()) Info {
+        log.debug("getting adapter info", .{});
+        return self.backend.getInfo();
+    }
+
+    pub fn getDownlevelCapabilities(self: *const @This()) DownlevelCapabilities {
+        log.debug("getting adapter downlevel capabilities", .{});
+        return self.backend.getDownlevelCapabilities();
+    }
+
+    pub fn getTextureFormatFeatures(
+        self: *const @This(),
+        format: texture.Texture.Format,
+    ) TextureFormatFeatures {
+        log.debug("getting adapter texture format features: format={s}", .{@tagName(format)});
+        return self.backend.getTextureFormatFeatures(format);
+    }
+
     fn requestDeviceInternal(
         self: *@This(),
         io: std.Io,
         options: Device.Descriptor,
-    ) Device.RequestDeviceError!Device {
+    ) Device.RequestDeviceError!struct { Device, Queue } {
         if (self.state != .valid) {
             log.debug("device request rejected: adapter state={s}", .{@tagName(self.state)});
             return error.InvalidAdapter;
@@ -206,14 +276,14 @@ pub const Adapter = struct {
         var future = self.backend.requestDevice(io, options);
         defer _ = future.cancel(io) catch {};
 
-        const backend_device = future.await(io) catch |err| {
+        const backend_device, const backend_queue = future.await(io) catch |err| {
             log.debug("backend device request failed: {s}", .{@errorName(err)});
             return error.UnsupportedFeature;
         };
         self.state = .consumed;
         log.debug("device request completed", .{});
 
-        return .{
+        const device = Device{
             .backend = backend_device,
             .adapter = self.*,
             .features = options.required_features,
@@ -221,9 +291,10 @@ pub const Adapter = struct {
             .state = .valid,
             .contentDevice = null,
             .queue = .{
-                .backend = backend_device.getQueue(),
+                .backend = backend_queue,
             },
         };
+        return .{ device, device.queue };
     }
 };
 

@@ -50,8 +50,8 @@ pub fn main(init: std.process.Init) !void {
                 .window_resized => |res| {
                     if (res.width > 0 and res.height > 0) {
                         const max = 2048; // max supported dim is 2048 for webgl
-                        state.config.width = @min(res.width, max);
-                        state.config.height = @min(res.height, max);
+                        state.config.width = @intCast(@min(res.width, max));
+                        state.config.height = @intCast(@min(res.height, max));
                         state.surface.configure(&state.device, state.config);
                         state.isSurfaceConfigured = true;
                     }
@@ -74,7 +74,7 @@ pub const State = struct {
 fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !State {
     const size = try wrapper.window.getSize();
 
-    const instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true }, .{ .allocator = init.gpa });
+    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true }, .{ .allocator = init.gpa });
     const surface = try instance.createSurface(try wrapper.asWindow());
 
     var adapterF = instance.requestAdapter(init.io, .{
@@ -88,8 +88,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         .label = "device",
     });
     defer _ = deviceF.cancel(init.io) catch {};
-    var device = try deviceF.await(init.io);
-    const queue = device.queue;
+    const device, const queue = try deviceF.await(init.io);
 
     const surface_caps = surface.getCapabilities(&adapter);
 
@@ -104,11 +103,11 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     const config = vit.Surface.Configuration{
         .usage = vit.Texture.Usage.RENDER_ATTACHMENT,
         .format = surface_format,
-        .width = size.@"0",
-        .height = size.@"1",
+        .width = @intCast(size.@"0"),
+        .height = @intCast(size.@"1"),
         .presentMode = surface_caps.present_modes[0],
         .alphaMode = surface_caps.alpha_modes[0],
-        .viewFormats = [_]vit.Texture.Format{},
+        .viewFormats = &.{},
         .desiredMaximumFrameLatency = 2,
     };
 
@@ -132,6 +131,7 @@ fn render_pipeline(state: *State) !void {
         .timeout, .occluded, .validation => return,
         .outdated => {
             state.surface.configure(&state.device, state.config);
+            return;
         },
         .lost => return error.DeviceLost,
     };
@@ -148,12 +148,12 @@ fn render_pipeline(state: *State) !void {
                 .view = .{ .texture_view = view },
                 .resolveTarget = null,
                 .depthSlice = null,
-                .clearValue = .{
+                .clearValue = .{ .dict = .{
                     .r = 0.1,
                     .g = 0.2,
                     .b = 0.3,
                     .a = 1.0,
-                },
+                } },
                 .loadOp = .clear,
                 .storeOp = .store,
             },

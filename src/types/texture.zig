@@ -105,6 +105,11 @@ pub const Texture = struct {
     pub fn createView(self: *Texture, descriptor: Texture.View.Descriptor) !*Texture.View {
         _ = self;
         _ = descriptor;
+        return error.NotImplemented;
+    }
+
+    pub fn present(self: *Texture) void {
+        _ = self;
     }
 
     pub const Format = enum {
@@ -345,6 +350,36 @@ pub const Texture = struct {
                 .astc_12x12_unorm_srgb => "astc-12x12-unorm-srgb",
             };
         }
+
+        pub fn is_srgb(self: Format) bool {
+            return switch (self) {
+                .rgba8unorm_srgb,
+                .bgra8unorm_srgb,
+                .bc1_rgba_unorm_srgb,
+                .bc2_rgba_unorm_srgb,
+                .bc3_rgba_unorm_srgb,
+                .bc7_rgba_unorm_srgb,
+                .etc2_rgb8unorm_srgb,
+                .etc2_rgb8a1unorm_srgb,
+                .etc2_rgba8unorm_srgb,
+                .astc_4x4_unorm_srgb,
+                .astc_5x4_unorm_srgb,
+                .astc_5x5_unorm_srgb,
+                .astc_6x5_unorm_srgb,
+                .astc_6x6_unorm_srgb,
+                .astc_8x5_unorm_srgb,
+                .astc_8x6_unorm_srgb,
+                .astc_8x8_unorm_srgb,
+                .astc_10x5_unorm_srgb,
+                .astc_10x6_unorm_srgb,
+                .astc_10x8_unorm_srgb,
+                .astc_10x10_unorm_srgb,
+                .astc_12x10_unorm_srgb,
+                .astc_12x12_unorm_srgb,
+                => true,
+                else => false,
+            };
+        }
     };
 };
 
@@ -378,7 +413,21 @@ pub const Surface = struct {
         premultiplied,
     };
 
+    pub const PresentMode = enum {
+        fifo,
+        fifo_relaxed,
+        immediate,
+        mailbox,
+    };
+
+    pub const Capabilities = struct {
+        formats: []const Texture.Format,
+        present_modes: []const PresentMode,
+        alpha_modes: []const AlphaMode,
+    };
+
     pub const Configuration = struct {
+        device: ?*@import("gpu.zig").Device = null,
         format: Texture.Format,
         usage: Texture.UsageFlags = Texture.Usage.RENDER_ATTACHMENT,
         viewFormats: []const Texture.Format = &.{},
@@ -386,6 +435,8 @@ pub const Surface = struct {
         alphaMode: AlphaMode = .@"opaque",
         width: def.IntegerCoordinate,
         height: def.IntegerCoordinate,
+        presentMode: PresentMode = .fifo,
+        desiredMaximumFrameLatency: def.Size32 = 2,
     };
 
     pub const CurrentSurfaceTexture = union(enum) {
@@ -415,14 +466,49 @@ pub const Surface = struct {
         self.backend.destroy();
     }
 
-    pub fn configure(self: *@This(), configuration: Configuration) void {
+    pub fn getCapabilities(self: *const @This(), adapter: *const @import("gpu.zig").Adapter) Capabilities {
+        log.debug("getting surface capabilities", .{});
+        return self.backend.getCapabilities(adapter.backend);
+    }
+
+    pub fn getDefaultConfig(
+        self: *const @This(),
+        adapter: *const @import("gpu.zig").Adapter,
+        width: def.IntegerCoordinate,
+        height: def.IntegerCoordinate,
+    ) ?Configuration {
+        const caps = self.getCapabilities(adapter);
+        if (caps.formats.len == 0 or caps.present_modes.len == 0 or caps.alpha_modes.len == 0) {
+            return null;
+        }
+
+        var format = caps.formats[0];
+        for (caps.formats) |candidate| {
+            if (candidate.is_srgb()) {
+                format = candidate;
+                break;
+            }
+        }
+
+        return .{
+            .format = format,
+            .width = width,
+            .height = height,
+            .presentMode = caps.present_modes[0],
+            .alphaMode = caps.alpha_modes[0],
+        };
+    }
+
+    pub fn configure(self: *@This(), device: *@import("gpu.zig").Device, configuration: Configuration) void {
         log.debug("configuring surface: format={s} size={}x{}", .{
             @tagName(configuration.format),
             configuration.width,
             configuration.height,
         });
-        self.backend.configure(configuration);
-        self.configuration = configuration;
+        var resolved = configuration;
+        resolved.device = device;
+        self.backend.configure(device.backend, resolved);
+        self.configuration = resolved;
     }
 
     pub fn unconfigure(self: *@This()) void {

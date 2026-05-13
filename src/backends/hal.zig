@@ -74,6 +74,10 @@ pub const Instance = struct {
         destroy: *const fn (
             *anyopaque,
         ) void,
+        enumerateAdapters: *const fn (
+            *anyopaque,
+            gpu.Adapter.RequestOptions,
+        ) []const Adapter,
         requestAdapter: *const fn (
             *anyopaque,
             std.Io,
@@ -100,14 +104,14 @@ pub const Instance = struct {
                 }
 
                 if (flags.vulkan) {
-                    return vulkan.vkGPU;
+                    return vulkan.vkInstance;
                 }
             },
 
             .linux => {
                 // vulkan only
                 if (flags.vulkan) {
-                    return vulkan.vkGPU;
+                    return vulkan.vkInstance;
                 }
             },
 
@@ -173,6 +177,14 @@ pub const Instance = struct {
         return self.vtable.requestAdapter(self.ptr, io, options);
     }
 
+    pub fn enumerateAdapters(
+        self: Instance,
+        options: gpu.Adapter.RequestOptions,
+    ) []const Adapter {
+        log.debug("instance.enumerateAdapters dispatch", .{});
+        return self.vtable.enumerateAdapters(self.ptr, options);
+    }
+
     pub fn createSurface(
         self: Instance,
         window: candler.WindowHandle,
@@ -200,16 +212,40 @@ pub const Adapter = struct {
             *anyopaque,
             std.Io,
             gpu.Device.Descriptor,
-        ) std.Io.Future(anyerror!Device),
+        ) std.Io.Future(anyerror!struct { Device, Queue }),
+        getInfo: *const fn (*anyopaque) gpu.Adapter.Info,
+        getDownlevelCapabilities: *const fn (*anyopaque) gpu.Adapter.DownlevelCapabilities,
+        getTextureFormatFeatures: *const fn (
+            *anyopaque,
+            texture.Texture.Format,
+        ) gpu.Adapter.TextureFormatFeatures,
     };
 
     pub fn requestDevice(
         self: Adapter,
         io: std.Io,
         options: gpu.Device.Descriptor,
-    ) std.Io.Future(anyerror!Device) {
+    ) std.Io.Future(anyerror!struct { Device, Queue }) {
         log.debug("adapter.requestDevice dispatch", .{});
         return self.vtable.requestDevice(self.ptr, io, options);
+    }
+
+    pub fn getInfo(self: Adapter) gpu.Adapter.Info {
+        log.debug("adapter.getInfo dispatch", .{});
+        return self.vtable.getInfo(self.ptr);
+    }
+
+    pub fn getDownlevelCapabilities(self: Adapter) gpu.Adapter.DownlevelCapabilities {
+        log.debug("adapter.getDownlevelCapabilities dispatch", .{});
+        return self.vtable.getDownlevelCapabilities(self.ptr);
+    }
+
+    pub fn getTextureFormatFeatures(
+        self: Adapter,
+        format: texture.Texture.Format,
+    ) gpu.Adapter.TextureFormatFeatures {
+        log.debug("adapter.getTextureFormatFeatures dispatch", .{});
+        return self.vtable.getTextureFormatFeatures(self.ptr, format);
     }
 };
 
@@ -1280,7 +1316,8 @@ pub const Surface = struct {
 
     pub const VTable = struct {
         destroy: *const fn (*anyopaque) void,
-        configure: *const fn (*anyopaque, texture.Surface.Configuration) void,
+        getCapabilities: *const fn (*anyopaque, Adapter) texture.Surface.Capabilities,
+        configure: *const fn (*anyopaque, Device, texture.Surface.Configuration) void,
         unconfigure: *const fn (*anyopaque) void,
         getCurrentTexture: *const fn (*anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture,
     };
@@ -1290,9 +1327,14 @@ pub const Surface = struct {
         return self.vtable.destroy(self.ptr);
     }
 
-    pub fn configure(self: Surface, configuration: texture.Surface.Configuration) void {
+    pub fn getCapabilities(self: Surface, adapter: Adapter) texture.Surface.Capabilities {
+        log.debug("surface.getCapabilities dispatch", .{});
+        return self.vtable.getCapabilities(self.ptr, adapter);
+    }
+
+    pub fn configure(self: Surface, device: Device, configuration: texture.Surface.Configuration) void {
         log.debug("surface.configure dispatch", .{});
-        return self.vtable.configure(self.ptr, configuration);
+        return self.vtable.configure(self.ptr, device, configuration);
     }
 
     pub fn unconfigure(self: Surface) void {

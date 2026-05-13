@@ -17,7 +17,7 @@ fn setup() !void {
 
     var deviceF = adapter.requestDevice(io, .{});
     defer _ = deviceF.cancel(io) catch {};
-    device = try deviceF.await(io);
+    device, _ = try deviceF.await(io);
 }
 
 test "example 4.5" {
@@ -30,7 +30,7 @@ test "example 4.5" {
 
     var deviceF = adapter.requestDevice(io, .{});
     defer _ = deviceF.cancel(io) catch {};
-    device = try deviceF.await(io);
+    device, _ = try deviceF.await(io);
 }
 
 test "example 8.4" {
