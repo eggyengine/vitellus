@@ -457,8 +457,13 @@ pub const Device = struct {
 
     pub fn createPipelineLayout(self: *@This(), descriptor: PipelineLayout.Descriptor) PipelineLayout {
         log.debug("creating pipeline layout", .{});
-        _ = self;
-        return PipelineLayout.init(descriptor);
+        const backend = self.backend.createPipelineLayout(descriptor) catch |err| {
+            log.err("backend pipeline layout creation failed: {s}", .{@errorName(err)});
+            @panic("failed to create pipeline layout");
+        };
+        var layout = PipelineLayout.init(descriptor);
+        layout.backend = backend;
+        return layout;
     }
 
     pub fn createBindGroup(self: *@This(), descriptor: BindGroup.Descriptor) BindGroup {
@@ -469,9 +474,14 @@ pub const Device = struct {
 
     pub fn createShaderModule(self: *@This(), descriptor: shader.ShaderModule.Descriptor) shader.ShaderModule {
         log.debug("creating shader module", .{});
-        _ = self;
-        _ = descriptor;
-        return .{};
+        const backend = self.backend.createShaderModule(descriptor) catch |err| {
+            log.err("backend shader module creation failed: {s}", .{@errorName(err)});
+            @panic("failed to create shader module");
+        };
+        return .{
+            .backend = backend,
+            .label = descriptor.label,
+        };
     }
 
     pub fn createComputePipeline(self: *@This(), descriptor: ComputePipeline.Descriptor) ComputePipeline {
@@ -483,9 +493,13 @@ pub const Device = struct {
 
     pub fn createRenderPipeline(self: *@This(), descriptor: RenderPipeline.Descriptor) RenderPipeline {
         log.debug("creating render pipeline", .{});
-        _ = self;
-        _ = descriptor;
-        return .{};
+        const backend = self.backend.createRenderPipeline(descriptor) catch |err| {
+            log.err("backend render pipeline creation failed: {s}", .{@errorName(err)});
+            @panic("failed to create render pipeline");
+        };
+        return .{
+            .backend = backend,
+        };
     }
 
     fn createComputePipelineAsyncInternal(
@@ -501,9 +515,7 @@ pub const Device = struct {
         self: *@This(),
         descriptor: RenderPipeline.Descriptor,
     ) CreatePipelineAsyncError!RenderPipeline {
-        _ = self;
-        _ = descriptor;
-        return error.Internal;
+        return self.createRenderPipeline(descriptor);
     }
 
     pub fn createComputePipelineAsync(

@@ -1,7 +1,11 @@
 const std = @import("std");
+const hal = @import("../backends/hal.zig");
 const pipeline = @import("pipeline.zig");
 
 pub const ShaderModule = struct {
+    backend: ?hal.ShaderModule = null,
+    label: ?[*:0]const u8 = null,
+
     pub const CompilationInfoError = error{NotImplemented};
 
     pub const Descriptor = struct {
@@ -50,5 +54,16 @@ pub const ShaderModule = struct {
     fn getCompilationInfoInternal(self: *@This()) CompilationInfoError!CompilationInfo {
         _ = self;
         return error.NotImplemented;
+    }
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 };

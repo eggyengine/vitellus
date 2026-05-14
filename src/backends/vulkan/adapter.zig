@@ -10,6 +10,10 @@ const device_backend = @import("device.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
+pub const required_device_extensions = [_][*:0]const u8{
+    vk.extensions.khr_swapchain.name.ptr,
+};
+
 pub const QueueFamilyIndices = struct {
     graphics_family: ?u32 = null,
     present_family: ?u32 = null,
@@ -54,22 +58,88 @@ pub fn findQueueFamilies(instance: *instance_backend.vkInstance, pdev: vk.Physic
     return indices;
 }
 
+pub fn isPhysicalDeviceSurfaceSupported(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice, surface: hal.Surface) bool {
+    const indices = findQueueFamilies(instance, pdev, surface) catch |err| {
+        log.debug("failed to query vulkan queue families: {s}", .{@errorName(err)});
+        return false;
+    };
+
+    const extensions_supported = checkDeviceExtensionSupport(instance, pdev);
+    const swapchain_adequate = if (extensions_supported)
+        hasAdequateSwapchainSupport(instance, pdev, surface)
+    else
+        false;
+
+    return indices.isComplete() and extensions_supported and swapchain_adequate;
+}
+
 pub fn isDeviceSuitable(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice, surface: hal.Surface) anyerror!bool {
     const indices = try findQueueFamilies(instance, pdev, surface);
-    if (!indices.isComplete()) {
+    const extensions_supported = checkDeviceExtensionSupport(instance, pdev);
+    const swapchain_adequate = if (extensions_supported)
+        hasAdequateSwapchainSupport(instance, pdev, surface)
+    else
+        false;
+
+    return indices.isComplete() and extensions_supported and swapchain_adequate;
+}
+
+pub fn checkDeviceExtensionSupport(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice) bool {
+    const available_extensions = instance.instance.enumerateDeviceExtensionPropertiesAlloc(
+        pdev,
+        null,
+        std.heap.page_allocator,
+    ) catch |err| {
+        log.debug("failed to enumerate vulkan device extensions: {s}", .{@errorName(err)});
         return false;
+    };
+    defer std.heap.page_allocator.free(available_extensions);
+
+    for (required_device_extensions) |required_extension| {
+        if (!hasDeviceExtension(available_extensions, std.mem.span(required_extension))) {
+            log.debug("missing vulkan device extension: {s}", .{required_extension});
+            return false;
+        }
     }
 
     return true;
 }
 
-pub fn isPhysicalDeviceSurfaceSupported(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice, surface: hal.Surface) bool {
-    const indices = findQueueFamilies(instance, pdev, surface) catch return false;
-    if (!indices.isComplete()) {
+fn hasAdequateSwapchainSupport(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice, surface: hal.Surface) bool {
+    const vk_surface: *surface_backend.vkSurface = @ptrCast(@alignCast(surface.ptr));
+
+    const formats = instance.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(
+        pdev,
+        vk_surface.handle,
+        std.heap.page_allocator,
+    ) catch |err| {
+        log.debug("failed to query vulkan surface formats: {s}", .{@errorName(err)});
         return false;
+    };
+    defer std.heap.page_allocator.free(formats);
+
+    const present_modes = instance.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(
+        pdev,
+        vk_surface.handle,
+        std.heap.page_allocator,
+    ) catch |err| {
+        log.debug("failed to query vulkan present modes: {s}", .{@errorName(err)});
+        return false;
+    };
+    defer std.heap.page_allocator.free(present_modes);
+
+    return formats.len != 0 and present_modes.len != 0;
+}
+
+fn hasDeviceExtension(available_extensions: []const vk.ExtensionProperties, required_extension: []const u8) bool {
+    for (available_extensions) |available_extension| {
+        const extension_name = std.mem.sliceTo(&available_extension.extension_name, 0);
+        if (std.mem.eql(u8, extension_name, required_extension)) {
+            return true;
+        }
     }
 
-    return true;
+    return false;
 }
 
 pub const vkAdapter = struct {
@@ -138,7 +208,8 @@ pub const vkAdapter = struct {
             .p_queue_create_infos = @ptrCast(&queue_create_infos),
             .enabled_layer_count = if (adapter.gpu.validation_layers_enabled) @intCast(adapter.gpu.validation_layers.len) else 0,
             .pp_enabled_layer_names = if (adapter.gpu.validation_layers_enabled) adapter.gpu.validation_layers.ptr else null,
-            .enabled_extension_count = 0,
+            .enabled_extension_count = @intCast(required_device_extensions.len),
+            .pp_enabled_extension_names = &required_device_extensions,
             .p_enabled_features = &device_features,
         };
         const get_device_proc_addr = adapter.gpu.vki.dispatch.vkGetDeviceProcAddr orelse return error.MissingVkGetDeviceProcAddr;

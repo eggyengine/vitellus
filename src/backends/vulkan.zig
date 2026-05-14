@@ -9,6 +9,7 @@ pub const instance = @import("vulkan/instance.zig");
 pub const surface = @import("vulkan/surface.zig");
 pub const adapter = @import("vulkan/adapter.zig");
 pub const device = @import("vulkan/device.zig");
+pub const pipeline = @import("vulkan/pipeline.zig");
 
 pub const InstanceDescriptor = instance.InstanceDescriptor;
 pub const vkInstance = instance.vkInstance;
@@ -23,3 +24,6 @@ pub const vkSurface = surface.vkSurface;
 
 pub const vkDevice = device.vkDevice;
 pub const vkQueue = device.vkQueue;
+
+pub const vkPipelineLayout = pipeline.vkPipelineLayout;
+pub const vkRenderPipeline = pipeline.vkRenderPipeline;

@@ -267,7 +267,10 @@ const NoopDevice = struct {
     fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
         _ = ptr;
         _ = descriptor;
-        return error.NotImplemented;
+        return .{
+            .ptr = &pipeline_layout_state,
+            .vtable = &NoopPipelineLayout.vtable,
+        };
     }
 
     fn createBindGroup(ptr: *anyopaque, descriptor: bind_group.BindGroup.Descriptor) anyerror!hal.BindGroup {
@@ -279,7 +282,10 @@ const NoopDevice = struct {
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
         _ = ptr;
         _ = descriptor;
-        return error.NotImplemented;
+        return .{
+            .ptr = &shader_module_state,
+            .vtable = &NoopShaderModule.vtable,
+        };
     }
 
     fn createComputePipeline(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
@@ -291,7 +297,10 @@ const NoopDevice = struct {
     fn createRenderPipeline(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
         _ = ptr;
         _ = descriptor;
-        return error.NotImplemented;
+        return .{
+            .ptr = &render_pipeline_state,
+            .vtable = &NoopRenderPipeline.vtable,
+        };
     }
 
     fn createComputePipelineAsync(
@@ -372,6 +381,56 @@ const NoopDevice = struct {
     }
 };
 
+const NoopPipelineLayout = struct {
+    const vtable = hal.PipelineLayout.VTable{
+        .destroy = destroy,
+    };
+
+    fn destroy(ptr: *anyopaque) void {
+        _ = ptr;
+        log.debug("destroying noop pipeline layout", .{});
+    }
+};
+
+const NoopShaderModule = struct {
+    const vtable = hal.ShaderModule.VTable{
+        .destroy = destroy,
+        .getCompilationInfo = getCompilationInfo,
+    };
+
+    fn destroy(ptr: *anyopaque) void {
+        _ = ptr;
+        log.debug("destroying noop shader module", .{});
+    }
+
+    fn getCompilationInfo(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!shader.ShaderModule.CompilationInfo) {
+        return io.async(getCompilationInfoInternal, .{ptr});
+    }
+
+    fn getCompilationInfoInternal(ptr: *anyopaque) anyerror!shader.ShaderModule.CompilationInfo {
+        _ = ptr;
+        return .{};
+    }
+};
+
+const NoopRenderPipeline = struct {
+    const vtable = hal.RenderPipeline.VTable{
+        .destroy = destroy,
+        .getBindGroupLayout = getBindGroupLayout,
+    };
+
+    fn destroy(ptr: *anyopaque) void {
+        _ = ptr;
+        log.debug("destroying noop render pipeline", .{});
+    }
+
+    fn getBindGroupLayout(ptr: *anyopaque, index: def.Index32) anyerror!hal.BindGroupLayout {
+        _ = ptr;
+        _ = index;
+        return error.NotImplemented;
+    }
+};
+
 const NoopQueue = struct {
     const vtable = hal.Queue.VTable{
         .submit = submit,
@@ -442,6 +501,9 @@ var surface_state: NoopSurface = .{};
 var adapter_state: NoopAdapter = .{};
 var device_state: NoopDevice = .{};
 var queue_state: NoopQueue = .{};
+var shader_module_state: NoopShaderModule = .{};
+var pipeline_layout_state: NoopPipelineLayout = .{};
+var render_pipeline_state: NoopRenderPipeline = .{};
 
 pub fn init() hal.Instance {
     log.debug("initializing noop backend", .{});

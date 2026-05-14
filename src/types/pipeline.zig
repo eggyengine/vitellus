@@ -1,5 +1,6 @@
 const bind_group = @import("bind_group.zig");
 const def = @import("def.zig");
+const hal = @import("../backends/hal.zig");
 const shader = @import("shader.zig");
 const sampler = @import("sampler.zig");
 const texture = @import("texture.zig");
@@ -7,6 +8,7 @@ const texture = @import("texture.zig");
 pub const PipelineLayout = struct {
     label: ?[*:0]const u8,
     bindGroupLayouts: []const ?*const bind_group.BindGroupLayout,
+    backend: ?hal.PipelineLayout = null,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
@@ -18,6 +20,17 @@ pub const PipelineLayout = struct {
             .label = descriptor.label,
             .bindGroupLayouts = descriptor.bindGroupLayouts,
         };
+    }
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 };
 
@@ -59,6 +72,7 @@ pub const PipelineError = struct {
 
 pub const ComputePipeline = struct {
     valid: bool = true,
+    backend: ?hal.ComputePipeline = null,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
@@ -76,10 +90,23 @@ pub const ComputePipeline = struct {
             .exclusivePipeline = null,
         };
     }
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+        self.valid = false;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
+    }
 };
 
 pub const RenderPipeline = struct {
     valid: bool = true,
+    backend: ?hal.RenderPipeline = null,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
@@ -100,6 +127,18 @@ pub const RenderPipeline = struct {
             .dynamicOffsetCount = 0,
             .exclusivePipeline = null,
         };
+    }
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+        self.valid = false;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 };
 

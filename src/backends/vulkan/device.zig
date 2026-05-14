@@ -12,6 +12,9 @@ const sampler = @import("../../types/sampler.zig");
 const shader = @import("../../types/shader.zig");
 const texture = @import("../../types/texture.zig");
 const adapter_backend = @import("adapter.zig");
+const shad = @import("shader.zig");
+const vkShaderModule = shad.vkShaderModule;
+const pipeline_backend = @import("pipeline.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
@@ -90,9 +93,9 @@ pub const vkDevice = struct {
     }
 
     fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
-        _ = ptr;
-        _ = descriptor;
-        return error.NotImplemented;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        log.debug("creating vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len});
+        return try pipeline_backend.vkPipelineLayout.init(typed, descriptor);
     }
 
     fn createBindGroup(ptr: *anyopaque, descriptor: bind_group.BindGroup.Descriptor) anyerror!hal.BindGroup {
@@ -102,9 +105,9 @@ pub const vkDevice = struct {
     }
 
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
-        _ = ptr;
-        _ = descriptor;
-        return error.NotImplemented;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        log.debug("creating vulkan shader module: bytes={}", .{descriptor.code.len});
+        return try vkShaderModule.init(typed, descriptor);
     }
 
     fn createComputePipeline(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
@@ -114,9 +117,13 @@ pub const vkDevice = struct {
     }
 
     fn createRenderPipeline(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
-        _ = ptr;
-        _ = descriptor;
-        return error.NotImplemented;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        log.debug("creating vulkan render pipeline: vertex_buffers={} has_fragment={} has_depth_stencil={}", .{
+            descriptor.vertex.buffers.len,
+            descriptor.fragment != null,
+            descriptor.depthStencil != null,
+        });
+        return try pipeline_backend.vkRenderPipeline.init(typed, descriptor);
     }
 
     fn createComputePipelineAsync(
@@ -142,9 +149,7 @@ pub const vkDevice = struct {
     }
 
     fn createRenderPipelineAsyncInternal(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
-        _ = ptr;
-        _ = descriptor;
-        return error.NotImplemented;
+        return createRenderPipeline(ptr, descriptor);
     }
 
     fn createCommandEncoder(ptr: *anyopaque, descriptor: ?command.CommandEncoder.Descriptor) anyerror!hal.CommandEncoder {
@@ -212,7 +217,7 @@ pub const vkQueue = struct {
     fn submit(ptr: *anyopaque, command_buffers: []const hal.CommandBuffer) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = typed;
-        _ = command_buffers;
+        log.debug("submitting vulkan queue work: command_buffers={}", .{command_buffers.len});
     }
 
     fn writeBuffer(
