@@ -40,7 +40,7 @@ pub const Instance = struct {
     };
 
     pub const Descriptor = struct {
-        allocator: std.mem.Allocator = std.heap.page_allocator,
+        allocator: std.mem.Allocator,
         flags: Flags = .{},
         wgslLanguageFeatures: []const []const u8 = &.{},
     };
@@ -66,14 +66,9 @@ pub const Instance = struct {
         return io.async(requestAdapterInternal, .{ self, io, options });
     }
 
-    pub fn init(comptime Backend: type, descriptor: Descriptor) Instance {
+    pub fn init(comptime Backend: type, descriptor: Descriptor) !Instance {
         log.debug("initializing instance with backend {s}", .{@typeName(Backend)});
-        const backend = if (@hasDecl(Backend, "initWithDescriptor"))
-            Backend.initWithDescriptor(.{
-                .enable_validation = descriptor.flags.validation,
-            }) catch @panic("failed to initialize backend")
-        else
-            Backend.init();
+        const backend = try Backend.init(descriptor);
 
         return .{
             .backend = backend,

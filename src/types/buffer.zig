@@ -60,7 +60,7 @@ pub const Buffer = struct {
         read: bool = false,
         write: bool = false,
 
-        _: u3 = 0,
+        _: u30 = 0,
 
         pub const READ: def.FlagsConstant = 0x0001;
         pub const WRITE: def.FlagsConstant = 0x0002;

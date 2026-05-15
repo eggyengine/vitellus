@@ -1,0 +1,79 @@
+const std = @import("std");
+
+const hal = @import("../hal.zig");
+const texture = @import("../../types/texture.zig");
+
+const allocator = std.heap.page_allocator;
+const log = std.log.scoped(.vitellus_noop);
+
+pub const NoopSurface = struct {
+    pub const vtable = hal.Surface.VTable{
+        .destroy = destroy,
+        .getCapabilities = getCapabilities,
+        .configure = configure,
+        .unconfigure = unconfigure,
+        .getCurrentTexture = getCurrentTexture,
+    };
+
+    const formats = [_]texture.Texture.Format{
+        .bgra8unorm,
+        .bgra8unorm_srgb,
+        .rgba8unorm,
+        .rgba8unorm_srgb,
+    };
+    const present_modes = [_]texture.Surface.PresentMode{ .fifo, .immediate };
+    const alpha_modes = [_]texture.Surface.AlphaMode{ .@"opaque", .premultiplied };
+
+    pub fn init() !hal.Surface {
+        const surface = try allocator.create(NoopSurface);
+        surface.* = .{};
+        return .{
+            .ptr = surface,
+            .vtable = &vtable,
+        };
+    }
+
+    fn destroy(ptr: *anyopaque) void {
+        const typed: *NoopSurface = @ptrCast(@alignCast(ptr));
+        log.debug("destroying noop surface", .{});
+        allocator.destroy(typed);
+    }
+
+    fn getCapabilities(ptr: *anyopaque, adapter: hal.Adapter) texture.Surface.Capabilities {
+        _ = ptr;
+        _ = adapter;
+        return .{
+            .formats = &formats,
+            .present_modes = &present_modes,
+            .alpha_modes = &alpha_modes,
+        };
+    }
+
+    fn configure(ptr: *anyopaque, device: hal.Device, configuration: texture.Surface.Configuration) void {
+        _ = ptr;
+        _ = device;
+        _ = configuration;
+        log.debug("configuring noop surface", .{});
+    }
+
+    fn unconfigure(ptr: *anyopaque) void {
+        _ = ptr;
+        log.debug("unconfiguring noop surface", .{});
+    }
+
+    fn getCurrentTexture(ptr: *anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture {
+        _ = ptr;
+        log.debug("noop surface current texture requested", .{});
+        return .{ .success = .{
+            .width = 1,
+            .height = 1,
+            .depthOrArrayLayers = 1,
+            .mipLevelCount = 1,
+            .sampleCount = 1,
+            .dimension = .@"2d",
+            .format = .bgra8unorm,
+            .usage = texture.Texture.Usage.RENDER_ATTACHMENT,
+            .textureBindingViewDimension = .@"2d",
+        } };
+    }
+};

@@ -1,5 +1,4 @@
 const std = @import("std");
-const vk = @import("vulkan");
 
 const bind_group = @import("../../types/bind_group.zig");
 const buffer = @import("../../types/buffer.zig");
@@ -11,25 +10,16 @@ const pipeline = @import("../../types/pipeline.zig");
 const sampler = @import("../../types/sampler.zig");
 const shader = @import("../../types/shader.zig");
 const texture = @import("../../types/texture.zig");
-const adapter_backend = @import("adapter.zig");
-const shad = @import("shader.zig");
-const vkShaderModule = shad.vkShaderModule;
 const command_backend = @import("command.zig");
 const pipeline_backend = @import("pipeline.zig");
-const resource_backend = @import("resource.zig");
+const resource = @import("resource.zig");
+const shader_backend = @import("shader.zig");
 
-const log = std.log.scoped(.vitellus_vulkan);
+const allocator = std.heap.page_allocator;
+const log = std.log.scoped(.vitellus_noop);
 
-pub const vkDevice = struct {
-    adapter: *adapter_backend.vkAdapter,
-    vkd: vk.DeviceWrapper,
-    device: vk.DeviceProxy,
-    device_handle: vk.Device,
-    graphics_queue_family: u32,
-    present_queue_family: u32,
-    graphics_queue: vk.Queue,
-    present_queue: vk.Queue,
-    queue: vkQueue,
+pub const NoopDevice = struct {
+    queue: NoopQueue = .{},
 
     pub const vtable = hal.Device.VTable{
         .destroy = destroy,
@@ -54,71 +44,84 @@ pub const vkDevice = struct {
         .getQueue = getQueue,
     };
 
+    pub fn init() !struct { hal.Device, hal.Queue } {
+        const device = try allocator.create(NoopDevice);
+        device.* = .{};
+        const device_handle = hal.Device{
+            .ptr = device,
+            .vtable = &vtable,
+        };
+        const queue_handle = hal.Queue{
+            .ptr = &device.queue,
+            .vtable = &NoopQueue.vtable,
+        };
+        return .{ device_handle, queue_handle };
+    }
+
     fn destroy(ptr: *anyopaque) void {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        if (typed.device_handle != .null_handle) {
-            log.debug("destroying vulkan logical device: handle=0x{x}", .{@intFromEnum(typed.device_handle)});
-            typed.device.destroyDevice(null);
-            typed.device_handle = .null_handle;
-        }
-        std.heap.page_allocator.destroy(typed);
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        log.debug("destroying noop device", .{});
+        allocator.destroy(typed);
     }
 
     fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkBuffer.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return resource.NoopBuffer.init();
     }
 
     fn createTexture(ptr: *anyopaque, descriptor: texture.Texture.Descriptor) anyerror!hal.Texture {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkTexture.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return resource.NoopTexture.init();
     }
 
     fn createSampler(ptr: *anyopaque, descriptor: sampler.Sampler.Descriptor) anyerror!hal.Sampler {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkSampler.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return resource.NoopSampler.init();
     }
 
     fn importExternalTexture(ptr: *anyopaque, descriptor: texture.ExternalTexture.Descriptor) anyerror!hal.ExternalTexture {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkExternalTexture.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return resource.NoopExternalTexture.init();
     }
 
     fn createBindGroupLayout(ptr: *anyopaque, descriptor: bind_group.BindGroupLayout.Descriptor) anyerror!hal.BindGroupLayout {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkBindGroupLayout.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return resource.NoopBindGroupLayout.init();
     }
 
     fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        log.debug("creating vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len});
-        return try pipeline_backend.vkPipelineLayout.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return pipeline_backend.NoopPipelineLayout.init();
     }
 
     fn createBindGroup(ptr: *anyopaque, descriptor: bind_group.BindGroup.Descriptor) anyerror!hal.BindGroup {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkBindGroup.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return resource.NoopBindGroup.init();
     }
 
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        log.debug("creating vulkan shader module: bytes={}", .{descriptor.code.len});
-        return try vkShaderModule.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return shader_backend.NoopShaderModule.init();
     }
 
     fn createComputePipeline(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try pipeline_backend.vkComputePipeline.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return pipeline_backend.NoopComputePipeline.init();
     }
 
     fn createRenderPipeline(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        log.debug("creating vulkan render pipeline: vertex_buffers={} has_fragment={} has_depth_stencil={}", .{
-            descriptor.vertex.buffers.len,
-            descriptor.fragment != null,
-            descriptor.depthStencil != null,
-        });
-        return try pipeline_backend.vkRenderPipeline.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return pipeline_backend.NoopRenderPipeline.init();
     }
 
     fn createComputePipelineAsync(
@@ -130,9 +133,7 @@ pub const vkDevice = struct {
     }
 
     fn createComputePipelineAsyncInternal(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
-        _ = ptr;
-        _ = descriptor;
-        return error.NotImplemented;
+        return createComputePipeline(ptr, descriptor);
     }
 
     fn createRenderPipelineAsync(
@@ -148,18 +149,21 @@ pub const vkDevice = struct {
     }
 
     fn createCommandEncoder(ptr: *anyopaque, descriptor: ?command.CommandEncoder.Descriptor) anyerror!hal.CommandEncoder {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try command_backend.vkCommandEncoder.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return command_backend.NoopCommandEncoder.init();
     }
 
     fn createRenderBundleEncoder(ptr: *anyopaque, descriptor: command.RenderBundleEncoder.Descriptor) anyerror!hal.RenderBundleEncoder {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try command_backend.vkRenderBundleEncoder.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return command_backend.NoopRenderBundleEncoder.init();
     }
 
     fn createQuerySet(ptr: *anyopaque, descriptor: gpu.QuerySet.Descriptor) anyerror!hal.QuerySet {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkQuerySet.init(typed, descriptor);
+        _ = ptr;
+        _ = descriptor;
+        return resource.NoopQuerySet.init();
     }
 
     fn lost(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!gpu.Device.LostInfo) {
@@ -186,18 +190,15 @@ pub const vkDevice = struct {
     }
 
     fn getQueue(ptr: *anyopaque) hal.Queue {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         return .{
             .ptr = &typed.queue,
-            .vtable = &vkQueue.vtable,
+            .vtable = &NoopQueue.vtable,
         };
     }
 };
 
-pub const vkQueue = struct {
-    device: *vkDevice,
-    handle: vk.Queue,
-
+pub const NoopQueue = struct {
     pub const vtable = hal.Queue.VTable{
         .submit = submit,
         .writeBuffer = writeBuffer,
@@ -207,9 +208,8 @@ pub const vkQueue = struct {
     };
 
     fn submit(ptr: *anyopaque, command_buffers: []const hal.CommandBuffer) void {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        _ = typed;
-        log.debug("submitting vulkan queue work: command_buffers={}", .{command_buffers.len});
+        _ = ptr;
+        _ = command_buffers;
     }
 
     fn writeBuffer(

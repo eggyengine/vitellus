@@ -56,6 +56,30 @@ pub const vkPipelineLayout = struct {
     }
 };
 
+pub const vkComputePipeline = struct {
+    pub const vtable = hal.ComputePipeline.VTable{
+        .destroy = destroy,
+        .getBindGroupLayout = getBindGroupLayout,
+    };
+
+    pub fn init(device: *vkDevice, descriptor: pipeline.ComputePipeline.Descriptor) !hal.ComputePipeline {
+        _ = device;
+        _ = descriptor;
+        return error.NotImplemented;
+    }
+
+    fn destroy(ptr: *anyopaque) void {
+        _ = ptr;
+        log.debug("destroying vulkan compute pipeline", .{});
+    }
+
+    fn getBindGroupLayout(ptr: *anyopaque, index: u32) anyerror!hal.BindGroupLayout {
+        _ = ptr;
+        _ = index;
+        return error.NotImplemented;
+    }
+};
+
 pub const vkRenderPipeline = struct {
     device: *vkDevice,
     handle: vk.Pipeline,

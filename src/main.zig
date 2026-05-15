@@ -74,7 +74,7 @@ pub const State = struct {
 fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !State {
     const size = try wrapper.window.getSize();
     // initialise the instance
-    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true }, .{ 
+    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true, .noop = true }, .{ 
         .allocator = init.gpa,
         .flags = .{
             .validation = true

@@ -14,6 +14,7 @@ const BaseWrapper = vk.BaseWrapper;
 const InstanceWrapper = vk.InstanceWrapper;
 const Instance = vk.InstanceProxy;
 
+const allocator = std.heap.page_allocator;
 const log = std.log.scoped(.vitellus_vulkan);
 
 pub const default_validation_layers = [_][*:0]const u8{
@@ -44,8 +45,6 @@ pub const vkInstance = struct {
     headless_surface: ?*surface_backend.vkSurface = null,
     loader: ?DynLib = null,
 
-    var self: @This() = .{};
-
     pub const vtable = hal.Instance.VTable{
         .enumerateAdapters = enumerateAdapters,
         .requestAdapter = requestAdapter,
@@ -53,9 +52,11 @@ pub const vkInstance = struct {
         .createSurface = createSurface,
     };
 
-    pub fn init() hal.Instance {
+    pub fn init(descriptor: gpu.Instance.Descriptor) hal.Instance.FromPotentialBackendsError!hal.Instance {
         log.debug("initializing vulkan backend with default descriptor", .{});
-        return initWithDescriptor(.{}) catch @panic("failed to initialize Vulkan backend");
+        return initWithDescriptor(.{
+            .enable_validation = descriptor.flags.validation,
+        }) catch error.NoBackendAvailable;
     }
 
     pub fn initWithDescriptor(descriptor: InstanceDescriptor) !hal.Instance {
@@ -63,15 +64,17 @@ pub const vkInstance = struct {
             descriptor.required_extensions.len,
             descriptor.api_version,
         });
-        destroyGPU(&self);
-        errdefer destroyGPU(&self);
 
-        const get_instance_proc_addr = descriptor.getInstanceProcAddr orelse try loadDefaultGetInstanceProcAddr();
+        const self = try allocator.create(vkInstance);
+        self.* = .{};
+        errdefer destroyGPU(self);
+
+        const get_instance_proc_addr = descriptor.getInstanceProcAddr orelse try loadDefaultGetInstanceProcAddr(self);
         log.debug("loaded vkGetInstanceProcAddr", .{});
         self.vkb = BaseWrapper.load(get_instance_proc_addr);
 
-        const extension_properties = try self.vkb.enumerateInstanceExtensionPropertiesAlloc(null, std.heap.page_allocator);
-        defer std.heap.page_allocator.free(extension_properties);
+        const extension_properties = try self.vkb.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
+        defer allocator.free(extension_properties);
         const validation_layers_enabled = descriptor.enable_validation and
             validationLayersAvailable(self.vkb, descriptor.requested_validation_layers);
         if (descriptor.enable_validation and !validation_layers_enabled) {
@@ -149,7 +152,7 @@ pub const vkInstance = struct {
         }
 
         return .{
-            .ptr = &self,
+            .ptr = self,
             .vtable = &vkInstance.vtable,
         };
     }
@@ -184,6 +187,8 @@ pub const vkInstance = struct {
             loader.close();
             typed.loader = null;
         }
+
+        allocator.destroy(typed);
     }
 
     fn enumerateAdapters(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror![]const hal.Adapter {
@@ -192,27 +197,27 @@ pub const vkInstance = struct {
 
         log.debug("enumerating vulkan adapters", .{});
 
-        const pdevs = try typed.instance.enumeratePhysicalDevicesAlloc(std.heap.page_allocator);
-        defer std.heap.page_allocator.free(pdevs);
+        const pdevs = try typed.instance.enumeratePhysicalDevicesAlloc(allocator);
+        defer allocator.free(pdevs);
 
         var adapters = std.ArrayList(hal.Adapter).empty;
-        errdefer adapters.deinit(std.heap.page_allocator);
+        errdefer adapters.deinit(allocator);
 
         for (pdevs) |pdev| {
             if (!(try adapter_backend.isDeviceSuitable(typed, pdev, selection_surface))) {
                 continue;
             }
 
-            const adapter = try std.heap.page_allocator.create(adapter_backend.vkAdapter);
-            errdefer std.heap.page_allocator.destroy(adapter);
+            const adapter = try allocator.create(adapter_backend.vkAdapter);
+            errdefer allocator.destroy(adapter);
             adapter.* = try adapter_backend.vkAdapter.init(typed, pdev, selection_surface);
-            try adapters.append(std.heap.page_allocator, .{
+            try adapters.append(allocator, .{
                 .ptr = adapter,
                 .vtable = &adapter_backend.vkAdapter.vtable,
             });
         }
 
-        return try adapters.toOwnedSlice(std.heap.page_allocator);
+        return try adapters.toOwnedSlice(allocator);
     }
 
     fn createSurface(
@@ -222,8 +227,8 @@ pub const vkInstance = struct {
     ) anyerror!hal.Surface {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         log.debug("allocating vulkan surface wrapper", .{});
-        const surface = try std.heap.page_allocator.create(surface_backend.vkSurface);
-        errdefer std.heap.page_allocator.destroy(surface);
+        const surface = try allocator.create(surface_backend.vkSurface);
+        errdefer allocator.destroy(surface);
 
         surface.* = try surface_backend.vkSurface.initRaw(typed, window, display);
         log.debug("created vulkan surface wrapper: handle=0x{x}", .{@intFromEnum(surface.handle)});
@@ -248,8 +253,8 @@ pub const vkInstance = struct {
 
         log.debug("picking vulkan physical device", .{});
         const pdev = try pickPhysicalDevice(typed, selection_surface);
-        const adapter = try std.heap.page_allocator.create(adapter_backend.vkAdapter);
-        errdefer std.heap.page_allocator.destroy(adapter);
+        const adapter = try allocator.create(adapter_backend.vkAdapter);
+        errdefer allocator.destroy(adapter);
         adapter.* = try adapter_backend.vkAdapter.init(typed, pdev, selection_surface);
         return .{
             .ptr = adapter,
@@ -258,8 +263,8 @@ pub const vkInstance = struct {
     }
 
     fn pickPhysicalDevice(instance: *vkInstance, selection_surface: hal.Surface) anyerror!vk.PhysicalDevice {
-        const pdevs = try instance.instance.enumeratePhysicalDevicesAlloc(std.heap.page_allocator);
-        defer std.heap.page_allocator.free(pdevs);
+        const pdevs = try instance.instance.enumeratePhysicalDevicesAlloc(allocator);
+        defer allocator.free(pdevs);
 
         for (pdevs) |pdev| {
             if (try adapter_backend.isDeviceSuitable(instance, pdev, selection_surface)) {
@@ -281,8 +286,8 @@ pub const vkInstance = struct {
     fn getOrCreateHeadlessSurface(instance: *@This()) anyerror!hal.Surface {
         if (instance.headless_surface == null) {
             log.debug("creating cached vulkan headless surface for adapter selection", .{});
-            const surface = try std.heap.page_allocator.create(surface_backend.vkSurface);
-            errdefer std.heap.page_allocator.destroy(surface);
+            const surface = try allocator.create(surface_backend.vkSurface);
+            errdefer allocator.destroy(surface);
             surface.* = try surface_backend.vkSurface.initHeadless(instance);
             instance.headless_surface = surface;
         }
@@ -299,11 +304,11 @@ fn validationLayersAvailable(vkb: BaseWrapper, requested_layers: []const [*:0]co
         return true;
     }
 
-    const available_layers = vkb.enumerateInstanceLayerPropertiesAlloc(std.heap.page_allocator) catch |err| {
+    const available_layers = vkb.enumerateInstanceLayerPropertiesAlloc(allocator) catch |err| {
         log.warn("failed to enumerate vulkan validation layers: {s}", .{@errorName(err)});
         return false;
     };
-    defer std.heap.page_allocator.free(available_layers);
+    defer allocator.free(available_layers);
 
     for (requested_layers) |requested_layer| {
         if (!hasInstanceLayer(available_layers, std.mem.span(requested_layer))) {
@@ -369,13 +374,13 @@ fn debugCallback(
     return .false;
 }
 
-fn loadDefaultGetInstanceProcAddr() !vk.PfnGetInstanceProcAddr {
-    if (vkInstance.self.loader == null) {
+fn loadDefaultGetInstanceProcAddr(instance: *vkInstance) !vk.PfnGetInstanceProcAddr {
+    if (instance.loader == null) {
         log.debug("opening vulkan loader: {s}", .{defaultVulkanLoaderName()});
-        vkInstance.self.loader = try DynLib.open(defaultVulkanLoaderName());
+        instance.loader = try DynLib.open(defaultVulkanLoaderName());
     }
 
-    return vkInstance.self.loader.?.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse error.MissingVkGetInstanceProcAddr;
+    return instance.loader.?.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse error.MissingVkGetInstanceProcAddr;
 }
 
 fn defaultVulkanLoaderName() []const u8 {
