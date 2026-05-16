@@ -74,12 +74,7 @@ pub const State = struct {
 fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !State {
     const size = try wrapper.window.getSize();
     // initialise the instance
-    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true, .noop = true }, .{ 
-        .allocator = init.gpa,
-        .flags = .{
-            .validation = true
-        }
-    });
+    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true, .noop = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
     // create the surface from the window
     const surface = try instance.createSurface(try wrapper.asWindow());
 
@@ -145,6 +140,8 @@ fn render_pipeline(state: *State) !void {
     };
 
     const view = try output.createView(.{});
+
+    vit.splat.hello();
 
     var encoder = state.device.createCommandEncoder(.{
         .label = "render encoder",

@@ -6,7 +6,6 @@
 const build_options = @import("build_options");
 
 // only keep lower-level types in here.
-/// Contained location for all exported types
 pub const types = struct {
     pub const gpu = @import("types/gpu.zig");
     pub const buffer = @import("types/buffer.zig");
@@ -35,6 +34,8 @@ pub const utils = struct {
     pub const dynamic_lib = @import("utils/dynamic_lib.zig");
     pub const DynLib = dynamic_lib.DynLib;
 };
+
+pub const splat = if (build_options.enable_splat) @import("splat") else struct {};
 
 // re-export types
 pub const Instance = types.gpu.Instance;

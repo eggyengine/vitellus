@@ -6,7 +6,7 @@ Follows the WebGPU w3 specification.
 
 ### why not just use sysgpu
 
-albeit [sysgpu](https://code.hexops.org/hexops/mach) is a great project (and hexops' mach project), sysgpu locks you into their own custom version mach-zig version. vitellus allows you to use any zig version (you always get the most stable version). 
+albeit [sysgpu](https://code.hexops.org/hexops/mach) is a great project (and hexops' mach project), sysgpu locks you into their own custom version mach-zig version and their ecosystem. vitellus allows you to use any zig version (you always get the most stable version). 
 
 
 ## add to project
@@ -26,6 +26,24 @@ const vit = b.dependency("vitellus", .{
 
 exe.root_module.addImport("vitellus", vit.module("vitellus"));
 ```
+
+Backends can be selected from your dependency options:
+```zig
+const vit = b.dependency("vitellus", .{
+    .target = target,
+    .optimize = optimize,
+    
+    // lazy dependency fetching
+    // .vulkan = true,
+    // .dx12 = true,
+    // .metal = true,
+    // .browser_webgpu = true,
+    // .opengl = false,
+    // .noop = optimize == .Debug,
+});
+```
+
+If you wish for only the shader compiler `splat`, take a look at the docs at [splat/README.md](splat/README.md). 
 
 and lastly in your library/executable:
 ```zig

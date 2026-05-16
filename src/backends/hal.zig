@@ -5,6 +5,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const candler = @import("candler");
+const build_options = @import("build_options");
 
 const bind_group = @import("../types/bind_group.zig");
 const buffer = @import("../types/buffer.zig");
@@ -16,8 +17,8 @@ const sampler = @import("../types/sampler.zig");
 const shader = @import("../types/shader.zig");
 const texture = @import("../types/texture.zig");
 
-pub const noop = @import("noop.zig");
-pub const vulkan = @import("vulkan.zig");
+pub const noop = if (build_options.enable_backend_noop) @import("noop.zig") else struct {};
+pub const vulkan = if (build_options.enable_backend_vulkan) @import("vulkan.zig") else struct {};
 
 const log = std.log.scoped(.vitellus_hal);
 
@@ -29,11 +30,11 @@ pub const Backends = packed struct(u32) {
     /// Vulkan (specifically Vulkan 1.4)
     vulkan: bool = false,
     /// OpenGL/WebGL
-    gl: bool = false,
+    opengl: bool = false,
     /// Metal (supported on Apple devices)
     metal: bool = false,
     /// DirectX12
-    directx12: bool = false,
+    dx12: bool = false,
     /// Browser webgpu (navigator.gpu)
     browser_webgpu: bool = false,
 
@@ -46,16 +47,19 @@ pub const Backends = packed struct(u32) {
     /// Vulkan (specifically Vulkan 1.4)
     pub const VULKAN: u32 = 0x02;
     /// OpenGL/WebGL
-    pub const GL: u32 = 0x04;
+    pub const OPENGL: u32 = 0x04;
     /// Metal (supported on Apple devices)
     pub const METAL: u32 = 0x08;
     /// DirectX12
-    pub const DIRECTX12: u32 = 0x10;
+    pub const DX12: u32 = 0x10;
     /// Browser webgpu (navigator.gpu)
     pub const BROWSER_WEBGPU: u32 = 0x20;
 
-    pub const PRIMARY: u32 = VULKAN | METAL | DIRECTX12 | BROWSER_WEBGPU;
-    pub const SECONDARY: u32 = GL;
+    pub const GL: u32 = OPENGL;
+    pub const DIRECTX12: u32 = DX12;
+
+    pub const PRIMARY: u32 = VULKAN | METAL | DX12 | BROWSER_WEBGPU;
+    pub const SECONDARY: u32 = OPENGL;
 
     pub fn fromFlags(flags: u32) Backends {
         return @bitCast(flags);
@@ -69,10 +73,21 @@ pub const Backends = packed struct(u32) {
         return .{
             .noop = true,
             .vulkan = true,
-            .gl = true,
+            .opengl = true,
             .metal = true,
-            .directx12 = true,
+            .dx12 = true,
             .browser_webgpu = true,
+        };
+    }
+
+    pub fn defaultAvailable() Backends {
+        return .{
+            .noop = build_options.enable_backend_noop,
+            .vulkan = build_options.enable_backend_vulkan,
+            .opengl = build_options.enable_backend_opengl,
+            .metal = build_options.enable_backend_metal,
+            .dx12 = build_options.enable_backend_dx12,
+            .browser_webgpu = build_options.enable_backend_browser_webgpu,
         };
     }
 };
@@ -106,61 +121,61 @@ pub const Instance = struct {
         NoBackendAvailable,
     };
 
-    pub fn fromPotentialBackends(flags: Backends) FromPotentialBackendsError!type {
+    pub fn fromPotentialBackends(comptime flags: Backends) FromPotentialBackendsError!type {
         switch (builtin.os.tag) {
             .windows => {
                 // dx12 takes priority on windows
-                if (flags.directx12) {
+                if (build_options.enable_backend_dx12 and flags.dx12) {
                     return error.NotImplemented;
                 }
 
-                if (flags.vulkan) {
+                if (build_options.enable_backend_vulkan and flags.vulkan) {
                     return vulkan.vkInstance;
                 }
             },
 
             .linux => {
                 // vulkan only
-                if (flags.vulkan) {
+                if (build_options.enable_backend_vulkan and flags.vulkan) {
                     return vulkan.vkInstance;
                 }
             },
 
             // vulkan can be supported through moltenvk
             .macos => {
-                if (flags.metal) {
+                if (build_options.enable_backend_metal and flags.metal) {
                     return error.NotImplemented;
                 }
             },
             .ios => {
-                if (flags.metal) {
+                if (build_options.enable_backend_metal and flags.metal) {
                     return error.NotImplemented;
                 }
             },
             .watchos => {
-                if (flags.metal) {
+                if (build_options.enable_backend_metal and flags.metal) {
                     return error.NotImplemented;
                 }
             },
             .tvos => {
-                if (flags.metal) {
+                if (build_options.enable_backend_metal and flags.metal) {
                     return error.NotImplemented;
                 }
             },
             .visionos => {
-                if (flags.metal) {
+                if (build_options.enable_backend_metal and flags.metal) {
                     return error.NotImplemented;
                 }
             },
 
             // wasm uses `navigator.gpu` api
             .emscripten => {
-                if (flags.browser_webgpu) {
+                if (build_options.enable_backend_browser_webgpu and flags.browser_webgpu) {
                     return error.NotImplemented;
                 }
             },
             .wasi => {
-                if (flags.browser_webgpu) {
+                if (build_options.enable_backend_browser_webgpu and flags.browser_webgpu) {
                     return error.NotImplemented;
                 }
             },
@@ -168,11 +183,11 @@ pub const Instance = struct {
         }
 
         // basically all platforms support some form of opengl
-        if (flags.gl) {
+        if (build_options.enable_backend_opengl and flags.opengl) {
             return error.NotImplemented;
         }
 
-        if (flags.noop) {
+        if (build_options.enable_backend_noop and flags.noop) {
             return noop;
         }
 
