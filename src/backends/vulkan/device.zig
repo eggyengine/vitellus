@@ -58,6 +58,8 @@ pub const vkDevice = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (typed.device_handle != .null_handle) {
             log.debug("destroying vulkan logical device: handle=0x{x}", .{@intFromEnum(typed.device_handle)});
+            _ = typed.device.deviceWaitIdle() catch {};
+            typed.queue.cleanupCompleted(true);
             typed.device.destroyDevice(null);
             typed.device_handle = .null_handle;
         }
@@ -102,8 +104,9 @@ pub const vkDevice = struct {
 
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        log.debug("creating vulkan shader module: bytes={}", .{descriptor.code.len});
-        return try vkShaderModule.init(typed, descriptor);
+        _ = descriptor;
+        log.debug("creating vulkan shader module", .{});
+        return try vkShaderModule.init(typed, .{});
     }
 
     fn createComputePipeline(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
@@ -197,6 +200,7 @@ pub const vkDevice = struct {
 pub const vkQueue = struct {
     device: *vkDevice,
     handle: vk.Queue,
+    pending_command_buffers: std.ArrayList(*command_backend.vkCommandBuffer) = .empty,
 
     pub const vtable = hal.Queue.VTable{
         .submit = submit,
@@ -208,8 +212,56 @@ pub const vkQueue = struct {
 
     fn submit(ptr: *anyopaque, command_buffers: []const hal.CommandBuffer) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        _ = typed;
         log.debug("submitting vulkan queue work: command_buffers={}", .{command_buffers.len});
+        typed.cleanupCompleted(false);
+        for (command_buffers) |command_buffer| {
+            const vk_command_buffer: *command_backend.vkCommandBuffer = @ptrCast(@alignCast(command_buffer.ptr));
+            if (vk_command_buffer.fence != .null_handle) {
+                typed.device.device.resetFences(@as([*]const vk.Fence, @ptrCast(&vk_command_buffer.fence))[0..1]) catch |err| {
+                    log.err("failed to reset vulkan fence: {s}", .{@errorName(err)});
+                    continue;
+                };
+            }
+            var wait_stage = vk.PipelineStageFlags{ .color_attachment_output_bit = true };
+            const submit_info = vk.SubmitInfo{
+                .wait_semaphore_count = if (vk_command_buffer.wait_semaphore != .null_handle) 1 else 0,
+                .p_wait_semaphores = if (vk_command_buffer.wait_semaphore != .null_handle) @ptrCast(&vk_command_buffer.wait_semaphore) else null,
+                .p_wait_dst_stage_mask = if (vk_command_buffer.wait_semaphore != .null_handle) @ptrCast(&wait_stage) else null,
+                .command_buffer_count = 1,
+                .p_command_buffers = @ptrCast(&vk_command_buffer.command_buffer),
+                .signal_semaphore_count = if (vk_command_buffer.signal_semaphore != .null_handle) 1 else 0,
+                .p_signal_semaphores = if (vk_command_buffer.signal_semaphore != .null_handle) @ptrCast(&vk_command_buffer.signal_semaphore) else null,
+            };
+            typed.device.device.queueSubmit(typed.handle, @as([*]const vk.SubmitInfo, @ptrCast(&submit_info))[0..1], vk_command_buffer.fence) catch |err| {
+                log.err("failed to submit vulkan queue work: {s}", .{@errorName(err)});
+                vk_command_buffer.deinit();
+                continue;
+            };
+            typed.pending_command_buffers.append(typed.device.adapter.gpu.allocator, vk_command_buffer) catch |err| {
+                log.err("failed to track pending vulkan command buffer: {s}", .{@errorName(err)});
+                _ = typed.device.device.queueWaitIdle(typed.handle) catch {};
+                vk_command_buffer.deinit();
+            };
+        }
+    }
+
+    pub fn cleanupCompleted(self: *@This(), force: bool) void {
+        var index: usize = 0;
+        while (index < self.pending_command_buffers.items.len) {
+            const command_buffer = self.pending_command_buffers.items[index];
+            const completed = force or command_buffer.fence == .null_handle or
+                ((self.device.device.getFenceStatus(command_buffer.fence) catch .not_ready) == .success);
+            if (!completed) {
+                index += 1;
+                continue;
+            }
+            _ = self.pending_command_buffers.swapRemove(index);
+            command_buffer.deinit();
+        }
+        if (force) {
+            self.pending_command_buffers.deinit(self.device.adapter.gpu.allocator);
+            self.pending_command_buffers = .empty;
+        }
     }
 
     fn writeBuffer(

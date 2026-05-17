@@ -4,9 +4,9 @@ const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const hal = @import("../hal.zig");
 const shader = @import("../../types/shader.zig");
-const debug = @import("debug.zig");
-
 const log = std.log.scoped(.vitellus_vulkan);
+
+pub const vkShader = struct {};
 
 pub const vkShaderModule = struct {
     device: *vkDevice,
@@ -18,52 +18,21 @@ pub const vkShaderModule = struct {
         .getCompilationInfo = getCompilationInfo,
     };
 
-    pub fn init(device: *vkDevice, descriptor: shader.ShaderModule.Descriptor) !hal.ShaderModule {
-        log.debug("validating vulkan shader module bytecode: bytes={}", .{descriptor.code.len});
-        if (descriptor.code.len == 0) {
-            log.debug("vulkan shader module rejected: empty bytecode", .{});
-            return error.EmptyShaderCode;
-        }
-        if (descriptor.code.len % @sizeOf(u32) != 0) {
-            log.debug("vulkan shader module rejected: byte length is not 4-byte aligned", .{});
-            return error.InvalidSpirVByteLength;
-        }
-
-        const word_count = descriptor.code.len / @sizeOf(u32);
-        const words = try device.adapter.gpu.allocator.alloc(u32, word_count);
-        defer device.adapter.gpu.allocator.free(words);
-
-        for (words, 0..) |*word, i| {
-            const offset = i * @sizeOf(u32);
-            word.* = std.mem.readInt(u32, descriptor.code[offset..][0..4], .little);
-        }
-
-        if (words[0] != 0x07230203) {
-            log.debug("vulkan shader module rejected: invalid SPIR-V magic 0x{x}", .{words[0]});
-            return error.InvalidSpirVMagic;
-        }
-
-        const create_info = vk.ShaderModuleCreateInfo{
-            .code_size = descriptor.code.len,
-            .p_code = words.ptr,
-        };
-
-        const handle = try device.device.createShaderModule(&create_info, null);
-        errdefer device.device.destroyShaderModule(handle, null);
+    /// Initialising a Vulkan shader module consumes backend-ready shader data.
+    /// Source-language conversion/validation happens before this backend layer.
+    pub fn init(device: *vkDevice, shader_data: vkShader) !hal.ShaderModule {
+        _ = shader_data;
+        log.debug("creating vulkan shader module from backend shader data", .{});
 
         const module = try device.adapter.gpu.allocator.create(vkShaderModule);
         errdefer device.adapter.gpu.allocator.destroy(module);
         module.* = .{
             .device = device,
-            .handle = handle,
-            .label = descriptor.label,
+            .handle = .null_handle,
+            .label = null,
         };
-        debug.setObjectName(device, .shader_module, handle, descriptor.label);
 
-        log.debug("created vulkan shader module: handle=0x{x} bytes={}", .{
-            @intFromEnum(handle),
-            descriptor.code.len,
-        });
+        log.debug("created placeholder vulkan shader module", .{});
         return .{
             .ptr = module,
             .vtable = &vkShaderModule.vtable,

@@ -6,7 +6,9 @@ const gpu = @import("../../types/gpu.zig");
 const hal = @import("../hal.zig");
 const sampler = @import("../../types/sampler.zig");
 const texture = @import("../../types/texture.zig");
+const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
+const debug = @import("debug.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
@@ -65,6 +67,16 @@ pub const vkBuffer = struct {
 };
 
 pub const vkTexture = struct {
+    device: *vkDevice,
+    handle: vk.Image,
+    format: vk.Format,
+    extent: vk.Extent3D,
+    owns_image: bool = false,
+    label: ?[*:0]const u8 = null,
+    present_surface: ?*anyopaque = null,
+    present_image_index: u32 = 0,
+    present_image_view: ?*vkTextureView = null,
+
     pub const vtable = hal.Texture.VTable{
         .destroy = destroy,
         .createView = createView,
@@ -76,26 +88,114 @@ pub const vkTexture = struct {
         return error.NotImplemented;
     }
 
+    pub fn initSwapchainImage(device: *vkDevice, image: vk.Image, format: vk.Format, extent: vk.Extent2D) @This() {
+        return .{
+            .device = device,
+            .handle = image,
+            .format = format,
+            .extent = .{
+                .width = extent.width,
+                .height = extent.height,
+                .depth = 1,
+            },
+            .owns_image = false,
+        };
+    }
+
+    pub fn createDefaultView(self: *@This()) !vkTextureView {
+        return vkTextureView.init(self.device, self.handle, self.format, .{ .color_bit = true }, self.label);
+    }
+
+    pub fn deinit(self: *@This()) void {
+        if (self.owns_image and self.handle != .null_handle) {
+            log.debug("destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)});
+            self.device.device.destroyImage(self.handle, null);
+        }
+        self.handle = .null_handle;
+    }
+
     fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        log.debug("destroying vulkan texture", .{});
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.deinit();
+        typed.device.adapter.gpu.allocator.destroy(typed);
     }
 
     fn createView(ptr: *anyopaque, descriptor: texture.Texture.View.Descriptor) anyerror!hal.TextureView {
-        _ = ptr;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return error.NotImplemented;
+        const view = try typed.device.adapter.gpu.allocator.create(vkTextureView);
+        errdefer typed.device.adapter.gpu.allocator.destroy(view);
+        if (typed.present_image_view) |present_image_view| {
+            view.* = present_image_view.*;
+            view.owns_view = false;
+        } else {
+            view.* = try typed.createDefaultView();
+        }
+        view.present_surface = typed.present_surface;
+        view.present_image_index = typed.present_image_index;
+        return .{ .ptr = view, .vtable = &vkTextureView.vtable };
     }
 };
 
 pub const vkTextureView = struct {
+    device: *vkDevice,
+    handle: vk.ImageView,
+    image: vk.Image,
+    format: vk.Format,
+    label: ?[*:0]const u8 = null,
+    owns_view: bool = true,
+    present_surface: ?*anyopaque = null,
+    present_image_index: u32 = 0,
+
     pub const vtable = hal.TextureView.VTable{
         .destroy = destroy,
     };
 
+    pub fn init(device: *vkDevice, image: vk.Image, format: vk.Format, aspect_mask: vk.ImageAspectFlags, label: ?[*:0]const u8) !@This() {
+        const create_info = vk.ImageViewCreateInfo{
+            .image = image,
+            .view_type = .@"2d",
+            .format = format,
+            .components = .{
+                .r = .identity,
+                .g = .identity,
+                .b = .identity,
+                .a = .identity,
+            },
+            .subresource_range = .{
+                .aspect_mask = aspect_mask,
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+        };
+        const handle = try device.device.createImageView(&create_info, null);
+        errdefer device.device.destroyImageView(handle, null);
+        debug.setObjectName(device, .image_view, handle, label);
+        return .{
+            .device = device,
+            .handle = handle,
+            .image = image,
+            .format = format,
+            .label = label,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        if (self.handle != .null_handle) {
+            if (self.owns_view) {
+                log.debug("destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)});
+                self.device.device.destroyImageView(self.handle, null);
+            }
+            self.handle = .null_handle;
+        }
+    }
+
     fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        log.debug("destroying vulkan texture view", .{});
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.deinit();
+        typed.device.adapter.gpu.allocator.destroy(typed);
     }
 };
 

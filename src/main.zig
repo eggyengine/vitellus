@@ -60,7 +60,7 @@ pub fn main(init: std.process.Init) !void {
                 else => {},
             };
 
-        try render_pipeline(&state);
+        try render_the_pipeline(&state);
     }
 }
 
@@ -72,7 +72,11 @@ pub const State = struct {
     config: vit.Surface.Configuration,
     isSurfaceConfigured: bool,
 
+    render_pipeline: vit.RenderPipeline,
+
     fn deinit(self: *@This()) void {
+        self.render_pipeline.deinit();
+
         self.surface.deinit();
         self.device.destroy();
         self.instance.deinit();
@@ -80,17 +84,19 @@ pub const State = struct {
 };
 
 fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !State {
-    const size = try wrapper.window.getSize();
+    const width, const height = try wrapper.window.getSize();
+
     // initialise the instance
     var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true, .noop = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
     errdefer instance.deinit();
+
     // create the surface from the window
     var surface = try instance.createSurface(try wrapper.asWindow());
     errdefer surface.deinit();
 
     // request the adapter
     var adapterF = instance.requestAdapter(init.io, .{
-        .label = "adapter",
+        .label = "custom adapter",
         .surface = surface,
     });
     defer _ = adapterF.cancel(init.io) catch {};
@@ -98,7 +104,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
 
     // request the device and queue
     var deviceF = adapter.requestDevice(init.io, .{
-        .label = "device",
+        .label = "custom device",
     });
     defer _ = deviceF.cancel(init.io) catch {};
     var device, const queue = try deviceF.await(init.io);
@@ -117,25 +123,81 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     const config = vit.Surface.Configuration{
         .usage = vit.Texture.Usage.RENDER_ATTACHMENT,
         .format = surface_format,
-        .width = @intCast(size.@"0"),
-        .height = @intCast(size.@"1"),
+        .width = @intCast(width),
+        .height = @intCast(height),
         .presentMode = surface_caps.present_modes[0],
         .alphaMode = surface_caps.alpha_modes[0],
         .viewFormats = &.{},
         .desiredMaximumFrameLatency = 2,
     };
 
-    return State{
+    surface.configure(&device, config);
+
+    var state = State{
         .instance = instance,
         .surface = surface,
         .device = device,
         .queue = queue,
         .config = config,
-        .isSurfaceConfigured = false,
+        .isSurfaceConfigured = true,
+        .render_pipeline = undefined,
     };
+
+    try create_render_pipeline(&state);
+
+    return state;
 }
 
-fn render_pipeline(state: *State) !void {
+fn create_render_pipeline(state: *State) !void {
+    const shader = try state.device.createShaderModule(.{
+        .label = "shader",
+        .source = .{ .wgsl = @embedFile("shader.wgsl") },
+    });
+
+    const render_pipeline_layout = state.device.createPipelineLayout(.{
+        .label = "render pipeline layout",
+        .bindGroupLayouts = &.{},
+    });
+
+    const render_pipeline = state.device.createRenderPipeline(.{
+        .label = "render pipeline",
+        .layout = &render_pipeline_layout,
+        .vertex = .{
+            .module = shader,
+            .entry_point = "vs_main",
+            .buffers = &.{},
+            // .compilationOptions = .default,
+        },
+        .fragment = .{
+            .module = shader,
+            .entry_point = "fs_main",
+            .targets = &.{vit.ColorTargetState{
+                .format = state.config.format,
+                .blend = .REPLACE,
+                .writeMask = vit.ColorWrite.ALL,
+            }},
+            // .compilationOptions = .default,
+        },
+        .primitive = .{
+            .topology = .triangle_list,
+            .stripIndexFormat = null,
+            .frontFace = .ccw,
+            .cullMode = .back,
+            .unclippedDepth = false,
+        },
+        .depthStencil = null,
+        .multisample = .{
+            .count = 1,
+            .mask = 0xFFFFFFFF,
+            .alphaToCoverageEnabled = false,
+        },
+    });
+
+    state.render_pipeline = render_pipeline;
+    return;
+}
+
+fn render_the_pipeline(state: *State) !void {
     if (!state.isSurfaceConfigured) {
         return;
     }
@@ -152,6 +214,7 @@ fn render_pipeline(state: *State) !void {
     };
 
     const view = try output.createView(.{});
+    defer view.destroy();
 
     vit.splat.hello();
 
@@ -160,31 +223,32 @@ fn render_pipeline(state: *State) !void {
     });
 
     {
-        const color_attachments = [_]?vit.RenderPassEncoder.ColorAttachment{
-            .{
-                .view = .{ .texture_view = view },
-                .resolveTarget = null,
-                .depthSlice = null,
-                .clearValue = .{ .dict = .{
-                    .r = 0.1,
-                    .g = 0.2,
-                    .b = 0.3,
-                    .a = 1.0,
-                } },
-                .loadOp = .clear,
-                .storeOp = .store,
-            },
-        };
-
         var render_pass = encoder.beginRenderPass(.{
             .label = "Render Pass",
-            .colorAttachments = &color_attachments,
+            .colorAttachments = &.{
+                .{
+                    .view = .{ .texture_view = view },
+                    .resolveTarget = null,
+                    .depthSlice = null,
+                    .clearValue = .{ .dict = .{
+                        .r = 0.1,
+                        .g = 0.2,
+                        .b = 0.3,
+                        .a = 1.0,
+                    } },
+                    .loadOp = .clear,
+                    .storeOp = .store,
+                },
+            },
             .depthStencilAttachment = null,
             .occlusionQuerySet = null,
             .timestampWrites = null,
             .multiviewMask = null,
         });
         defer render_pass.end();
+
+        render_pass.setPipeline(&state.render_pipeline);
+        render_pass.draw(3, 1, 0, 0);
     }
 
     state.queue.submit(&[_]vit.CommandBuffer{encoder.finish()});

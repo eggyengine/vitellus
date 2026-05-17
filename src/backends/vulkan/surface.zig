@@ -9,6 +9,7 @@ const adapter_backend = @import("adapter.zig");
 const instance_backend = @import("instance.zig");
 const vkDevice = @import("device.zig").vkDevice;
 const debug = @import("debug.zig");
+const resource = @import("resource.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
@@ -48,12 +49,21 @@ pub const vkSurface = struct {
     alpha_modes: ?[]texture.Surface.AlphaMode = null,
     swapchain_device: ?*vkDevice = null,
     swapchain: vk.SwapchainKHR = .null_handle,
-    swapchain_images: ?[]vk.Image = null,
+
+    swapchain_images: ?[]resource.vkTexture = null,
+    swapchain_image_views: ?[]resource.vkTextureView = null,
+
     swapchain_image_format: vk.Format = .undefined,
     swapchain_extent: vk.Extent2D = .{ .width = 0, .height = 0 },
-    swapchain_image_views: ?[]vk.ImageView = null,
     swapchain_framebuffers: ?[]vk.Framebuffer = null,
     swapchain_framebuffer_render_pass: vk.RenderPass = .null_handle,
+
+    image_available_semaphores: ?[]vk.Semaphore = null,
+    render_finished_semaphores: ?[]vk.Semaphore = null,
+    in_flight_fences: ?[]vk.Fence = null,
+    frame_index: usize = 0,
+    acquired_image_index: ?u32 = null,
+    acquired_result: vk.Result = .success,
 
     pub fn initRaw(instance: *instance_backend.vkInstance, window: candler.WindowHandle, display: candler.DisplayHandle) !@This() {
         log.debug("creating vulkan surface: window={s} display={s}", .{
@@ -200,12 +210,41 @@ pub const vkSurface = struct {
 
     fn getCurrentTexture(ptr: *anyopaque) !texture.Surface.CurrentSurfaceTexture {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        _ = typed;
         log.debug("vulkan surface current texture requested", .{});
-        return error.NotImplemented;
+        const device = typed.swapchain_device orelse return error.SurfaceNotConfigured;
+        const images = typed.swapchain_images orelse return error.SurfaceNotConfigured;
+        const image_available = typed.image_available_semaphores orelse return error.SurfaceNotConfigured;
+        const fences = typed.in_flight_fences orelse return error.SurfaceNotConfigured;
+
+        _ = try device.device.waitForFences(@as([*]const vk.Fence, @ptrCast(&fences[typed.frame_index]))[0..1], vk.Bool32.true, std.math.maxInt(u64));
+
+        const result = try device.device.acquireNextImageKHR(
+            typed.swapchain,
+            std.math.maxInt(u64),
+            image_available[typed.frame_index],
+            .null_handle,
+        );
+        typed.acquired_result = result.result;
+        switch (result.result) {
+            .success, .suboptimal_khr => {},
+            .error_out_of_date_khr => return .outdated,
+            .timeout => return .timeout,
+            .not_ready => return .timeout,
+            else => return error.FailedToAcquireSwapchainImage,
+        }
+
+        typed.acquired_image_index = result.image_index;
+        images[result.image_index].present_surface = typed;
+        images[result.image_index].present_image_index = result.image_index;
+
+        return switch (result.result) {
+            .suboptimal_khr => .{ .suboptimal = typed.textureFromSwapchainImage(&images[result.image_index], result.image_index) },
+            else => .{ .success = typed.textureFromSwapchainImage(&images[result.image_index], result.image_index) },
+        };
     }
 
     fn configureSwapchain(self: *@This(), device: *vkDevice, desc: texture.Surface.Configuration) !void {
+        _ = device.device.deviceWaitIdle() catch {};
         self.unconfigureSwapchain();
 
         var support = try querySwapChainSupport(self.gpu, device.adapter.pdev, self.handle);
@@ -258,55 +297,45 @@ pub const vkSurface = struct {
         const swapchain = try device.device.createSwapchainKHR(&sci, null);
         errdefer device.device.destroySwapchainKHR(swapchain, null);
 
-        const swapchain_images = try device.device.getSwapchainImagesAllocKHR(
+        const swapchain_image_handles = try device.device.getSwapchainImagesAllocKHR(
             swapchain,
             self.gpu.allocator,
         );
-        errdefer self.gpu.allocator.free(swapchain_images);
+        defer self.gpu.allocator.free(swapchain_image_handles);
+
+        const swapchain_images = try self.gpu.allocator.alloc(resource.vkTexture, swapchain_image_handles.len);
+        var initialized_image_count: usize = 0;
+        errdefer {
+            for (swapchain_images[0..initialized_image_count]) |*image| image.deinit();
+            self.gpu.allocator.free(swapchain_images);
+        }
+
+        const swapchain_image_views = try self.gpu.allocator.alloc(resource.vkTextureView, swapchain_image_handles.len);
+        var initialized_view_count: usize = 0;
+        errdefer {
+            for (swapchain_image_views[0..initialized_view_count]) |*view| view.deinit();
+            self.gpu.allocator.free(swapchain_image_views);
+        }
+
+        for (swapchain_image_handles, 0..) |image_handle, i| {
+            swapchain_images[i] = resource.vkTexture.initSwapchainImage(device, image_handle, surface_format.format, extent);
+            initialized_image_count += 1;
+            swapchain_image_views[i] = try swapchain_images[i].createDefaultView();
+            initialized_view_count += 1;
+            swapchain_images[i].present_image_view = &swapchain_image_views[i];
+        }
 
         self.swapchain_device = device;
         self.swapchain = swapchain;
         self.swapchain_images = swapchain_images;
+        self.swapchain_image_views = swapchain_image_views;
         self.swapchain_image_format = surface_format.format;
         self.swapchain_extent = extent;
-
-        // create swapchain image views
-        var views = std.ArrayList(vk.ImageView).empty;
-        errdefer {
-            for (views.items) |view| {
-                device.device.destroyImageView(view, null);
-            }
-            views.deinit(self.gpu.allocator);
-        }
-        try views.ensureTotalCapacity(self.gpu.allocator, swapchain_images.len);
-
-        for (0..swapchain_images.len) |i| {
-            const ivci: vk.ImageViewCreateInfo = .{
-                .image = swapchain_images[i],
-                .view_type = .@"2d",
-                .format = surface_format.format,
-                .components = .{
-                    .r = .identity,
-                    .g = .identity,
-                    .b = .identity,
-                    .a = .identity,
-                },
-                .subresource_range = .{
-                    .aspect_mask = .{ .color_bit = true },
-                    .base_mip_level = 0,
-                    .level_count = 1,
-                    .base_array_layer = 0,
-                    .layer_count = 1,
-                },
-            };
-            const image_view = try device.device.createImageView(&ivci, null);
-            try views.append(self.gpu.allocator, image_view);
-        }
-        self.swapchain_image_views = try views.toOwnedSlice(self.gpu.allocator);
+        try self.createSyncObjects(device, swapchain_image_handles.len);
         debug.setObjectName(device, .swapchain_khr, swapchain, null);
 
         log.debug("configured vulkan swapchain: images={} format={s} extent={}x{}", .{
-            swapchain_images.len,
+            swapchain_image_handles.len,
             @tagName(surface_format.format),
             extent.width,
             extent.height,
@@ -342,7 +371,7 @@ pub const vkSurface = struct {
         @memset(framebuffers, .null_handle);
 
         for (image_views, 0..) |image_view, i| {
-            const attachments = [_]vk.ImageView{image_view};
+            const attachments = [_]vk.ImageView{image_view.handle};
             const create_info = vk.FramebufferCreateInfo{
                 .render_pass = render_pass,
                 .attachment_count = attachments.len,
@@ -366,14 +395,18 @@ pub const vkSurface = struct {
     }
 
     fn unconfigureSwapchain(self: *@This()) void {
+        if (self.swapchain_device) |device| {
+            _ = device.device.deviceWaitIdle() catch {};
+            device.queue.cleanupCompleted(true);
+        }
+
         self.destroySwapchainFramebuffers();
 
+        self.destroySyncObjects();
+
         if (self.swapchain_image_views) |views| {
-            for (views) |view| {
-                if (self.swapchain_device) |device| {
-                    log.debug("destroying vulkan swapchain image view: handle=0x{x}", .{@intFromEnum(view)});
-                    device.device.destroyImageView(view, null);
-                }
+            for (views) |*view| {
+                view.deinit();
             }
 
             self.gpu.allocator.free(views);
@@ -381,6 +414,9 @@ pub const vkSurface = struct {
         }
 
         if (self.swapchain_images) |images| {
+            for (images) |*image| {
+                image.deinit();
+            }
             self.gpu.allocator.free(images);
             self.swapchain_images = null;
         }
@@ -396,6 +432,98 @@ pub const vkSurface = struct {
         self.swapchain_device = null;
         self.swapchain_image_format = .undefined;
         self.swapchain_extent = .{ .width = 0, .height = 0 };
+    }
+
+    fn textureFromSwapchainImage(self: *@This(), image: *resource.vkTexture, image_index: u32) texture.Texture {
+        _ = image_index;
+        return .{
+            .backend = .{ .ptr = image, .vtable = &resource.vkTexture.vtable },
+            .present_context = self,
+            .present_callback = presentTexture,
+            .width = self.swapchain_extent.width,
+            .height = self.swapchain_extent.height,
+            .depthOrArrayLayers = 1,
+            .mipLevelCount = 1,
+            .sampleCount = 1,
+            .dimension = .@"2d",
+            .format = textureFormatFromVulkan(self.swapchain_image_format) orelse .bgra8unorm,
+            .usage = texture.Texture.Usage.RENDER_ATTACHMENT,
+            .textureBindingViewDimension = .@"2d",
+        };
+    }
+
+    fn presentTexture(context: *anyopaque) void {
+        const self: *@This() = @ptrCast(@alignCast(context));
+        self.presentAcquiredImage() catch |err| {
+            log.err("failed to present vulkan swapchain image: {s}", .{@errorName(err)});
+        };
+    }
+
+    fn presentAcquiredImage(self: *@This()) !void {
+        const device = self.swapchain_device orelse return error.SurfaceNotConfigured;
+        const image_index = self.acquired_image_index orelse return error.NoAcquiredSwapchainImage;
+        const render_finished = self.render_finished_semaphores orelse return error.SurfaceNotConfigured;
+        var swapchain = self.swapchain;
+        var image_index_mut = image_index;
+        const present_info = vk.PresentInfoKHR{
+            .wait_semaphore_count = 1,
+            .p_wait_semaphores = @ptrCast(&render_finished[image_index]),
+            .swapchain_count = 1,
+            .p_swapchains = @ptrCast(&swapchain),
+            .p_image_indices = @ptrCast(&image_index_mut),
+            .p_results = null,
+        };
+        const result = try device.device.queuePresentKHR(device.present_queue, &present_info);
+        if (result == .error_out_of_date_khr or result == .suboptimal_khr) {
+            return error.SwapchainOutOfDate;
+        }
+        self.acquired_image_index = null;
+        if (self.in_flight_fences) |fences| {
+            self.frame_index = (self.frame_index + 1) % fences.len;
+        }
+    }
+
+    fn createSyncObjects(self: *@This(), device: *vkDevice, image_count: usize) !void {
+        self.destroySyncObjects();
+        const max_frames_in_flight: usize = 2;
+        const semaphore_info = vk.SemaphoreCreateInfo{};
+        const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
+
+        const image_available = try self.gpu.allocator.alloc(vk.Semaphore, max_frames_in_flight);
+        errdefer self.gpu.allocator.free(image_available);
+        const render_finished = try self.gpu.allocator.alloc(vk.Semaphore, image_count);
+        errdefer self.gpu.allocator.free(render_finished);
+        const fences = try self.gpu.allocator.alloc(vk.Fence, max_frames_in_flight);
+        errdefer self.gpu.allocator.free(fences);
+
+        for (image_available) |*semaphore| semaphore.* = try device.device.createSemaphore(&semaphore_info, null);
+        for (render_finished) |*semaphore| semaphore.* = try device.device.createSemaphore(&semaphore_info, null);
+        for (fences) |*fence| fence.* = try device.device.createFence(&fence_info, null);
+
+        self.image_available_semaphores = image_available;
+        self.render_finished_semaphores = render_finished;
+        self.in_flight_fences = fences;
+        self.frame_index = 0;
+        self.acquired_image_index = null;
+    }
+
+    fn destroySyncObjects(self: *@This()) void {
+        const device = self.swapchain_device;
+        if (self.image_available_semaphores) |semaphores| {
+            if (device) |dev| for (semaphores) |semaphore| dev.device.destroySemaphore(semaphore, null);
+            self.gpu.allocator.free(semaphores);
+            self.image_available_semaphores = null;
+        }
+        if (self.render_finished_semaphores) |semaphores| {
+            if (device) |dev| for (semaphores) |semaphore| dev.device.destroySemaphore(semaphore, null);
+            self.gpu.allocator.free(semaphores);
+            self.render_finished_semaphores = null;
+        }
+        if (self.in_flight_fences) |fences| {
+            if (device) |dev| for (fences) |fence| dev.device.destroyFence(fence, null);
+            self.gpu.allocator.free(fences);
+            self.in_flight_fences = null;
+        }
     }
 
     fn destroySwapchainFramebuffers(self: *@This()) void {

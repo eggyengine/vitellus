@@ -474,7 +474,7 @@ pub const Device = struct {
         return BindGroup.init(descriptor);
     }
 
-    pub fn createShaderModule(self: *@This(), descriptor: shader.ShaderModule.Descriptor) shader.ShaderModule {
+    pub fn createShaderModule(self: *@This(), descriptor: shader.ShaderModule.Descriptor) !shader.ShaderModule {
         log.debug("creating shader module", .{});
         const backend = self.backend.createShaderModule(descriptor) catch |err| {
             log.err("backend shader module creation failed: {s}", .{@errorName(err)});
@@ -540,8 +540,11 @@ pub const Device = struct {
 
     pub fn createCommandEncoder(self: *@This(), descriptor: ?CommandEncoder.Descriptor) CommandEncoder {
         log.debug("creating command encoder: descriptor={}", .{descriptor != null});
-        _ = self;
-        return .{ .label = if (descriptor) |d| d.label else null };
+        const backend = self.backend.createCommandEncoder(descriptor) catch |err| {
+            log.err("backend command encoder creation failed: {s}", .{@errorName(err)});
+            return .{ .label = if (descriptor) |d| d.label else null };
+        };
+        return .{ .backend = backend, .label = if (descriptor) |d| d.label else null };
     }
 
     pub fn createRenderBundleEncoder(self: *@This(), descriptor: RenderBundleEncoder.Descriptor) RenderBundleEncoder {
@@ -598,7 +601,16 @@ pub const Queue = struct {
 
     pub fn submit(self: *@This(), commandBuffers: []const command.CommandBuffer) void {
         log.debug("submitting queue work: command_buffers={}", .{commandBuffers.len});
-        _ = self;
+        var backend_buffers = std.heap.page_allocator.alloc(hal.CommandBuffer, commandBuffers.len) catch return;
+        defer std.heap.page_allocator.free(backend_buffers);
+        var count: usize = 0;
+        for (commandBuffers) |command_buffer| {
+            if (command_buffer.backend) |backend| {
+                backend_buffers[count] = backend;
+                count += 1;
+            }
+        }
+        self.backend.submit(backend_buffers[0..count]);
     }
 
     pub fn writeBuffer(

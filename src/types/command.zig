@@ -3,8 +3,10 @@ const buffer = @import("buffer.zig");
 const def = @import("def.zig");
 const pipeline = @import("pipeline.zig");
 const texture = @import("texture.zig");
+const backend = @import("../backends/hal.zig");
 
 pub const CommandBuffer = struct {
+    backend: ?backend.CommandBuffer = null,
     label: ?[*:0]const u8 = null,
 
     pub const Descriptor = struct {
@@ -13,6 +15,7 @@ pub const CommandBuffer = struct {
 };
 
 pub const CommandEncoder = struct {
+    backend: ?backend.CommandEncoder = null,
     label: ?[*:0]const u8 = null,
 
     pub const Descriptor = struct {
@@ -20,9 +23,9 @@ pub const CommandEncoder = struct {
     };
 
     pub fn beginRenderPass(self: *@This(), descriptor: RenderPassEncoder.Descriptor) RenderPassEncoder {
-        _ = self;
-        _ = descriptor;
-        return .{};
+        return .{
+            .backend = if (self.backend) |back| back.beginRenderPass(descriptor) catch null else null,
+        };
     }
 
     pub fn beginComputePass(self: *@This(), descriptor: ?ComputePassEncoder.Descriptor) ComputePassEncoder {
@@ -114,8 +117,9 @@ pub const CommandEncoder = struct {
     }
 
     pub fn finish(self: *@This()) CommandBuffer {
-        _ = self;
-        return .{};
+        return .{
+            .backend = if (self.backend) |back| back.finish(null) catch null else null,
+        };
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
@@ -235,6 +239,7 @@ pub const ComputePassEncoder = struct {
 };
 
 pub const RenderPassEncoder = struct {
+    backend: ?backend.RenderPassEncoder = null,
     label: ?[*:0]const u8 = null,
 
     pub const TimestampWrites = struct {
@@ -332,7 +337,7 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn end(self: *@This()) void {
-        _ = self;
+        if (self.backend) |back| back.end();
     }
 
     pub fn setPipeline(self: *@This(), target: *pipeline.RenderPipeline) void {

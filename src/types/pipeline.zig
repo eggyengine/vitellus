@@ -34,20 +34,6 @@ pub const PipelineLayout = struct {
     }
 };
 
-pub const AutoLayoutMode = enum {
-    auto,
-};
-
-pub const DescriptorLayout = union(enum) {
-    pipeline: *const PipelineLayout,
-    auto: AutoLayoutMode,
-};
-
-pub const DescriptorBase = struct {
-    label: ?[*:0]const u8 = null,
-    layout: DescriptorLayout,
-};
-
 pub const PipelineError = struct {
     message: []const u8 = "",
     reason: Reason,
@@ -76,7 +62,7 @@ pub const ComputePipeline = struct {
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
-        layout: DescriptorLayout,
+        layout: ?*const PipelineLayout = null,
         compute: ProgrammableStage,
     };
 
@@ -110,7 +96,7 @@ pub const RenderPipeline = struct {
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
-        layout: DescriptorLayout,
+        layout: ?*const PipelineLayout = null,
         vertex: VertexState,
         primitive: PrimitiveState = .{},
         depthStencil: ?DepthStencilState = null,
@@ -202,11 +188,39 @@ pub const ColorTargetState = struct {
 };
 
 pub const BlendState = struct {
+    pub const REPLACE = BlendState{
+        .color = BlendComponent.REPLACE,
+        .alpha = BlendComponent.REPLACE,
+    };
+
+    pub const ALPHA_BLENDING = BlendState{ .color = .{
+        .srcFactor = .src_alpha,
+        .dstFactor = .one_minus_src_alpha,
+        .operation = .add,
+    }, .alpha = BlendComponent.OVER };
+
+    pub const PREMULTIPLIED_ALPHA_BLENDING = BlendState{
+        .color = BlendComponent.OVER,
+        .alpha = BlendComponent.OVER,
+    };
+
     color: BlendComponent,
     alpha: BlendComponent,
 };
 
 pub const BlendComponent = struct {
+    pub const REPLACE = BlendComponent{
+        .srcFactor = .one,
+        .dstFactor = .zero,
+        .operation = .add,
+    };
+
+    pub const OVER = BlendComponent{
+        .srcFactor = .one,
+        .dstFactor = .one_minus_src_alpha,
+        .operation = .add,
+    };
+
     operation: BlendOperation = .add,
     srcFactor: BlendFactor = .one,
     dstFactor: BlendFactor = .zero,

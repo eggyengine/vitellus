@@ -8,9 +8,14 @@ pub const ShaderModule = struct {
 
     pub const CompilationInfoError = error{NotImplemented};
 
+    pub const ShaderSource = union(enum) {
+        wgsl: []const u8,
+        spirv: []const u8,
+    };
+
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
-        code: []const u8,
+        source: ShaderSource,
         compilation_hints: []const CompilationHint = &.{},
     };
 
@@ -35,16 +40,7 @@ pub const ShaderModule = struct {
 
     pub const CompilationHint = struct {
         entry_point: []const u8,
-        layout: ?Layout = null,
-
-        pub const Layout = union(enum) {
-            pipeline: *const pipeline.PipelineLayout,
-            auto: AutoLayoutMode,
-        };
-    };
-
-    pub const AutoLayoutMode = enum {
-        auto,
+        layout: ?*const pipeline.PipelineLayout = null,
     };
 
     pub fn getCompilationInfo(self: *@This(), io: std.Io) std.Io.Future(CompilationInfoError!CompilationInfo) {

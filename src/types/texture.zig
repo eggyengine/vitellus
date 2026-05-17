@@ -6,6 +6,9 @@ const hal = @import("../backends/hal.zig");
 const log = std.log.scoped(.vitellus_texture);
 
 pub const Texture = struct {
+    backend: ?hal.Texture = null,
+    present_context: ?*anyopaque = null,
+    present_callback: ?*const fn (*anyopaque) void = null,
     width: def.IntegerCoordinateOut,
     height: def.IntegerCoordinateOut,
     depthOrArrayLayers: def.IntegerCoordinateOut,
@@ -51,6 +54,16 @@ pub const Texture = struct {
     };
 
     pub const View = struct {
+        backend: ?hal.TextureView = null,
+
+        pub fn destroy(self: *@This()) void {
+            if (self.backend) |backend| {
+                backend.destroy();
+                self.backend = null;
+            }
+            std.heap.page_allocator.destroy(self);
+        }
+
         pub const Descriptor = struct {
             label: ?[*:0]const u8 = null,
             format: ?Format = null,
@@ -99,17 +112,27 @@ pub const Texture = struct {
     };
 
     pub fn deinit(self: *Texture) void {
-        _ = self;
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
     }
 
     pub fn createView(self: *Texture, descriptor: Texture.View.Descriptor) !*Texture.View {
-        _ = self;
-        _ = descriptor;
-        return error.NotImplemented;
+        const view = try std.heap.page_allocator.create(Texture.View);
+        errdefer std.heap.page_allocator.destroy(view);
+        view.* = .{
+            .backend = if (self.backend) |backend| try backend.createView(descriptor) else null,
+        };
+        return view;
     }
 
     pub fn present(self: *Texture) void {
-        _ = self;
+        if (self.present_context) |context| {
+            if (self.present_callback) |callback| callback(context);
+            self.present_context = null;
+            self.present_callback = null;
+        }
     }
 
     pub const Format = enum {

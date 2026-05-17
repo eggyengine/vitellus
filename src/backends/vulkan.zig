@@ -34,6 +34,7 @@ pub const vkBindGroupLayout = resource.vkBindGroupLayout;
 pub const vkBindGroup = resource.vkBindGroup;
 pub const vkQuerySet = resource.vkQuerySet;
 
+pub const vkShader = shader.vkShader;
 pub const vkShaderModule = shader.vkShaderModule;
 
 pub const vkPipelineLayout = pipeline.vkPipelineLayout;

@@ -102,7 +102,7 @@ pub const vkRenderPipeline = struct {
             descriptor.multisample.count,
             if (descriptor.fragment) |fragment| fragment.targets.len else 0,
         });
-        const layout, const owns_layout = try resolvePipelineLayout(device, descriptor.layout);
+        const layout, const owns_layout = try resolvePipelineLayout(device, descriptor.layout, descriptor.label);
         errdefer if (owns_layout) layout.vtable.destroy(layout.ptr);
         const vk_layout: *vkPipelineLayout = @ptrCast(@alignCast(layout.ptr));
 
@@ -306,17 +306,20 @@ fn shaderStageInfo(
     };
 }
 
-fn resolvePipelineLayout(device: *vkDevice, layout: pipeline.DescriptorLayout) !struct { hal.PipelineLayout, bool } {
-    _ = device;
-    return switch (layout) {
-        .pipeline => |explicit| .{
+fn resolvePipelineLayout(device: *vkDevice, layout: ?*const pipeline.PipelineLayout, label: ?[*:0]const u8) !struct { hal.PipelineLayout, bool } {
+    if (layout) |explicit| {
+        return .{
             explicit.backend orelse return error.InvalidPipelineLayout,
             false,
-        },
-        .auto => {
-            log.debug("vulkan pipeline layout auto mode requested but not implemented", .{});
-            return error.NotImplemented;
-        },
+        };
+    }
+
+    return .{
+        try vkPipelineLayout.init(device, .{
+            .label = label,
+            .bindGroupLayouts = &.{},
+        }),
+        true,
     };
 }
 

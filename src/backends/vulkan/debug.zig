@@ -7,6 +7,16 @@ pub fn enabled(device: anytype) bool {
     return device.adapter.gpu.validation_layers_enabled and device.adapter.gpu.debug_utils_enabled;
 }
 
+/// Applies a debug label to a Vulkan object (which can be useful in cases like RenderDoc).
+///
+/// # Args
+/// `device` - a `vkDevice` to set the label
+///
+/// `object_type` - the type of the Vulkan object (e.g. `vk.OBJECT_TYPE_BUFFER`)
+///
+/// `handle` - the handle of the Vulkan object (e.g. a `vk.Buffer`)
+///
+/// `label` - the label to apply to the object (if `null`, no label will be applied)
 pub fn setObjectName(
     device: anytype,
     object_type: vk.ObjectType,
