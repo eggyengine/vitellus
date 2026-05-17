@@ -13,6 +13,7 @@ pub const resource = @import("vulkan/resource.zig");
 pub const shader = @import("vulkan/shader.zig");
 pub const pipeline = @import("vulkan/pipeline.zig");
 pub const command = @import("vulkan/command.zig");
+pub const debug = @import("vulkan/debug.zig");
 
 pub const InstanceDescriptor = instance.InstanceDescriptor;
 pub const vkInstance = instance.vkInstance;
@@ -47,7 +48,7 @@ pub const vkRenderBundle = command.vkRenderBundle;
 pub const vkRenderBundleEncoder = command.vkRenderBundleEncoder;
 
 pub fn init(descriptor: gpu.Instance.Descriptor) hal.Instance.FromPotentialBackendsError!hal.Instance {
-    return vkInstance.initWithDescriptor(.{
+    return vkInstance.initWithDescriptor(descriptor.allocator, .{
         .enable_validation = descriptor.flags.validation,
     }) catch error.NoBackendAvailable;
 }

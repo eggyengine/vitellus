@@ -7,6 +7,7 @@ const texture = @import("../../types/texture.zig");
 const instance_backend = @import("instance.zig");
 const surface_backend = @import("surface.zig");
 const device_backend = @import("device.zig");
+const debug = @import("debug.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
@@ -27,9 +28,9 @@ pub fn findQueueFamilies(instance: *instance_backend.vkInstance, pdev: vk.Physic
     const vk_surface: *surface_backend.vkSurface = @ptrCast(@alignCast(surface.ptr));
     const queue_families = try instance.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(
         pdev,
-        std.heap.page_allocator,
+        instance.allocator,
     );
-    defer std.heap.page_allocator.free(queue_families);
+    defer instance.allocator.free(queue_families);
 
     var indices = QueueFamilyIndices{};
     for (queue_families, 0..) |queue_family, i| {
@@ -88,12 +89,12 @@ pub fn checkDeviceExtensionSupport(instance: *instance_backend.vkInstance, pdev:
     const available_extensions = instance.instance.enumerateDeviceExtensionPropertiesAlloc(
         pdev,
         null,
-        std.heap.page_allocator,
+        instance.allocator,
     ) catch |err| {
         log.debug("failed to enumerate vulkan device extensions: {s}", .{@errorName(err)});
         return false;
     };
-    defer std.heap.page_allocator.free(available_extensions);
+    defer instance.allocator.free(available_extensions);
 
     for (required_device_extensions) |required_extension| {
         if (!hasDeviceExtension(available_extensions, std.mem.span(required_extension))) {
@@ -111,22 +112,22 @@ fn hasAdequateSwapchainSupport(instance: *instance_backend.vkInstance, pdev: vk.
     const formats = instance.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(
         pdev,
         vk_surface.handle,
-        std.heap.page_allocator,
+        instance.allocator,
     ) catch |err| {
         log.debug("failed to query vulkan surface formats: {s}", .{@errorName(err)});
         return false;
     };
-    defer std.heap.page_allocator.free(formats);
+    defer instance.allocator.free(formats);
 
     const present_modes = instance.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(
         pdev,
         vk_surface.handle,
-        std.heap.page_allocator,
+        instance.allocator,
     ) catch |err| {
         log.debug("failed to query vulkan present modes: {s}", .{@errorName(err)});
         return false;
     };
-    defer std.heap.page_allocator.free(present_modes);
+    defer instance.allocator.free(present_modes);
 
     return formats.len != 0 and present_modes.len != 0;
 }
@@ -180,7 +181,6 @@ pub const vkAdapter = struct {
 
     fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
         const adapter: *@This() = @ptrCast(@alignCast(ptr));
-        _ = options;
 
         const graphics_queue_family = adapter.queue_family_indices.graphics_family orelse return error.NoGraphicsQueueFamily;
         const present_queue_family = adapter.queue_family_indices.present_family orelse return error.NoPresentQueueFamily;
@@ -206,8 +206,7 @@ pub const vkAdapter = struct {
         const create_info = vk.DeviceCreateInfo{
             .queue_create_info_count = @intCast(queue_family_count),
             .p_queue_create_infos = @ptrCast(&queue_create_infos),
-            .enabled_layer_count = if (adapter.gpu.validation_layers_enabled) @intCast(adapter.gpu.validation_layers.len) else 0,
-            .pp_enabled_layer_names = if (adapter.gpu.validation_layers_enabled) adapter.gpu.validation_layers.ptr else null,
+            .pp_enabled_layer_names = null,
             .enabled_extension_count = @intCast(required_device_extensions.len),
             .pp_enabled_extension_names = &required_device_extensions,
             .p_enabled_features = &device_features,
@@ -217,8 +216,8 @@ pub const vkAdapter = struct {
         log.debug("creating vulkan logical device: graphics_queue_family={}", .{graphics_queue_family});
         const device_handle = try adapter.gpu.instance.createDevice(adapter.pdev, &create_info, null);
 
-        const device = try std.heap.page_allocator.create(device_backend.vkDevice);
-        errdefer std.heap.page_allocator.destroy(device);
+        const device = try adapter.gpu.allocator.create(device_backend.vkDevice);
+        errdefer adapter.gpu.allocator.destroy(device);
         device.* = .{
             .adapter = adapter,
             .vkd = undefined,
@@ -239,6 +238,9 @@ pub const vkAdapter = struct {
             .device = device,
             .handle = device.graphics_queue,
         };
+
+        debug.setObjectName(device, .device, device.device_handle, options.label);
+        debug.setObjectName(device, .queue, device.graphics_queue, options.default_queue.label);
 
         log.debug("created vulkan logical device: handle=0x{x} graphics_queue=0x{x}", .{
             @intFromEnum(device.device_handle),

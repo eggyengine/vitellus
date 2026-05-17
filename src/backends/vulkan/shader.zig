@@ -4,6 +4,7 @@ const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const hal = @import("../hal.zig");
 const shader = @import("../../types/shader.zig");
+const debug = @import("debug.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
@@ -29,8 +30,8 @@ pub const vkShaderModule = struct {
         }
 
         const word_count = descriptor.code.len / @sizeOf(u32);
-        const words = try std.heap.page_allocator.alloc(u32, word_count);
-        defer std.heap.page_allocator.free(words);
+        const words = try device.adapter.gpu.allocator.alloc(u32, word_count);
+        defer device.adapter.gpu.allocator.free(words);
 
         for (words, 0..) |*word, i| {
             const offset = i * @sizeOf(u32);
@@ -50,13 +51,14 @@ pub const vkShaderModule = struct {
         const handle = try device.device.createShaderModule(&create_info, null);
         errdefer device.device.destroyShaderModule(handle, null);
 
-        const module = try std.heap.page_allocator.create(vkShaderModule);
-        errdefer std.heap.page_allocator.destroy(module);
+        const module = try device.adapter.gpu.allocator.create(vkShaderModule);
+        errdefer device.adapter.gpu.allocator.destroy(module);
         module.* = .{
             .device = device,
             .handle = handle,
             .label = descriptor.label,
         };
+        debug.setObjectName(device, .shader_module, handle, descriptor.label);
 
         log.debug("created vulkan shader module: handle=0x{x} bytes={}", .{
             @intFromEnum(handle),
@@ -75,7 +77,7 @@ pub const vkShaderModule = struct {
             typed.device.device.destroyShaderModule(typed.handle, null);
             typed.handle = .null_handle;
         }
-        std.heap.page_allocator.destroy(typed);
+        typed.device.adapter.gpu.allocator.destroy(typed);
     }
 
     fn getCompilationInfo(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!shader.ShaderModule.CompilationInfo) {

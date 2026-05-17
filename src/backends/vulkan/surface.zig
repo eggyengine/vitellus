@@ -8,6 +8,7 @@ const vulkan_windowing = @import("../../windowing/vulkan.zig");
 const adapter_backend = @import("adapter.zig");
 const instance_backend = @import("instance.zig");
 const vkDevice = @import("device.zig").vkDevice;
+const debug = @import("debug.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
@@ -16,9 +17,9 @@ const SwapChainSupportDetails = struct {
     formats: []vk.SurfaceFormatKHR,
     present_modes: []vk.PresentModeKHR,
 
-    fn deinit(self: @This()) void {
-        std.heap.page_allocator.free(self.formats);
-        std.heap.page_allocator.free(self.present_modes);
+    fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.formats);
+        allocator.free(self.present_modes);
     }
 };
 
@@ -82,15 +83,15 @@ pub const vkSurface = struct {
         self.unconfigureSwapchain();
 
         if (self.formats) |formats| {
-            std.heap.page_allocator.free(formats);
+            self.gpu.allocator.free(formats);
             self.formats = null;
         }
         if (self.present_modes) |present_modes| {
-            std.heap.page_allocator.free(present_modes);
+            self.gpu.allocator.free(present_modes);
             self.present_modes = null;
         }
         if (self.alpha_modes) |alpha_modes| {
-            std.heap.page_allocator.free(alpha_modes);
+            self.gpu.allocator.free(alpha_modes);
             self.alpha_modes = null;
         }
 
@@ -99,7 +100,7 @@ pub const vkSurface = struct {
             self.gpu.instance.destroySurfaceKHR(self.handle, null);
             self.handle = .null_handle;
         }
-        std.heap.page_allocator.destroy(self);
+        self.gpu.allocator.destroy(self);
     }
 
     fn getCapabilities(ptr: *anyopaque, adapter: hal.Adapter) texture.Surface.Capabilities {
@@ -127,27 +128,27 @@ pub const vkSurface = struct {
         const vk_formats = try self.gpu.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(
             adapter.pdev,
             self.handle,
-            std.heap.page_allocator,
+            self.gpu.allocator,
         );
-        defer std.heap.page_allocator.free(vk_formats);
+        defer self.gpu.allocator.free(vk_formats);
 
         const vk_present_modes = try self.gpu.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(
             adapter.pdev,
             self.handle,
-            std.heap.page_allocator,
+            self.gpu.allocator,
         );
-        defer std.heap.page_allocator.free(vk_present_modes);
+        defer self.gpu.allocator.free(vk_present_modes);
 
         const vk_caps = try self.gpu.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(adapter.pdev, self.handle);
 
-        const formats = try std.heap.page_allocator.alloc(texture.Texture.Format, vk_formats.len);
-        errdefer std.heap.page_allocator.free(formats);
+        const formats = try self.gpu.allocator.alloc(texture.Texture.Format, vk_formats.len);
+        errdefer self.gpu.allocator.free(formats);
         for (vk_formats, formats) |vk_format, *format| {
             format.* = textureFormatFromVulkan(vk_format.format) orelse .bgra8unorm;
         }
 
-        const modes = try std.heap.page_allocator.alloc(texture.Surface.PresentMode, vk_present_modes.len);
-        errdefer std.heap.page_allocator.free(modes);
+        const modes = try self.gpu.allocator.alloc(texture.Surface.PresentMode, vk_present_modes.len);
+        errdefer self.gpu.allocator.free(modes);
         for (vk_present_modes, modes) |vk_mode, *mode| {
             mode.* = presentModeFromVulkan(vk_mode) orelse .fifo;
         }
@@ -169,13 +170,13 @@ pub const vkSurface = struct {
             alpha_count += 1;
         }
 
-        const alpha = try std.heap.page_allocator.alloc(texture.Surface.AlphaMode, alpha_count);
-        errdefer std.heap.page_allocator.free(alpha);
+        const alpha = try self.gpu.allocator.alloc(texture.Surface.AlphaMode, alpha_count);
+        errdefer self.gpu.allocator.free(alpha);
         @memcpy(alpha, alpha_buffer[0..alpha_count]);
 
-        if (self.formats) |old| std.heap.page_allocator.free(old);
-        if (self.present_modes) |old| std.heap.page_allocator.free(old);
-        if (self.alpha_modes) |old| std.heap.page_allocator.free(old);
+        if (self.formats) |old| self.gpu.allocator.free(old);
+        if (self.present_modes) |old| self.gpu.allocator.free(old);
+        if (self.alpha_modes) |old| self.gpu.allocator.free(old);
         self.formats = formats;
         self.present_modes = modes;
         self.alpha_modes = alpha;
@@ -208,7 +209,7 @@ pub const vkSurface = struct {
         self.unconfigureSwapchain();
 
         var support = try querySwapChainSupport(self.gpu, device.adapter.pdev, self.handle);
-        defer support.deinit();
+        defer support.deinit(self.gpu.allocator);
         if (support.formats.len == 0) {
             return error.NoSwapchainSurfaceFormats;
         }
@@ -259,9 +260,9 @@ pub const vkSurface = struct {
 
         const swapchain_images = try device.device.getSwapchainImagesAllocKHR(
             swapchain,
-            std.heap.page_allocator,
+            self.gpu.allocator,
         );
-        errdefer std.heap.page_allocator.free(swapchain_images);
+        errdefer self.gpu.allocator.free(swapchain_images);
 
         self.swapchain_device = device;
         self.swapchain = swapchain;
@@ -275,9 +276,9 @@ pub const vkSurface = struct {
             for (views.items) |view| {
                 device.device.destroyImageView(view, null);
             }
-            views.deinit(std.heap.page_allocator);
+            views.deinit(self.gpu.allocator);
         }
-        try views.ensureTotalCapacity(std.heap.page_allocator, swapchain_images.len);
+        try views.ensureTotalCapacity(self.gpu.allocator, swapchain_images.len);
 
         for (0..swapchain_images.len) |i| {
             const ivci: vk.ImageViewCreateInfo = .{
@@ -299,9 +300,10 @@ pub const vkSurface = struct {
                 },
             };
             const image_view = try device.device.createImageView(&ivci, null);
-            try views.append(std.heap.page_allocator, image_view);
+            try views.append(self.gpu.allocator, image_view);
         }
-        self.swapchain_image_views = try views.toOwnedSlice(std.heap.page_allocator);
+        self.swapchain_image_views = try views.toOwnedSlice(self.gpu.allocator);
+        debug.setObjectName(device, .swapchain_khr, swapchain, null);
 
         log.debug("configured vulkan swapchain: images={} format={s} extent={}x{}", .{
             swapchain_images.len,
@@ -328,14 +330,14 @@ pub const vkSurface = struct {
         const device = self.swapchain_device orelse return error.SurfaceNotConfigured;
         const image_views = self.swapchain_image_views orelse return error.SurfaceNotConfigured;
 
-        var framebuffers = try std.heap.page_allocator.alloc(vk.Framebuffer, image_views.len);
+        var framebuffers = try self.gpu.allocator.alloc(vk.Framebuffer, image_views.len);
         errdefer {
             for (framebuffers) |framebuffer| {
                 if (framebuffer != .null_handle) {
                     device.device.destroyFramebuffer(framebuffer, null);
                 }
             }
-            std.heap.page_allocator.free(framebuffers);
+            self.gpu.allocator.free(framebuffers);
         }
         @memset(framebuffers, .null_handle);
 
@@ -374,12 +376,12 @@ pub const vkSurface = struct {
                 }
             }
 
-            std.heap.page_allocator.free(views);
+            self.gpu.allocator.free(views);
             self.swapchain_image_views = null;
         }
 
         if (self.swapchain_images) |images| {
-            std.heap.page_allocator.free(images);
+            self.gpu.allocator.free(images);
             self.swapchain_images = null;
         }
 
@@ -407,7 +409,7 @@ pub const vkSurface = struct {
                 }
             }
 
-            std.heap.page_allocator.free(framebuffers);
+            self.gpu.allocator.free(framebuffers);
             self.swapchain_framebuffers = null;
         }
         self.swapchain_framebuffer_render_pass = .null_handle;
@@ -423,16 +425,16 @@ fn querySwapChainSupport(
     const formats = try instance.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(
         pdev,
         surface,
-        std.heap.page_allocator,
+        instance.allocator,
     );
-    errdefer std.heap.page_allocator.free(formats);
+    errdefer instance.allocator.free(formats);
 
     const present_modes = try instance.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(
         pdev,
         surface,
-        std.heap.page_allocator,
+        instance.allocator,
     );
-    errdefer std.heap.page_allocator.free(present_modes);
+    errdefer instance.allocator.free(present_modes);
 
     return .{
         .capabilities = capabilities,

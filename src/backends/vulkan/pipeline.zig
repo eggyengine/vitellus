@@ -7,6 +7,7 @@ const sampler = @import("../../types/sampler.zig");
 const texture = @import("../../types/texture.zig");
 const vkDevice = @import("device.zig").vkDevice;
 const vkShaderModule = @import("shader.zig").vkShaderModule;
+const debug = @import("debug.zig");
 
 const log = std.log.scoped(.vitellus_vulkan);
 
@@ -30,13 +31,14 @@ pub const vkPipelineLayout = struct {
         const handle = try device.device.createPipelineLayout(&create_info, null);
         errdefer device.device.destroyPipelineLayout(handle, null);
 
-        const layout = try std.heap.page_allocator.create(vkPipelineLayout);
-        errdefer std.heap.page_allocator.destroy(layout);
+        const layout = try device.adapter.gpu.allocator.create(vkPipelineLayout);
+        errdefer device.adapter.gpu.allocator.destroy(layout);
         layout.* = .{
             .device = device,
             .handle = handle,
             .label = descriptor.label,
         };
+        debug.setObjectName(device, .pipeline_layout, handle, descriptor.label);
 
         log.debug("created vulkan pipeline layout: handle=0x{x}", .{@intFromEnum(handle)});
         return .{
@@ -52,7 +54,7 @@ pub const vkPipelineLayout = struct {
             typed.device.device.destroyPipelineLayout(typed.handle, null);
             typed.handle = .null_handle;
         }
-        std.heap.page_allocator.destroy(typed);
+        typed.device.adapter.gpu.allocator.destroy(typed);
     }
 };
 
@@ -107,7 +109,7 @@ pub const vkRenderPipeline = struct {
         const render_pass = try createRenderPass(device, descriptor);
         errdefer device.device.destroyRenderPass(render_pass, null);
 
-        var entry_points = EntryPointSet{};
+        var entry_points = EntryPointSet{ .allocator = device.adapter.gpu.allocator };
         defer entry_points.deinit();
 
         var stages: [2]vk.PipelineShaderStageCreateInfo = undefined;
@@ -138,7 +140,7 @@ pub const vkRenderPipeline = struct {
             return error.NotImplemented;
         }
 
-        var vertex_state = try VertexInputState.init(descriptor.vertex);
+        var vertex_state = try VertexInputState.init(device.adapter.gpu.allocator, descriptor.vertex);
         defer vertex_state.deinit();
 
         const input_assembly = vk.PipelineInputAssemblyStateCreateInfo{
@@ -181,7 +183,7 @@ pub const vkRenderPipeline = struct {
             .alpha_to_one_enable = .false,
         };
 
-        var color_blend_state = try ColorBlendState.init(descriptor.fragment);
+        var color_blend_state = try ColorBlendState.init(device.adapter.gpu.allocator, descriptor.fragment);
         defer color_blend_state.deinit();
 
         const depth_stencil_state = if (descriptor.depthStencil) |depth_stencil|
@@ -220,8 +222,8 @@ pub const vkRenderPipeline = struct {
         }
         errdefer device.device.destroyPipeline(handle, null);
 
-        const render_pipeline = try std.heap.page_allocator.create(vkRenderPipeline);
-        errdefer std.heap.page_allocator.destroy(render_pipeline);
+        const render_pipeline = try device.adapter.gpu.allocator.create(vkRenderPipeline);
+        errdefer device.adapter.gpu.allocator.destroy(render_pipeline);
         render_pipeline.* = .{
             .device = device,
             .handle = handle,
@@ -230,6 +232,8 @@ pub const vkRenderPipeline = struct {
             .owns_layout = owns_layout,
             .label = descriptor.label,
         };
+        debug.setObjectName(device, .pipeline, handle, descriptor.label);
+        debug.setObjectName(device, .render_pass, render_pass, descriptor.label);
 
         log.debug("created vulkan render pipeline: handle=0x{x} render_pass=0x{x}", .{
             @intFromEnum(handle),
@@ -257,7 +261,7 @@ pub const vkRenderPipeline = struct {
             vkPipelineLayout.vtable.destroy(typed.layout);
             typed.owns_layout = false;
         }
-        std.heap.page_allocator.destroy(typed);
+        typed.device.adapter.gpu.allocator.destroy(typed);
     }
 
     fn getBindGroupLayout(ptr: *anyopaque, index: u32) anyerror!hal.BindGroupLayout {
@@ -268,21 +272,22 @@ pub const vkRenderPipeline = struct {
 };
 
 const EntryPointSet = struct {
+    allocator: std.mem.Allocator,
     owned: std.ArrayList([:0]u8) = .empty,
 
     fn dupe(self: *@This(), entry_point: ?[]const u8) ![*:0]const u8 {
         const name = entry_point orelse return "main";
-        const copy = try std.heap.page_allocator.dupeZ(u8, name);
-        errdefer std.heap.page_allocator.free(copy);
-        try self.owned.append(std.heap.page_allocator, copy);
+        const copy = try self.allocator.dupeZ(u8, name);
+        errdefer self.allocator.free(copy);
+        try self.owned.append(self.allocator, copy);
         return copy.ptr;
     }
 
     fn deinit(self: *@This()) void {
         for (self.owned.items) |name| {
-            std.heap.page_allocator.free(name);
+            self.allocator.free(name);
         }
-        self.owned.deinit(std.heap.page_allocator);
+        self.owned.deinit(self.allocator);
     }
 };
 
@@ -316,19 +321,20 @@ fn resolvePipelineLayout(device: *vkDevice, layout: pipeline.DescriptorLayout) !
 }
 
 const VertexInputState = struct {
+    allocator: std.mem.Allocator,
     bindings: []vk.VertexInputBindingDescription,
     attributes: []vk.VertexInputAttributeDescription,
     create_info: vk.PipelineVertexInputStateCreateInfo,
 
-    fn init(vertex: pipeline.VertexState) !@This() {
+    fn init(allocator: std.mem.Allocator, vertex: pipeline.VertexState) !@This() {
         var binding_list = std.ArrayList(vk.VertexInputBindingDescription).empty;
-        errdefer binding_list.deinit(std.heap.page_allocator);
+        errdefer binding_list.deinit(allocator);
         var attribute_list = std.ArrayList(vk.VertexInputAttributeDescription).empty;
-        errdefer attribute_list.deinit(std.heap.page_allocator);
+        errdefer attribute_list.deinit(allocator);
 
         for (vertex.buffers, 0..) |maybe_buffer, binding_index| {
             const buffer = maybe_buffer orelse continue;
-            try binding_list.append(std.heap.page_allocator, .{
+            try binding_list.append(allocator, .{
                 .binding = @intCast(binding_index),
                 .stride = @intCast(buffer.arrayStride),
                 .input_rate = switch (buffer.stepMode) {
@@ -338,7 +344,7 @@ const VertexInputState = struct {
             });
 
             for (buffer.attributes) |attribute| {
-                try attribute_list.append(std.heap.page_allocator, .{
+                try attribute_list.append(allocator, .{
                     .location = attribute.shaderLocation,
                     .binding = @intCast(binding_index),
                     .format = vertexFormatToVulkan(attribute.format),
@@ -347,12 +353,13 @@ const VertexInputState = struct {
             }
         }
 
-        const bindings = try binding_list.toOwnedSlice(std.heap.page_allocator);
-        errdefer std.heap.page_allocator.free(bindings);
-        const attributes = try attribute_list.toOwnedSlice(std.heap.page_allocator);
-        errdefer std.heap.page_allocator.free(attributes);
+        const bindings = try binding_list.toOwnedSlice(allocator);
+        errdefer allocator.free(bindings);
+        const attributes = try attribute_list.toOwnedSlice(allocator);
+        errdefer allocator.free(attributes);
 
         return .{
+            .allocator = allocator,
             .bindings = bindings,
             .attributes = attributes,
             .create_info = .{
@@ -365,19 +372,20 @@ const VertexInputState = struct {
     }
 
     fn deinit(self: *@This()) void {
-        std.heap.page_allocator.free(self.bindings);
-        std.heap.page_allocator.free(self.attributes);
+        self.allocator.free(self.bindings);
+        self.allocator.free(self.attributes);
     }
 };
 
 const ColorBlendState = struct {
+    allocator: std.mem.Allocator,
     attachments: []vk.PipelineColorBlendAttachmentState,
     create_info: vk.PipelineColorBlendStateCreateInfo,
 
-    fn init(fragment: ?pipeline.FragmentState) !@This() {
+    fn init(allocator: std.mem.Allocator, fragment: ?pipeline.FragmentState) !@This() {
         const target_count = if (fragment) |frag| frag.targets.len else 0;
-        const attachments = try std.heap.page_allocator.alloc(vk.PipelineColorBlendAttachmentState, target_count);
-        errdefer std.heap.page_allocator.free(attachments);
+        const attachments = try allocator.alloc(vk.PipelineColorBlendAttachmentState, target_count);
+        errdefer allocator.free(attachments);
 
         if (fragment) |frag| {
             for (frag.targets, attachments) |maybe_target, *attachment| {
@@ -386,6 +394,7 @@ const ColorBlendState = struct {
         }
 
         return .{
+            .allocator = allocator,
             .attachments = attachments,
             .create_info = .{
                 .logic_op_enable = .false,
@@ -398,7 +407,7 @@ const ColorBlendState = struct {
     }
 
     fn deinit(self: *@This()) void {
-        std.heap.page_allocator.free(self.attachments);
+        self.allocator.free(self.attachments);
     }
 };
 
@@ -407,10 +416,11 @@ fn createRenderPass(device: *vkDevice, descriptor: pipeline.RenderPipeline.Descr
     const has_depth = descriptor.depthStencil != null;
     const max_attachments = color_target_count + @as(usize, if (has_depth) 1 else 0);
 
-    var attachments = try std.heap.page_allocator.alloc(vk.AttachmentDescription, max_attachments);
-    defer std.heap.page_allocator.free(attachments);
-    var color_refs = try std.heap.page_allocator.alloc(vk.AttachmentReference, color_target_count);
-    defer std.heap.page_allocator.free(color_refs);
+    const allocator = device.adapter.gpu.allocator;
+    var attachments = try allocator.alloc(vk.AttachmentDescription, max_attachments);
+    defer allocator.free(attachments);
+    var color_refs = try allocator.alloc(vk.AttachmentReference, color_target_count);
+    defer allocator.free(color_refs);
 
     var attachment_count: usize = 0;
     if (descriptor.fragment) |fragment| {

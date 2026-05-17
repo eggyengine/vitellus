@@ -1,0 +1,36 @@
+const vk = @import("vulkan");
+const std = @import("std");
+
+const log = std.log.scoped(.vitellus_vulkan_debug);
+
+pub fn enabled(device: anytype) bool {
+    return device.adapter.gpu.validation_layers_enabled and device.adapter.gpu.debug_utils_enabled;
+}
+
+pub fn setObjectName(
+    device: anytype,
+    object_type: vk.ObjectType,
+    handle: anytype,
+    label: ?[*:0]const u8,
+) void {
+    const name = label orelse return;
+    if (!enabled(device)) return;
+
+    if (!@hasDecl(vk.DeviceProxy, "setDebugUtilsObjectNameEXT")) {
+        log.debug("cannot apply label {s}: vulkan-zig DeviceProxy does not expose vkSetDebugUtilsObjectNameEXT", .{name});
+        return;
+    }
+
+    const info = vk.DebugUtilsObjectNameInfoEXT{
+        .object_type = object_type,
+        .object_handle = @intCast(@intFromEnum(handle)),
+        .p_object_name = name,
+    };
+
+    device.device.setDebugUtilsObjectNameEXT(&info) catch |err| {
+        log.warn("failed to apply label {s} to {s}: {s}", .{ name, @tagName(object_type), @errorName(err) });
+        return;
+    };
+
+    log.debug("applied label {s} to {s} 0x{x}", .{ name, @tagName(object_type), @intFromEnum(handle) });
+}

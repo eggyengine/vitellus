@@ -23,6 +23,7 @@ pub fn main(init: std.process.Init) !void {
 
     const wrapper = vit.windowing.sdl3.Sdl3Window.init(window);
     var state = try initPipeline(wrapper, init);
+    defer state.deinit();
 
     var quit = false;
     while (!quit) {
@@ -64,19 +65,28 @@ pub fn main(init: std.process.Init) !void {
 }
 
 pub const State = struct {
+    instance: vit.Instance,
     surface: vit.Surface,
     device: vit.Device,
     queue: vit.Queue,
     config: vit.Surface.Configuration,
     isSurfaceConfigured: bool,
+
+    fn deinit(self: *@This()) void {
+        self.surface.deinit();
+        self.device.destroy();
+        self.instance.deinit();
+    }
 };
 
 fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) !State {
     const size = try wrapper.window.getSize();
     // initialise the instance
     var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true, .noop = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
+    errdefer instance.deinit();
     // create the surface from the window
-    const surface = try instance.createSurface(try wrapper.asWindow());
+    var surface = try instance.createSurface(try wrapper.asWindow());
+    errdefer surface.deinit();
 
     // request the adapter
     var adapterF = instance.requestAdapter(init.io, .{
@@ -91,7 +101,8 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         .label = "device",
     });
     defer _ = deviceF.cancel(init.io) catch {};
-    const device, const queue = try deviceF.await(init.io);
+    var device, const queue = try deviceF.await(init.io);
+    errdefer device.destroy();
 
     const surface_caps = surface.getCapabilities(&adapter);
 
@@ -115,6 +126,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     };
 
     return State{
+        .instance = instance,
         .surface = surface,
         .device = device,
         .queue = queue,

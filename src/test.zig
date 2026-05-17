@@ -20,7 +20,7 @@ const DummyWindow = struct {
 };
 
 fn setup() !void {
-    instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{});
+    instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{ .allocator = std.testing.allocator });
 
     // const surface = instance.createSurface(vit.windowing.sdl3.Sdl3Window.init(window: (unknown type)))
 
@@ -33,9 +33,15 @@ fn setup() !void {
     device, _ = try deviceF.await(io);
 }
 
+fn teardown() void {
+    device.destroy();
+    instance.deinit();
+}
+
 test "example 4.5" {
     // the exact same code as setup()
-    instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{});
+    instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{ .allocator = std.testing.allocator });
+    defer instance.deinit();
 
     var adapterF = instance.requestAdapter(io, .{});
     defer _ = adapterF.cancel(io) catch {};
@@ -44,12 +50,14 @@ test "example 4.5" {
     var deviceF = adapter.requestDevice(io, .{});
     defer _ = deviceF.cancel(io) catch {};
     device, _ = try deviceF.await(io);
+    defer device.destroy();
 }
 
 test "enumerate adapters and filter by surface support" {
     instance = try vit.Instance.initFromPotentialBackends(.{ .noop = true }, .{
         .allocator = std.testing.allocator,
     });
+    defer instance.deinit();
 
     var surface = try instance.createSurface(DummyWindow{});
     defer surface.deinit();
@@ -70,6 +78,7 @@ test "enumerate adapters and filter by surface support" {
 
 test "example 8.4" {
     try setup();
+    defer teardown();
 
     const entries = [_]*const vit.BindGroupLayout.Entry{
         &.{
@@ -116,16 +125,17 @@ test "example 8.4" {
         &bind_group_layout,
     };
 
-    const pipeline_layout = device.createPipelineLayout(.{
+    var pipeline_layout = device.createPipelineLayout(.{
         .bindGroupLayouts = &bind_group_layouts,
     });
+    defer pipeline_layout.destroy();
 
     _ = bind_group;
-    _ = pipeline_layout;
 }
 
 test "example 26" {
     try setup();
+    defer teardown();
 
     const shader_content =
         \\\ var<private> pos : array<vec2<f32>, 3> = array<vec2<f32>, 3>(
@@ -142,6 +152,6 @@ test "example 26" {
         \\\ }
     ;
 
-    const shader_module = device.createShaderModule(.{ .code = shader_content });
-    _ = shader_module;
+    var shader_module = device.createShaderModule(.{ .code = shader_content });
+    defer shader_module.destroy();
 }

@@ -18,10 +18,11 @@ const log = std.log.scoped(.vitellus_gpu);
 pub const Instance = struct {
     allocator: std.mem.Allocator,
     backend: hal.Instance,
-    descriptor: Descriptor, 
+    descriptor: Descriptor,
 
     pub const Flags = packed struct(u32) {
         debug: bool = false,
+        /// Enables validation layers
         validation: bool = @import("builtin").mode == .Debug,
         discard_hal_labels: bool = false,
         _: u29 = 0,
@@ -45,9 +46,10 @@ pub const Instance = struct {
         wgslLanguageFeatures: []const []const u8 = &.{},
     };
 
-    pub fn enumerateAdapters(self: *const @This(), options: ?Adapter.RequestOptions) ![]Adapter {
+    pub fn enumerateAdapters(self: *@This(), options: ?Adapter.RequestOptions) ![]Adapter {
         log.debug("enumerating adapters: options={}", .{options != null});
         const backend_adapters = try self.backend.enumerateAdapters(options orelse .{});
+        defer self.allocator.free(backend_adapters);
 
         const adapters = try self.allocator.alloc(Adapter, backend_adapters.len);
         for (backend_adapters, adapters) |backend_adapter, *adapter| {
@@ -66,6 +68,9 @@ pub const Instance = struct {
         return io.async(requestAdapterInternal, .{ self, io, options });
     }
 
+    /// Initialises a `vit.Instance` with a specific backend type, with initialisation being done internally.
+    ///
+    /// The `init` function must have a signature of `fn init(descriptor: vit.Instance.Descriptor) !vit.Instance`
     pub fn init(comptime Backend: type, descriptor: Descriptor) !Instance {
         log.debug("initializing instance with backend {s}", .{@typeName(Backend)});
         const backend = try Backend.init(descriptor);
@@ -77,6 +82,7 @@ pub const Instance = struct {
         };
     }
 
+    /// Creates a `vit.Instance` object from an already initialised backend.
     pub fn initFromBackend(backend: hal.Instance, descriptor: Descriptor) Instance {
         log.debug("initializing instance from backend handle", .{});
         return .{
@@ -86,6 +92,7 @@ pub const Instance = struct {
         };
     }
 
+    /// Initialises `vit.Instance` type using the Backends specified in `flags`.
     pub fn initFromPotentialBackends(comptime flags: hal.Backends, descriptor: Descriptor) hal.Instance.FromPotentialBackendsError!Instance {
         log.debug("selecting instance backend: flags=0x{x}", .{flags.toFlags()});
         const Backend = try hal.Instance.fromPotentialBackends(flags);
@@ -154,7 +161,7 @@ pub const Instance = struct {
         return self.adapterFromBackend(backend_adapter, options);
     }
 
-    fn adapterFromBackend(self: *const @This(), backend_adapter: hal.Adapter, options: Adapter.RequestOptions) Adapter {
+    fn adapterFromBackend(self: *@This(), backend_adapter: hal.Adapter, options: Adapter.RequestOptions) Adapter {
         const info = backend_adapter.getInfo();
         return .{
             .backend = backend_adapter,
@@ -177,7 +184,7 @@ pub const Adapter = struct {
     defaultFeatureLevel: FeatureLevel,
     state: State,
     info: Info,
-    instance: *const Instance,
+    instance: *Instance,
 
     pub const RequestOptions = struct {
         label: ?[*:0]const u8 = null,

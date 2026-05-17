@@ -61,7 +61,7 @@ pub const vkDevice = struct {
             typed.device.destroyDevice(null);
             typed.device_handle = .null_handle;
         }
-        std.heap.page_allocator.destroy(typed);
+        typed.adapter.gpu.allocator.destroy(typed);
     }
 
     fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {

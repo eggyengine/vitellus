@@ -15,10 +15,10 @@ const pipeline_backend = @import("pipeline.zig");
 const resource = @import("resource.zig");
 const shader_backend = @import("shader.zig");
 
-const allocator = std.heap.page_allocator;
 const log = std.log.scoped(.vitellus_noop);
 
 pub const NoopDevice = struct {
+    allocator: std.mem.Allocator,
     queue: NoopQueue = .{},
 
     pub const vtable = hal.Device.VTable{
@@ -44,9 +44,9 @@ pub const NoopDevice = struct {
         .getQueue = getQueue,
     };
 
-    pub fn init() !struct { hal.Device, hal.Queue } {
+    pub fn init(allocator: std.mem.Allocator) !struct { hal.Device, hal.Queue } {
         const device = try allocator.create(NoopDevice);
-        device.* = .{};
+        device.* = .{ .allocator = allocator };
         const device_handle = hal.Device{
             .ptr = device,
             .vtable = &vtable,
@@ -61,67 +61,67 @@ pub const NoopDevice = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         log.debug("destroying noop device", .{});
-        allocator.destroy(typed);
+        typed.allocator.destroy(typed);
     }
 
     fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopBuffer.init();
+        return resource.NoopBuffer.init(typed.allocator);
     }
 
     fn createTexture(ptr: *anyopaque, descriptor: texture.Texture.Descriptor) anyerror!hal.Texture {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopTexture.init();
+        return resource.NoopTexture.init(typed.allocator);
     }
 
     fn createSampler(ptr: *anyopaque, descriptor: sampler.Sampler.Descriptor) anyerror!hal.Sampler {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopSampler.init();
+        return resource.NoopSampler.init(typed.allocator);
     }
 
     fn importExternalTexture(ptr: *anyopaque, descriptor: texture.ExternalTexture.Descriptor) anyerror!hal.ExternalTexture {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopExternalTexture.init();
+        return resource.NoopExternalTexture.init(typed.allocator);
     }
 
     fn createBindGroupLayout(ptr: *anyopaque, descriptor: bind_group.BindGroupLayout.Descriptor) anyerror!hal.BindGroupLayout {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopBindGroupLayout.init();
+        return resource.NoopBindGroupLayout.init(typed.allocator);
     }
 
     fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return pipeline_backend.NoopPipelineLayout.init();
+        return pipeline_backend.NoopPipelineLayout.init(typed.allocator);
     }
 
     fn createBindGroup(ptr: *anyopaque, descriptor: bind_group.BindGroup.Descriptor) anyerror!hal.BindGroup {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopBindGroup.init();
+        return resource.NoopBindGroup.init(typed.allocator);
     }
 
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return shader_backend.NoopShaderModule.init();
+        return shader_backend.NoopShaderModule.init(typed.allocator);
     }
 
     fn createComputePipeline(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return pipeline_backend.NoopComputePipeline.init();
+        return pipeline_backend.NoopComputePipeline.init(typed.allocator);
     }
 
     fn createRenderPipeline(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return pipeline_backend.NoopRenderPipeline.init();
+        return pipeline_backend.NoopRenderPipeline.init(typed.allocator);
     }
 
     fn createComputePipelineAsync(
@@ -149,21 +149,21 @@ pub const NoopDevice = struct {
     }
 
     fn createCommandEncoder(ptr: *anyopaque, descriptor: ?command.CommandEncoder.Descriptor) anyerror!hal.CommandEncoder {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return command_backend.NoopCommandEncoder.init();
+        return command_backend.NoopCommandEncoder.init(typed.allocator);
     }
 
     fn createRenderBundleEncoder(ptr: *anyopaque, descriptor: command.RenderBundleEncoder.Descriptor) anyerror!hal.RenderBundleEncoder {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return command_backend.NoopRenderBundleEncoder.init();
+        return command_backend.NoopRenderBundleEncoder.init(typed.allocator);
     }
 
     fn createQuerySet(ptr: *anyopaque, descriptor: gpu.QuerySet.Descriptor) anyerror!hal.QuerySet {
-        _ = ptr;
+        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopQuerySet.init();
+        return resource.NoopQuerySet.init(typed.allocator);
     }
 
     fn lost(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!gpu.Device.LostInfo) {

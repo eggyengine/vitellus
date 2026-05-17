@@ -14,7 +14,6 @@ const BaseWrapper = vk.BaseWrapper;
 const InstanceWrapper = vk.InstanceWrapper;
 const Instance = vk.InstanceProxy;
 
-const allocator = std.heap.page_allocator;
 const log = std.log.scoped(.vitellus_vulkan);
 
 pub const default_validation_layers = [_][*:0]const u8{
@@ -34,6 +33,7 @@ pub const InstanceDescriptor = struct {
 };
 
 pub const vkInstance = struct {
+    allocator: std.mem.Allocator,
     vkb: BaseWrapper = undefined,
     vki: InstanceWrapper = undefined,
     instance: Instance = undefined,
@@ -43,6 +43,7 @@ pub const vkInstance = struct {
     validation_layers: []const [*:0]const u8 = &.{},
     debug_utils_enabled: bool = false,
     headless_surface: ?*surface_backend.vkSurface = null,
+    adapters: std.ArrayList(*adapter_backend.vkAdapter) = .empty,
     loader: ?DynLib = null,
 
     pub const vtable = hal.Instance.VTable{
@@ -54,19 +55,19 @@ pub const vkInstance = struct {
 
     pub fn init(descriptor: gpu.Instance.Descriptor) hal.Instance.FromPotentialBackendsError!hal.Instance {
         log.debug("initializing vulkan backend with default descriptor", .{});
-        return initWithDescriptor(.{
+        return initWithDescriptor(descriptor.allocator, .{
             .enable_validation = descriptor.flags.validation,
         }) catch error.NoBackendAvailable;
     }
 
-    pub fn initWithDescriptor(descriptor: InstanceDescriptor) !hal.Instance {
+    pub fn initWithDescriptor(allocator: std.mem.Allocator, descriptor: InstanceDescriptor) !hal.Instance {
         log.debug("initializing vulkan backend: required_extensions={} api_version=0x{x}", .{
             descriptor.required_extensions.len,
             descriptor.api_version,
         });
 
         const self = try allocator.create(vkInstance);
-        self.* = .{};
+        self.* = .{ .allocator = allocator };
         errdefer destroyGPU(self);
 
         const get_instance_proc_addr = descriptor.getInstanceProcAddr orelse try loadDefaultGetInstanceProcAddr(self);
@@ -76,7 +77,7 @@ pub const vkInstance = struct {
         const extension_properties = try self.vkb.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
         defer allocator.free(extension_properties);
         const validation_layers_enabled = descriptor.enable_validation and
-            validationLayersAvailable(self.vkb, descriptor.requested_validation_layers);
+            validationLayersAvailable(allocator, self.vkb, descriptor.requested_validation_layers);
         if (descriptor.enable_validation and !validation_layers_enabled) {
             log.warn("vulkan validation requested, but required validation layers are unavailable; continuing without validation", .{});
         }
@@ -171,6 +172,11 @@ pub const vkInstance = struct {
             typed.headless_surface = null;
         }
 
+        for (typed.adapters.items) |adapter| {
+            typed.allocator.destroy(adapter);
+        }
+        typed.adapters.deinit(typed.allocator);
+
         if (typed.instance_handle != .null_handle) {
             log.debug("destroying vulkan instance: handle=0x{x}", .{@intFromEnum(typed.instance_handle)});
             typed.instance.destroyInstance(null);
@@ -188,7 +194,7 @@ pub const vkInstance = struct {
             typed.loader = null;
         }
 
-        allocator.destroy(typed);
+        typed.allocator.destroy(typed);
     }
 
     fn enumerateAdapters(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror![]const hal.Adapter {
@@ -197,27 +203,28 @@ pub const vkInstance = struct {
 
         log.debug("enumerating vulkan adapters", .{});
 
-        const pdevs = try typed.instance.enumeratePhysicalDevicesAlloc(allocator);
-        defer allocator.free(pdevs);
+        const pdevs = try typed.instance.enumeratePhysicalDevicesAlloc(typed.allocator);
+        defer typed.allocator.free(pdevs);
 
         var adapters = std.ArrayList(hal.Adapter).empty;
-        errdefer adapters.deinit(allocator);
+        errdefer adapters.deinit(typed.allocator);
 
         for (pdevs) |pdev| {
             if (!(try adapter_backend.isDeviceSuitable(typed, pdev, selection_surface))) {
                 continue;
             }
 
-            const adapter = try allocator.create(adapter_backend.vkAdapter);
-            errdefer allocator.destroy(adapter);
+            const adapter = try typed.allocator.create(adapter_backend.vkAdapter);
+            errdefer typed.allocator.destroy(adapter);
             adapter.* = try adapter_backend.vkAdapter.init(typed, pdev, selection_surface);
-            try adapters.append(allocator, .{
+            try typed.adapters.append(typed.allocator, adapter);
+            try adapters.append(typed.allocator, .{
                 .ptr = adapter,
                 .vtable = &adapter_backend.vkAdapter.vtable,
             });
         }
 
-        return try adapters.toOwnedSlice(allocator);
+        return try adapters.toOwnedSlice(typed.allocator);
     }
 
     fn createSurface(
@@ -227,8 +234,8 @@ pub const vkInstance = struct {
     ) anyerror!hal.Surface {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         log.debug("allocating vulkan surface wrapper", .{});
-        const surface = try allocator.create(surface_backend.vkSurface);
-        errdefer allocator.destroy(surface);
+        const surface = try typed.allocator.create(surface_backend.vkSurface);
+        errdefer typed.allocator.destroy(surface);
 
         surface.* = try surface_backend.vkSurface.initRaw(typed, window, display);
         log.debug("created vulkan surface wrapper: handle=0x{x}", .{@intFromEnum(surface.handle)});
@@ -253,9 +260,10 @@ pub const vkInstance = struct {
 
         log.debug("picking vulkan physical device", .{});
         const pdev = try pickPhysicalDevice(typed, selection_surface);
-        const adapter = try allocator.create(adapter_backend.vkAdapter);
-        errdefer allocator.destroy(adapter);
+        const adapter = try typed.allocator.create(adapter_backend.vkAdapter);
+        errdefer typed.allocator.destroy(adapter);
         adapter.* = try adapter_backend.vkAdapter.init(typed, pdev, selection_surface);
+        try typed.adapters.append(typed.allocator, adapter);
         return .{
             .ptr = adapter,
             .vtable = &adapter_backend.vkAdapter.vtable,
@@ -263,8 +271,8 @@ pub const vkInstance = struct {
     }
 
     fn pickPhysicalDevice(instance: *vkInstance, selection_surface: hal.Surface) anyerror!vk.PhysicalDevice {
-        const pdevs = try instance.instance.enumeratePhysicalDevicesAlloc(allocator);
-        defer allocator.free(pdevs);
+        const pdevs = try instance.instance.enumeratePhysicalDevicesAlloc(instance.allocator);
+        defer instance.allocator.free(pdevs);
 
         for (pdevs) |pdev| {
             if (try adapter_backend.isDeviceSuitable(instance, pdev, selection_surface)) {
@@ -286,8 +294,8 @@ pub const vkInstance = struct {
     fn getOrCreateHeadlessSurface(instance: *@This()) anyerror!hal.Surface {
         if (instance.headless_surface == null) {
             log.debug("creating cached vulkan headless surface for adapter selection", .{});
-            const surface = try allocator.create(surface_backend.vkSurface);
-            errdefer allocator.destroy(surface);
+            const surface = try instance.allocator.create(surface_backend.vkSurface);
+            errdefer instance.allocator.destroy(surface);
             surface.* = try surface_backend.vkSurface.initHeadless(instance);
             instance.headless_surface = surface;
         }
@@ -299,7 +307,7 @@ pub const vkInstance = struct {
     }
 };
 
-fn validationLayersAvailable(vkb: BaseWrapper, requested_layers: []const [*:0]const u8) bool {
+fn validationLayersAvailable(allocator: std.mem.Allocator, vkb: BaseWrapper, requested_layers: []const [*:0]const u8) bool {
     if (requested_layers.len == 0) {
         return true;
     }

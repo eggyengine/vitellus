@@ -3,10 +3,11 @@ const std = @import("std");
 const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 
-const allocator = std.heap.page_allocator;
 const log = std.log.scoped(.vitellus_noop);
 
 pub const NoopSurface = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.Surface.VTable{
         .destroy = destroy,
         .getCapabilities = getCapabilities,
@@ -24,9 +25,9 @@ pub const NoopSurface = struct {
     const present_modes = [_]texture.Surface.PresentMode{ .fifo, .immediate };
     const alpha_modes = [_]texture.Surface.AlphaMode{ .@"opaque", .premultiplied };
 
-    pub fn init() !hal.Surface {
+    pub fn init(allocator: std.mem.Allocator) !hal.Surface {
         const surface = try allocator.create(NoopSurface);
-        surface.* = .{};
+        surface.* = .{ .allocator = allocator };
         return .{
             .ptr = surface,
             .vtable = &vtable,
@@ -36,7 +37,7 @@ pub const NoopSurface = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopSurface = @ptrCast(@alignCast(ptr));
         log.debug("destroying noop surface", .{});
-        allocator.destroy(typed);
+        typed.allocator.destroy(typed);
     }
 
     fn getCapabilities(ptr: *anyopaque, adapter: hal.Adapter) texture.Surface.Capabilities {

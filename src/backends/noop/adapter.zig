@@ -5,10 +5,11 @@ const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 const device_backend = @import("device.zig");
 
-const allocator = std.heap.page_allocator;
 const log = std.log.scoped(.vitellus_noop);
 
 pub const NoopAdapter = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.Adapter.VTable{
         .requestDevice = requestDevice,
         .getInfo = getInfo,
@@ -17,9 +18,9 @@ pub const NoopAdapter = struct {
         .isSurfaceSupported = isSurfaceSupported,
     };
 
-    pub fn init() !hal.Adapter {
+    pub fn init(allocator: std.mem.Allocator) !hal.Adapter {
         const adapter = try allocator.create(NoopAdapter);
-        adapter.* = .{};
+        adapter.* = .{ .allocator = allocator };
         return .{
             .ptr = adapter,
             .vtable = &vtable,
@@ -35,10 +36,10 @@ pub const NoopAdapter = struct {
     }
 
     fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
-        _ = ptr;
+        const typed: *NoopAdapter = @ptrCast(@alignCast(ptr));
         _ = options;
         log.debug("returning noop device", .{});
-        return try device_backend.NoopDevice.init();
+        return try device_backend.NoopDevice.init(typed.allocator);
     }
 
     fn getInfo(ptr: *anyopaque) gpu.Adapter.Info {

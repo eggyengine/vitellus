@@ -6,28 +6,31 @@ const hal = @import("../hal.zig");
 const pipeline = @import("../../types/pipeline.zig");
 const texture = @import("../../types/texture.zig");
 
-const allocator = std.heap.page_allocator;
 const log = std.log.scoped(.vitellus_noop);
 
 pub const NoopCommandBuffer = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.CommandBuffer.VTable{
         .destroy = destroy,
     };
 
-    pub fn init() !hal.CommandBuffer {
+    pub fn init(allocator: std.mem.Allocator) !hal.CommandBuffer {
         const value = try allocator.create(NoopCommandBuffer);
-        value.* = .{};
+        value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopCommandBuffer = @ptrCast(@alignCast(ptr));
         log.debug("destroying noop command buffer", .{});
-        allocator.destroy(typed);
+        typed.allocator.destroy(typed);
     }
 };
 
 pub const NoopCommandEncoder = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.CommandEncoder.VTable{
         .beginRenderPass = beginRenderPass,
         .beginComputePass = beginComputePass,
@@ -44,22 +47,22 @@ pub const NoopCommandEncoder = struct {
         .insertDebugMarker = insertDebugMarker,
     };
 
-    pub fn init() !hal.CommandEncoder {
+    pub fn init(allocator: std.mem.Allocator) !hal.CommandEncoder {
         const value = try allocator.create(NoopCommandEncoder);
-        value.* = .{};
+        value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn beginRenderPass(ptr: *anyopaque, descriptor: command.RenderPassEncoder.Descriptor) anyerror!hal.RenderPassEncoder {
-        _ = ptr;
+        const typed: *NoopCommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopRenderPassEncoder.init();
+        return NoopRenderPassEncoder.init(typed.allocator);
     }
 
     fn beginComputePass(ptr: *anyopaque, descriptor: ?command.ComputePassEncoder.Descriptor) anyerror!hal.ComputePassEncoder {
-        _ = ptr;
+        const typed: *NoopCommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopComputePassEncoder.init();
+        return NoopComputePassEncoder.init(typed.allocator);
     }
 
     fn copyBufferToBuffer(ptr: *anyopaque, source: hal.Buffer, destination: hal.Buffer, size: ?def.Size64) void {
@@ -145,9 +148,9 @@ pub const NoopCommandEncoder = struct {
     }
 
     fn finish(ptr: *anyopaque, descriptor: ?command.CommandBuffer.Descriptor) anyerror!hal.CommandBuffer {
-        _ = ptr;
+        const typed: *NoopCommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopCommandBuffer.init();
+        return NoopCommandBuffer.init(typed.allocator);
     }
 
     fn pushDebugGroup(ptr: *anyopaque, group_label: []const u8) void {
@@ -166,6 +169,8 @@ pub const NoopCommandEncoder = struct {
 };
 
 pub const NoopComputePassEncoder = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.ComputePassEncoder.VTable{
         .setPipeline = setPipeline,
         .dispatchWorkgroups = dispatchWorkgroups,
@@ -178,9 +183,9 @@ pub const NoopComputePassEncoder = struct {
         .insertDebugMarker = insertDebugMarker,
     };
 
-    pub fn init() !hal.ComputePassEncoder {
+    pub fn init(allocator: std.mem.Allocator) !hal.ComputePassEncoder {
         const value = try allocator.create(NoopComputePassEncoder);
-        value.* = .{};
+        value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
@@ -245,6 +250,8 @@ pub const NoopComputePassEncoder = struct {
 };
 
 pub const NoopRenderPassEncoder = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.RenderPassEncoder.VTable{
         .setViewport = setViewport,
         .setScissorRect = setScissorRect,
@@ -268,9 +275,9 @@ pub const NoopRenderPassEncoder = struct {
         .insertDebugMarker = insertDebugMarker,
     };
 
-    pub fn init() !hal.RenderPassEncoder {
+    pub fn init(allocator: std.mem.Allocator) !hal.RenderPassEncoder {
         const value = try allocator.create(NoopRenderPassEncoder);
-        value.* = .{};
+        value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
@@ -416,24 +423,28 @@ pub const NoopRenderPassEncoder = struct {
 };
 
 pub const NoopRenderBundle = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.RenderBundle.VTable{
         .destroy = destroy,
     };
 
-    pub fn init() !hal.RenderBundle {
+    pub fn init(allocator: std.mem.Allocator) !hal.RenderBundle {
         const value = try allocator.create(NoopRenderBundle);
-        value.* = .{};
+        value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopRenderBundle = @ptrCast(@alignCast(ptr));
         log.debug("destroying noop render bundle", .{});
-        allocator.destroy(typed);
+        typed.allocator.destroy(typed);
     }
 };
 
 pub const NoopRenderBundleEncoder = struct {
+    allocator: std.mem.Allocator,
+
     pub const vtable = hal.RenderBundleEncoder.VTable{
         .finish = finish,
         .setPipeline = setPipeline,
@@ -450,16 +461,16 @@ pub const NoopRenderBundleEncoder = struct {
         .insertDebugMarker = insertDebugMarker,
     };
 
-    pub fn init() !hal.RenderBundleEncoder {
+    pub fn init(allocator: std.mem.Allocator) !hal.RenderBundleEncoder {
         const value = try allocator.create(NoopRenderBundleEncoder);
-        value.* = .{};
+        value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn finish(ptr: *anyopaque, descriptor: ?command.RenderBundle.Descriptor) anyerror!hal.RenderBundle {
-        _ = ptr;
+        const typed: *NoopRenderBundleEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopRenderBundle.init();
+        return NoopRenderBundle.init(typed.allocator);
     }
 
     fn setPipeline(ptr: *anyopaque, target: hal.RenderPipeline) void {

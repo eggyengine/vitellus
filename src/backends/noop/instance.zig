@@ -6,10 +6,12 @@ const hal = @import("../hal.zig");
 const adapter_backend = @import("adapter.zig");
 const surface_backend = @import("surface.zig");
 
-const allocator = std.heap.page_allocator;
 const log = std.log.scoped(.vitellus_noop);
 
 pub const NoopInstance = struct {
+    allocator: std.mem.Allocator,
+    adapter: adapter_backend.NoopAdapter,
+
     pub const vtable = hal.Instance.VTable{
         .destroy = destroy,
         .enumerateAdapters = enumerateAdapters,
@@ -18,9 +20,12 @@ pub const NoopInstance = struct {
     };
 
     pub fn init(descriptor: gpu.Instance.Descriptor) !hal.Instance {
+        const allocator = descriptor.allocator;
         const instance = try allocator.create(NoopInstance);
-        instance.* = .{};
-        _ = descriptor;
+        instance.* = .{
+            .allocator = allocator,
+            .adapter = .{ .allocator = allocator },
+        };
         return .{
             .ptr = instance,
             .vtable = &vtable,
@@ -30,15 +35,15 @@ pub const NoopInstance = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
         log.debug("destroying noop instance", .{});
-        allocator.destroy(typed);
+        typed.allocator.destroy(typed);
     }
 
     fn enumerateAdapters(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror![]const hal.Adapter {
-        _ = ptr;
+        const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
         _ = options;
         log.debug("enumerating noop adapters", .{});
-        const adapters = try allocator.alloc(hal.Adapter, 1);
-        adapters[0] = try adapter_backend.NoopAdapter.init();
+        const adapters = try typed.allocator.alloc(hal.Adapter, 1);
+        adapters[0] = .{ .ptr = &typed.adapter, .vtable = &adapter_backend.NoopAdapter.vtable };
         return adapters;
     }
 
@@ -51,10 +56,10 @@ pub const NoopInstance = struct {
     }
 
     fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
-        _ = ptr;
+        const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
         _ = options;
         log.debug("returning noop adapter", .{});
-        return adapter_backend.NoopAdapter.init();
+        return .{ .ptr = &typed.adapter, .vtable = &adapter_backend.NoopAdapter.vtable };
     }
 
     fn createSurface(
@@ -62,11 +67,11 @@ pub const NoopInstance = struct {
         window: candler.WindowHandle,
         display: candler.DisplayHandle,
     ) anyerror!hal.Surface {
-        _ = ptr;
+        const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
         log.debug("creating noop surface: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
         });
-        return surface_backend.NoopSurface.init();
+        return surface_backend.NoopSurface.init(typed.allocator);
     }
 };
