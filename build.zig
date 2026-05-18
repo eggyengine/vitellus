@@ -39,6 +39,13 @@ pub fn build(b: *std.Build) void {
 
     mod.addImport("candler", candler.module("candler"));
 
+    const logz = b.dependency("logz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    mod.addImport("logz", logz.module("logz"));
+
     const vulkan = if (enable_vulkan) vulkan: {
         const headers = b.lazyDependency("vulkan_headers", .{}) orelse break :vulkan null;
         const dep = b.lazyDependency("vulkan", .{
@@ -94,7 +101,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "vitellus",
         .root_module = exe_mod,
-        .use_llvm = true,
+        .use_llvm = true, // keep this there for the time-being
     });
 
     b.installArtifact(exe);
@@ -120,6 +127,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     example_test_mod.addImport("candler", candler.module("candler"));
+    example_test_mod.addImport("logz", logz.module("logz"));
     example_test_mod.addOptions("build_options", options);
     if (vulkan) |vulkan_mod| {
         example_test_mod.addImport("vulkan", vulkan_mod);

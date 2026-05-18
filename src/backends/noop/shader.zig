@@ -3,7 +3,7 @@ const std = @import("std");
 const hal = @import("../hal.zig");
 const shader = @import("../../types/shader.zig");
 
-const log = std.log.scoped(.vitellus_noop);
+const logz = @import("logz");
 
 pub const NoopShaderModule = struct {
     allocator: std.mem.Allocator,
@@ -24,7 +24,7 @@ pub const NoopShaderModule = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopShaderModule = @ptrCast(@alignCast(ptr));
-        log.debug("destroying noop shader module", .{});
+        logz.info().fmt("msg", "destroying noop shader module", .{}).log();
         typed.allocator.destroy(typed);
     }
 

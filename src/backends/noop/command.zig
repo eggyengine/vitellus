@@ -6,7 +6,7 @@ const hal = @import("../hal.zig");
 const pipeline = @import("../../types/pipeline.zig");
 const texture = @import("../../types/texture.zig");
 
-const log = std.log.scoped(.vitellus_noop);
+const logz = @import("logz");
 
 pub const NoopCommandBuffer = struct {
     allocator: std.mem.Allocator,
@@ -23,7 +23,7 @@ pub const NoopCommandBuffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopCommandBuffer = @ptrCast(@alignCast(ptr));
-        log.debug("destroying noop command buffer", .{});
+        logz.info().fmt("msg", "destroying noop command buffer", .{}).log();
         typed.allocator.destroy(typed);
     }
 };
@@ -437,7 +437,7 @@ pub const NoopRenderBundle = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopRenderBundle = @ptrCast(@alignCast(ptr));
-        log.debug("destroying noop render bundle", .{});
+        logz.info().fmt("msg", "destroying noop render bundle", .{}).log();
         typed.allocator.destroy(typed);
     }
 };

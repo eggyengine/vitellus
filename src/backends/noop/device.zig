@@ -15,7 +15,7 @@ const pipeline_backend = @import("pipeline.zig");
 const resource = @import("resource.zig");
 const shader_backend = @import("shader.zig");
 
-const log = std.log.scoped(.vitellus_noop);
+const logz = @import("logz");
 
 pub const NoopDevice = struct {
     allocator: std.mem.Allocator,
@@ -60,7 +60,7 @@ pub const NoopDevice = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
-        log.debug("destroying noop device", .{});
+        logz.info().fmt("msg", "destroying noop device", .{}).log();
         typed.allocator.destroy(typed);
     }
 

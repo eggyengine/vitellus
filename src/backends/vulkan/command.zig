@@ -9,11 +9,12 @@ const hal = @import("../hal.zig");
 const pipeline = @import("../../types/pipeline.zig");
 const texture = @import("../../types/texture.zig");
 const vkDevice = @import("device.zig").vkDevice;
+const pipeline_backend = @import("pipeline.zig");
 const resource = @import("resource.zig");
 const surface_backend = @import("surface.zig");
 const debug = @import("debug.zig");
 
-const log = std.log.scoped(.vitellus_vulkan);
+const logz = @import("logz");
 
 pub const vkCommandBuffer = struct {
     device: *vkDevice,
@@ -28,7 +29,7 @@ pub const vkCommandBuffer = struct {
     };
 
     pub fn deinit(self: *@This()) void {
-        log.debug("destroying vulkan command buffer", .{});
+        logz.debug().fmt("msg", "destroying vulkan command buffer", .{}).log();
         if (self.command_pool != .null_handle) {
             self.device.device.destroyCommandPool(self.command_pool, null);
             self.command_pool = .null_handle;
@@ -160,7 +161,11 @@ pub const vkCommandEncoder = struct {
         typed.device.device.cmdBeginRendering(typed.command_buffer, &adjusted);
 
         const pass = try typed.device.adapter.gpu.allocator.create(vkRenderPassEncoder);
-        pass.* = .{ .encoder = typed, .image = vk_view.image };
+        pass.* = .{
+            .encoder = typed,
+            .image = vk_view.image,
+            .extent = adjusted.render_area.extent,
+        };
         return .{ .ptr = pass, .vtable = &vkRenderPassEncoder.vtable };
     }
 
@@ -330,6 +335,7 @@ pub const vkComputePassEncoder = struct {
 pub const vkRenderPassEncoder = struct {
     encoder: *vkCommandEncoder,
     image: vk.Image,
+    extent: vk.Extent2D,
 
     pub const vtable = hal.RenderPassEncoder.VTable{
         .setViewport = setViewport,
@@ -390,8 +396,25 @@ pub const vkRenderPassEncoder = struct {
         typed.encoder.device.adapter.gpu.allocator.destroy(typed);
     }
     fn setPipeline(ptr: *anyopaque, target: hal.RenderPipeline) void {
-        _ = ptr;
-        _ = target;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        const vk_pipeline: *pipeline_backend.vkRenderPipeline = @ptrCast(@alignCast(target.ptr));
+        typed.encoder.device.device.cmdBindPipeline(typed.encoder.command_buffer, .graphics, vk_pipeline.handle);
+
+        const viewport = vk.Viewport{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(typed.extent.width),
+            .height = @floatFromInt(typed.extent.height),
+            .min_depth = 0,
+            .max_depth = 1,
+        };
+        typed.encoder.device.device.cmdSetViewport(typed.encoder.command_buffer, 0, @as([*]const vk.Viewport, @ptrCast(&viewport))[0..1]);
+
+        const scissor = vk.Rect2D{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = typed.extent,
+        };
+        typed.encoder.device.device.cmdSetScissor(typed.encoder.command_buffer, 0, @as([*]const vk.Rect2D, @ptrCast(&scissor))[0..1]);
     }
     fn setIndexBuffer(ptr: *anyopaque, target: hal.Buffer, index_format: pipeline.IndexFormat, offset: def.Size64, size: ?def.Size64) void {
         _ = ptr;
@@ -460,7 +483,7 @@ pub const vkRenderBundle = struct {
     pub const vtable = hal.RenderBundle.VTable{ .destroy = destroy };
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        log.debug("destroying vulkan render bundle", .{});
+        logz.info().fmt("msg", "destroying vulkan render bundle", .{}).log();
     }
 };
 

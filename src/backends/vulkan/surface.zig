@@ -11,7 +11,7 @@ const vkDevice = @import("device.zig").vkDevice;
 const debug = @import("debug.zig");
 const resource = @import("resource.zig");
 
-const log = std.log.scoped(.vitellus_vulkan);
+const logz = @import("logz");
 
 const SwapChainSupportDetails = struct {
     capabilities: vk.SurfaceCapabilitiesKHR,
@@ -66,10 +66,10 @@ pub const vkSurface = struct {
     acquired_result: vk.Result = .success,
 
     pub fn initRaw(instance: *instance_backend.vkInstance, window: candler.WindowHandle, display: candler.DisplayHandle) !@This() {
-        log.debug("creating vulkan surface: window={s} display={s}", .{
+        logz.info().fmt("msg", "creating vulkan surface: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
-        });
+        }).log();
         return .{
             .gpu = instance,
             .handle = try vulkan_windowing.createSurface(instance.instance, window, display),
@@ -77,7 +77,7 @@ pub const vkSurface = struct {
     }
 
     pub fn initHeadless(instance: *instance_backend.vkInstance) !@This() {
-        log.debug("creating headless vulkan surface", .{});
+        logz.info().fmt("msg", "creating headless vulkan surface", .{}).log();
         return .{
             .gpu = instance,
             .handle = try vulkan_windowing.createHeadlessSurface(instance.instance),
@@ -106,7 +106,7 @@ pub const vkSurface = struct {
         }
 
         if (self.handle != .null_handle) {
-            log.debug("destroying vulkan surface: handle=0x{x}", .{@intFromEnum(self.handle)});
+            logz.info().fmt("msg", "destroying vulkan surface: handle=0x{x}", .{@intFromEnum(self.handle)}).log();
             self.gpu.instance.destroySurfaceKHR(self.handle, null);
             self.handle = .null_handle;
         }
@@ -116,10 +116,10 @@ pub const vkSurface = struct {
     fn getCapabilities(ptr: *anyopaque, adapter: hal.Adapter) texture.Surface.Capabilities {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         const vk_adapter: *adapter_backend.vkAdapter = @ptrCast(@alignCast(adapter.ptr));
-        log.debug("vulkan surface capabilities requested", .{});
+        logz.info().fmt("msg", "vulkan surface capabilities requested", .{}).log();
 
         typed.refreshCapabilities(vk_adapter) catch |err| {
-            log.warn("failed to query vulkan surface capabilities: {s}; using fallback capabilities", .{@errorName(err)});
+            logz.warn().fmt("msg", "failed to query vulkan surface capabilities: {s}; using fallback capabilities", .{@errorName(err)}).log();
             return .{
                 .formats = &fallback_surface_formats,
                 .present_modes = &fallback_present_modes,
@@ -196,21 +196,21 @@ pub const vkSurface = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         const dev: *vkDevice = @ptrCast(@alignCast(device.ptr));
 
-        log.debug("vulkan surface configure requested", .{});
+        logz.info().fmt("msg", "vulkan surface configure requested", .{}).log();
         typed.configureSwapchain(dev, desc) catch |err| {
-            log.err("failed to configure vulkan swapchain: {s}", .{@errorName(err)});
+            logz.err().fmt("msg", "failed to configure vulkan swapchain: {s}", .{@errorName(err)}).log();
         };
     }
 
     fn unconfigure(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        log.debug("vulkan surface unconfigure requested", .{});
+        logz.info().fmt("msg", "vulkan surface unconfigure requested", .{}).log();
         typed.unconfigureSwapchain();
     }
 
     fn getCurrentTexture(ptr: *anyopaque) !texture.Surface.CurrentSurfaceTexture {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        log.debug("vulkan surface current texture requested", .{});
+        logz.debug().fmt("msg", "vulkan surface current texture requested", .{}).log();
         const device = typed.swapchain_device orelse return error.SurfaceNotConfigured;
         const images = typed.swapchain_images orelse return error.SurfaceNotConfigured;
         const image_available = typed.image_available_semaphores orelse return error.SurfaceNotConfigured;
@@ -334,12 +334,12 @@ pub const vkSurface = struct {
         try self.createSyncObjects(device, swapchain_image_handles.len);
         debug.setObjectName(device, .swapchain_khr, swapchain, null);
 
-        log.debug("configured vulkan swapchain: images={} format={s} extent={}x{}", .{
+        logz.info().fmt("msg", "configured vulkan swapchain: images={} format={s} extent={}x{}", .{
             swapchain_image_handles.len,
             @tagName(surface_format.format),
             extent.width,
             extent.height,
-        });
+        }).log();
     }
 
     pub fn ensureSwapchainFramebuffers(self: *@This(), render_pass: vk.RenderPass) ![]const vk.Framebuffer {
@@ -385,12 +385,12 @@ pub const vkSurface = struct {
 
         self.swapchain_framebuffers = framebuffers;
         self.swapchain_framebuffer_render_pass = render_pass;
-        log.debug("created vulkan swapchain framebuffers: count={} render_pass=0x{x} extent={}x{}", .{
+        logz.info().fmt("msg", "created vulkan swapchain framebuffers: count={} render_pass=0x{x} extent={}x{}", .{
             framebuffers.len,
             @intFromEnum(render_pass),
             self.swapchain_extent.width,
             self.swapchain_extent.height,
-        });
+        }).log();
         return framebuffers;
     }
 
@@ -423,7 +423,7 @@ pub const vkSurface = struct {
 
         if (self.swapchain != .null_handle) {
             if (self.swapchain_device) |device| {
-                log.debug("destroying vulkan swapchain: handle=0x{x}", .{@intFromEnum(self.swapchain)});
+                logz.info().fmt("msg", "destroying vulkan swapchain: handle=0x{x}", .{@intFromEnum(self.swapchain)}).log();
                 device.device.destroySwapchainKHR(self.swapchain, null);
             }
             self.swapchain = .null_handle;
@@ -455,7 +455,7 @@ pub const vkSurface = struct {
     fn presentTexture(context: *anyopaque) void {
         const self: *@This() = @ptrCast(@alignCast(context));
         self.presentAcquiredImage() catch |err| {
-            log.err("failed to present vulkan swapchain image: {s}", .{@errorName(err)});
+            logz.err().fmt("msg", "failed to present vulkan swapchain image: {s}", .{@errorName(err)}).log();
         };
     }
 
@@ -531,7 +531,7 @@ pub const vkSurface = struct {
             if (self.swapchain_device) |device| {
                 for (framebuffers) |framebuffer| {
                     if (framebuffer != .null_handle) {
-                        log.debug("destroying vulkan framebuffer: handle=0x{x}", .{@intFromEnum(framebuffer)});
+                        logz.info().fmt("msg", "destroying vulkan framebuffer: handle=0x{x}", .{@intFromEnum(framebuffer)}).log();
                         device.device.destroyFramebuffer(framebuffer, null);
                     }
                 }

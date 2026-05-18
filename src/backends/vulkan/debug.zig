@@ -1,7 +1,7 @@
 const vk = @import("vulkan");
 const std = @import("std");
 
-const log = std.log.scoped(.vitellus_vulkan_debug);
+const logz = @import("logz");
 
 pub fn enabled(device: anytype) bool {
     return device.adapter.gpu.validation_layers_enabled and device.adapter.gpu.debug_utils_enabled;
@@ -27,7 +27,7 @@ pub fn setObjectName(
     if (!enabled(device)) return;
 
     if (!@hasDecl(vk.DeviceProxy, "setDebugUtilsObjectNameEXT")) {
-        log.debug("cannot apply label {s}: vulkan-zig DeviceProxy does not expose vkSetDebugUtilsObjectNameEXT", .{name});
+        logz.info().fmt("msg", "cannot apply label {s}: vulkan-zig DeviceProxy does not expose vkSetDebugUtilsObjectNameEXT", .{name}).log();
         return;
     }
 
@@ -38,9 +38,9 @@ pub fn setObjectName(
     };
 
     device.device.setDebugUtilsObjectNameEXT(&info) catch |err| {
-        log.warn("failed to apply label {s} to {s}: {s}", .{ name, @tagName(object_type), @errorName(err) });
+        logz.warn().fmt("msg", "failed to apply label {s} to {s}: {s}", .{ name, @tagName(object_type), @errorName(err) }).log();
         return;
     };
 
-    log.debug("applied label {s} to {s} 0x{x}", .{ name, @tagName(object_type), @intFromEnum(handle) });
+    // logz.info().fmt("msg", "applied label {s} to {s} 0x{x}", .{ name, @tagName(object_type), @intFromEnum(handle) }).log();
 }

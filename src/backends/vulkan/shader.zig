@@ -4,9 +4,12 @@ const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const hal = @import("../hal.zig");
 const shader = @import("../../types/shader.zig");
-const log = std.log.scoped(.vitellus_vulkan);
+const logz = @import("logz");
 
-pub const vkShader = struct {};
+pub const vkShader = struct {
+    source: shader.ShaderModule.ShaderSource,
+    label: ?[*:0]const u8 = null,
+};
 
 pub const vkShaderModule = struct {
     device: *vkDevice,
@@ -18,21 +21,44 @@ pub const vkShaderModule = struct {
         .getCompilationInfo = getCompilationInfo,
     };
 
-    /// Initialising a Vulkan shader module consumes backend-ready shader data.
-    /// Source-language conversion/validation happens before this backend layer.
+    /// Initialising a Vulkan shader module consumes backend-ready SPIR-V bytecode.
+    /// WGSL translation is not implemented in this backend yet.
     pub fn init(device: *vkDevice, shader_data: vkShader) !hal.ShaderModule {
-        _ = shader_data;
-        log.debug("creating vulkan shader module from backend shader data", .{});
+        logz.info().fmt("msg", "creating vulkan shader module", .{}).log();
+
+        const code = switch (shader_data.source) {
+            .spirv => |bytes| bytes,
+            .wgsl => {
+                logz.err().fmt("msg", "vulkan shader module creation rejected: WGSL-to-SPIR-V translation is not implemented yet", .{}).log();
+                return error.NotImplemented;
+            },
+        };
+        if (code.len == 0 or code.len % @sizeOf(u32) != 0) {
+            logz.err().fmt("msg", "vulkan shader module creation rejected: SPIR-V bytecode length ({}) is not a non-zero multiple of 4", .{code.len}).log();
+            return error.InvalidShaderModule;
+        }
+
+        const word_count = code.len / @sizeOf(u32);
+        const words = try device.adapter.gpu.allocator.alloc(u32, word_count);
+        defer device.adapter.gpu.allocator.free(words);
+        @memcpy(std.mem.sliceAsBytes(words), code);
+
+        const create_info = vk.ShaderModuleCreateInfo{
+            .code_size = code.len,
+            .p_code = words.ptr,
+        };
+        const handle = try device.device.createShaderModule(&create_info, null);
+        errdefer device.device.destroyShaderModule(handle, null);
 
         const module = try device.adapter.gpu.allocator.create(vkShaderModule);
         errdefer device.adapter.gpu.allocator.destroy(module);
         module.* = .{
             .device = device,
-            .handle = .null_handle,
-            .label = null,
+            .handle = handle,
+            .label = shader_data.label,
         };
 
-        log.debug("created placeholder vulkan shader module", .{});
+        logz.info().fmt("msg", "created vulkan shader module: handle=0x{x}", .{@intFromEnum(handle)}).log();
         return .{
             .ptr = module,
             .vtable = &vkShaderModule.vtable,
@@ -42,7 +68,7 @@ pub const vkShaderModule = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (typed.handle != .null_handle) {
-            log.debug("destroying vulkan shader module: handle=0x{x}", .{@intFromEnum(typed.handle)});
+            logz.info().fmt("msg", "destroying vulkan shader module: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
             typed.device.device.destroyShaderModule(typed.handle, null);
             typed.handle = .null_handle;
         }

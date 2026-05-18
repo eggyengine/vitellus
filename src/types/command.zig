@@ -295,40 +295,27 @@ pub const RenderPassEncoder = struct {
     };
 
     pub fn setViewport(self: *@This(), x: f32, y: f32, width: f32, height: f32, minDepth: f32, maxDepth: f32) void {
-        _ = self;
-        _ = x;
-        _ = y;
-        _ = width;
-        _ = height;
-        _ = minDepth;
-        _ = maxDepth;
+        if (self.backend) |back| back.setViewport(x, y, width, height, minDepth, maxDepth);
     }
 
     pub fn setScissorRect(self: *@This(), x: def.IntegerCoordinate, y: def.IntegerCoordinate, width: def.IntegerCoordinate, height: def.IntegerCoordinate) void {
-        _ = self;
-        _ = x;
-        _ = y;
-        _ = width;
-        _ = height;
+        if (self.backend) |back| back.setScissorRect(x, y, width, height);
     }
 
     pub fn setBlendConstant(self: *@This(), color: def.Color) void {
-        _ = self;
-        _ = color;
+        if (self.backend) |back| back.setBlendConstant(color);
     }
 
     pub fn setStencilReference(self: *@This(), reference: def.StencilValue) void {
-        _ = self;
-        _ = reference;
+        if (self.backend) |back| back.setStencilReference(reference);
     }
 
     pub fn beginOcclusionQuery(self: *@This(), queryIndex: def.Size32) void {
-        _ = self;
-        _ = queryIndex;
+        if (self.backend) |back| back.beginOcclusionQuery(queryIndex);
     }
 
     pub fn endOcclusionQuery(self: *@This()) void {
-        _ = self;
+        if (self.backend) |back| back.endOcclusionQuery();
     }
 
     pub fn executeBundles(self: *@This(), bundles: []const RenderBundle) void {
@@ -341,8 +328,7 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn setPipeline(self: *@This(), target: *pipeline.RenderPipeline) void {
-        _ = self;
-        _ = target;
+        if (self.backend) |back| if (target.backend) |target_backend| back.setPipeline(target_backend);
     }
 
     pub fn setIndexBuffer(self: *@This(), target: *buffer.Buffer, indexFormat: pipeline.IndexFormat, offset: def.Size64, size: ?def.Size64) void {
@@ -362,11 +348,7 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn draw(self: *@This(), vertexCount: def.Size32, instanceCount: def.Size32, firstVertex: def.Size32, firstInstance: def.Size32) void {
-        _ = self;
-        _ = vertexCount;
-        _ = instanceCount;
-        _ = firstVertex;
-        _ = firstInstance;
+        if (self.backend) |back| back.draw(vertexCount, instanceCount, firstVertex, firstInstance);
     }
 
     pub fn drawIndexed(
@@ -377,12 +359,7 @@ pub const RenderPassEncoder = struct {
         baseVertex: def.SignedOffset32,
         firstInstance: def.Size32,
     ) void {
-        _ = self;
-        _ = indexCount;
-        _ = instanceCount;
-        _ = firstIndex;
-        _ = baseVertex;
-        _ = firstInstance;
+        if (self.backend) |back| back.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
     }
 
     pub fn drawIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {

@@ -10,7 +10,7 @@ const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const debug = @import("debug.zig");
 
-const log = std.log.scoped(.vitellus_vulkan);
+const logz = @import("logz");
 
 pub const vkBuffer = struct {
     pub const vtable = hal.Buffer.VTable{
@@ -28,7 +28,7 @@ pub const vkBuffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        log.debug("destroying vulkan buffer", .{});
+        logz.info().fmt("msg", "destroying vulkan buffer", .{}).log();
     }
 
     fn mapAsync(
@@ -108,7 +108,7 @@ pub const vkTexture = struct {
 
     pub fn deinit(self: *@This()) void {
         if (self.owns_image and self.handle != .null_handle) {
-            log.debug("destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)});
+            logz.info().fmt("msg", "destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)}).log();
             self.device.device.destroyImage(self.handle, null);
         }
         self.handle = .null_handle;
@@ -185,7 +185,7 @@ pub const vkTextureView = struct {
     pub fn deinit(self: *@This()) void {
         if (self.handle != .null_handle) {
             if (self.owns_view) {
-                log.debug("destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)});
+                logz.info().fmt("msg", "destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)}).log();
                 self.device.device.destroyImageView(self.handle, null);
             }
             self.handle = .null_handle;
@@ -212,7 +212,7 @@ pub const vkExternalTexture = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        log.debug("destroying vulkan external texture", .{});
+        logz.info().fmt("msg", "destroying vulkan external texture", .{}).log();
     }
 };
 
@@ -229,7 +229,7 @@ pub const vkSampler = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        log.debug("destroying vulkan sampler", .{});
+        logz.info().fmt("msg", "destroying vulkan sampler", .{}).log();
     }
 };
 
@@ -246,7 +246,7 @@ pub const vkBindGroupLayout = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        log.debug("destroying vulkan bind group layout", .{});
+        logz.info().fmt("msg", "destroying vulkan bind group layout", .{}).log();
     }
 };
 
@@ -263,7 +263,7 @@ pub const vkBindGroup = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        log.debug("destroying vulkan bind group", .{});
+        logz.info().fmt("msg", "destroying vulkan bind group", .{}).log();
     }
 };
 
@@ -280,6 +280,6 @@ pub const vkQuerySet = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        log.debug("destroying vulkan query set", .{});
+        logz.info().fmt("msg", "destroying vulkan query set", .{}).log();
     }
 };

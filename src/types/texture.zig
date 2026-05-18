@@ -3,7 +3,7 @@ const def = @import("def.zig");
 const candler = @import("candler");
 const hal = @import("../backends/hal.zig");
 
-const log = std.log.scoped(.vitellus_texture);
+const logz = @import("logz");
 
 pub const Texture = struct {
     backend: ?hal.Texture = null,
@@ -473,10 +473,10 @@ pub const Surface = struct {
     };
 
     pub fn init(backend: hal.Surface, window: candler.WindowHandle, display: candler.DisplayHandle) Surface {
-        log.debug("initializing surface wrapper: window={s} display={s}", .{
+        logz.info().fmt("msg", "initializing surface wrapper: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
-        });
+        }).log();
         return .{
             .backend = backend,
             .window = window,
@@ -485,12 +485,12 @@ pub const Surface = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        log.debug("deinitializing surface wrapper", .{});
+        logz.info().fmt("msg", "deinitializing surface wrapper", .{}).log();
         self.backend.destroy();
     }
 
     pub fn getCapabilities(self: *const @This(), adapter: *const @import("gpu.zig").Adapter) Capabilities {
-        log.debug("getting surface capabilities", .{});
+        logz.info().fmt("msg", "getting surface capabilities", .{}).log();
         return self.backend.getCapabilities(adapter.backend);
     }
 
@@ -523,11 +523,11 @@ pub const Surface = struct {
     }
 
     pub fn configure(self: *@This(), device: *@import("gpu.zig").Device, configuration: Configuration) void {
-        log.debug("configuring surface: format={s} size={}x{}", .{
+        logz.info().fmt("msg", "configuring surface: format={s} size={}x{}", .{
             @tagName(configuration.format),
             configuration.width,
             configuration.height,
-        });
+        }).log();
         var resolved = configuration;
         resolved.device = device;
         self.backend.configure(device.backend, resolved);
@@ -535,7 +535,7 @@ pub const Surface = struct {
     }
 
     pub fn unconfigure(self: *@This()) void {
-        log.debug("unconfiguring surface", .{});
+        logz.info().fmt("msg", "unconfiguring surface", .{}).log();
         self.backend.unconfigure();
         self.configuration = null;
     }
@@ -545,7 +545,7 @@ pub const Surface = struct {
     }
 
     pub fn getCurrentTexture(self: *@This()) !CurrentSurfaceTexture {
-        log.debug("getting current surface texture", .{});
+        logz.debug().fmt("msg", "getting current surface texture", .{}).log();
         return try self.backend.getCurrentTexture();
     }
 };

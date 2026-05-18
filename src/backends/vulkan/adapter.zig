@@ -9,7 +9,7 @@ const surface_backend = @import("surface.zig");
 const device_backend = @import("device.zig");
 const debug = @import("debug.zig");
 
-const log = std.log.scoped(.vitellus_vulkan);
+const logz = @import("logz");
 
 pub const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name.ptr,
@@ -61,7 +61,7 @@ pub fn findQueueFamilies(instance: *instance_backend.vkInstance, pdev: vk.Physic
 
 pub fn isPhysicalDeviceSurfaceSupported(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice, surface: hal.Surface) bool {
     const indices = findQueueFamilies(instance, pdev, surface) catch |err| {
-        log.debug("failed to query vulkan queue families: {s}", .{@errorName(err)});
+        logz.info().fmt("msg", "failed to query vulkan queue families: {s}", .{@errorName(err)}).log();
         return false;
     };
 
@@ -91,14 +91,14 @@ pub fn checkDeviceExtensionSupport(instance: *instance_backend.vkInstance, pdev:
         null,
         instance.allocator,
     ) catch |err| {
-        log.debug("failed to enumerate vulkan device extensions: {s}", .{@errorName(err)});
+        logz.info().fmt("msg", "failed to enumerate vulkan device extensions: {s}", .{@errorName(err)}).log();
         return false;
     };
     defer instance.allocator.free(available_extensions);
 
     for (required_device_extensions) |required_extension| {
         if (!hasDeviceExtension(available_extensions, std.mem.span(required_extension))) {
-            log.debug("missing vulkan device extension: {s}", .{required_extension});
+            logz.info().fmt("msg", "missing vulkan device extension: {s}", .{required_extension}).log();
             return false;
         }
     }
@@ -114,7 +114,7 @@ fn hasAdequateSwapchainSupport(instance: *instance_backend.vkInstance, pdev: vk.
         vk_surface.handle,
         instance.allocator,
     ) catch |err| {
-        log.debug("failed to query vulkan surface formats: {s}", .{@errorName(err)});
+        logz.info().fmt("msg", "failed to query vulkan surface formats: {s}", .{@errorName(err)}).log();
         return false;
     };
     defer instance.allocator.free(formats);
@@ -124,7 +124,7 @@ fn hasAdequateSwapchainSupport(instance: *instance_backend.vkInstance, pdev: vk.
         vk_surface.handle,
         instance.allocator,
     ) catch |err| {
-        log.debug("failed to query vulkan present modes: {s}", .{@errorName(err)});
+        logz.info().fmt("msg", "failed to query vulkan present modes: {s}", .{@errorName(err)}).log();
         return false;
     };
     defer instance.allocator.free(present_modes);
@@ -175,13 +175,14 @@ pub const vkAdapter = struct {
         io: std.Io,
         options: gpu.Device.Descriptor,
     ) std.Io.Future(anyerror!struct { hal.Device, hal.Queue }) {
-        log.debug("requesting vulkan device", .{});
+        logz.info().fmt("msg", "requesting vulkan device", .{}).log();
         return io.async(requestDeviceInternal, .{ ptr, options });
     }
 
     fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
         const adapter: *@This() = @ptrCast(@alignCast(ptr));
 
+        // locate queue
         const graphics_queue_family = adapter.queue_family_indices.graphics_family orelse return error.NoGraphicsQueueFamily;
         const present_queue_family = adapter.queue_family_indices.present_family orelse return error.NoPresentQueueFamily;
         var queue_families: [2]u32 = undefined;
@@ -203,7 +204,14 @@ pub const vkAdapter = struct {
         }
 
         const device_features = vk.PhysicalDeviceFeatures{};
+
+        // TOOO: implement webgpu-specific features
+        const vulkan_13_features = vk.PhysicalDeviceVulkan13Features{
+            .synchronization_2 = .true,
+            .dynamic_rendering = .true,
+        };
         const create_info = vk.DeviceCreateInfo{
+            .p_next = &vulkan_13_features,
             .queue_create_info_count = @intCast(queue_family_count),
             .p_queue_create_infos = @ptrCast(&queue_create_infos),
             .pp_enabled_layer_names = null,
@@ -213,7 +221,7 @@ pub const vkAdapter = struct {
         };
         const get_device_proc_addr = adapter.gpu.vki.dispatch.vkGetDeviceProcAddr orelse return error.MissingVkGetDeviceProcAddr;
 
-        log.debug("creating vulkan logical device: graphics_queue_family={}", .{graphics_queue_family});
+        logz.info().fmt("msg", "creating vulkan logical device: graphics_queue_family={}", .{graphics_queue_family}).log();
         const device_handle = try adapter.gpu.instance.createDevice(adapter.pdev, &create_info, null);
 
         const device = try adapter.gpu.allocator.create(device_backend.vkDevice);
@@ -242,10 +250,10 @@ pub const vkAdapter = struct {
         debug.setObjectName(device, .device, device.device_handle, options.label);
         debug.setObjectName(device, .queue, device.graphics_queue, options.default_queue.label);
 
-        log.debug("created vulkan logical device: handle=0x{x} graphics_queue=0x{x}", .{
+        logz.info().fmt("msg", "created vulkan logical device: handle=0x{x} graphics_queue=0x{x}", .{
             @intFromEnum(device.device_handle),
             @intFromEnum(device.graphics_queue),
-        });
+        }).log();
         return .{
             .{
                 .ptr = device,
@@ -260,7 +268,7 @@ pub const vkAdapter = struct {
 
     fn getAdapterInfo(ptr: *anyopaque) gpu.Adapter.Info {
         const adapter: *@This() = @ptrCast(@alignCast(ptr));
-        log.debug("getting vulkan adapter info", .{});
+        logz.info().fmt("msg", "getting vulkan adapter info", .{}).log();
         return .{
             .vendor = "",
             .architecture = "",
@@ -274,7 +282,7 @@ pub const vkAdapter = struct {
 
     fn getDownlevelCapabilities(ptr: *anyopaque) gpu.Adapter.DownlevelCapabilities {
         _ = ptr;
-        log.debug("getting vulkan adapter downlevel capabilities", .{});
+        logz.info().fmt("msg", "getting vulkan adapter downlevel capabilities", .{}).log();
         return .{};
     }
 
@@ -284,7 +292,7 @@ pub const vkAdapter = struct {
     ) gpu.Adapter.TextureFormatFeatures {
         _ = ptr;
         _ = format;
-        log.debug("getting vulkan texture format features", .{});
+        logz.info().fmt("msg", "getting vulkan texture format features", .{}).log();
         return .{};
     }
 

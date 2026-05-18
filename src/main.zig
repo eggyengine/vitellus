@@ -7,6 +7,17 @@ const screen_width = 640;
 const screen_height = 480;
 
 pub fn main(init: std.process.Init) !void {
+    try vit.logz.setup(init.io, init.gpa, .{
+        .level = .Info,
+        .pool_size = 100,
+        .buffer_size = 4096,
+        .large_buffer_count = 8,
+        .large_buffer_size = 16384,
+        .output = .stdout,
+        .encoding = .logfmt,
+    });
+    defer vit.logz.deinit();
+
     defer sdl3.shutdown();
 
     // Initialize SDL with subsystems you need here.
@@ -31,10 +42,6 @@ pub fn main(init: std.process.Init) !void {
         // Delay to limit the FPS, returned delta time not needed.
         const dt = fps_capper.delay();
         _ = dt;
-
-        // Update logic.
-        _ = try window.getSurface();
-        try window.updateSurface();
 
         // Event logic.
         while (sdl3.events.poll()) |event|
@@ -149,28 +156,36 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
 }
 
 fn create_render_pipeline(state: *State) !void {
-    const shader = try state.device.createShaderModule(.{
-        .label = "shader",
-        .source = .{ .wgsl = @embedFile("shader.wgsl") },
+    var vertex_shader = try state.device.createShaderModule(.{
+        .label = "vertex shader",
+        .source = .{ .spirv = @embedFile("shader.vert.spv") },
     });
+    defer vertex_shader.deinit();
 
-    const render_pipeline_layout = state.device.createPipelineLayout(.{
+    var fragment_shader = try state.device.createShaderModule(.{
+        .label = "fragment shader",
+        .source = .{ .spirv = @embedFile("shader.frag.spv") },
+    });
+    defer fragment_shader.deinit();
+
+    var render_pipeline_layout = state.device.createPipelineLayout(.{
         .label = "render pipeline layout",
         .bindGroupLayouts = &.{},
     });
+    defer render_pipeline_layout.deinit();
 
     const render_pipeline = state.device.createRenderPipeline(.{
         .label = "render pipeline",
         .layout = &render_pipeline_layout,
         .vertex = .{
-            .module = shader,
-            .entry_point = "vs_main",
+            .module = vertex_shader,
+            .entry_point = "main",
             .buffers = &.{},
             // .compilationOptions = .default,
         },
         .fragment = .{
-            .module = shader,
-            .entry_point = "fs_main",
+            .module = fragment_shader,
+            .entry_point = "main",
             .targets = &.{vit.ColorTargetState{
                 .format = state.config.format,
                 .blend = .REPLACE,
@@ -182,7 +197,7 @@ fn create_render_pipeline(state: *State) !void {
             .topology = .triangle_list,
             .stripIndexFormat = null,
             .frontFace = .ccw,
-            .cullMode = .back,
+            .cullMode = .none,
             .unclippedDepth = false,
         },
         .depthStencil = null,
@@ -215,8 +230,6 @@ fn render_the_pipeline(state: *State) !void {
 
     const view = try output.createView(.{});
     defer view.destroy();
-
-    vit.splat.hello();
 
     var encoder = state.device.createCommandEncoder(.{
         .label = "render encoder",
