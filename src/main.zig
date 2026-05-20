@@ -6,6 +6,61 @@ const fps = 60;
 const screen_width = 640;
 const screen_height = 480;
 
+const Vertex = struct {
+    position: [2]f32,
+    color: [3]f32,
+
+    fn desc() vit.VertexBufferLayout {
+        return vit.VertexBufferLayout{
+            .arrayStride = @sizeOf(Vertex),
+            .stepMode = .vertex,
+            .attributes = &.{
+                vit.VertexAttribute{
+                    .format = vit.VertexFormat.Float32x2,
+                    .offset = @offsetOf(Vertex, "position"),
+                    .shaderLocation = 0,
+                },
+                vit.VertexAttribute{
+                    .format = vit.VertexFormat.Float32x3,
+                    .offset = @offsetOf(Vertex, "color"),
+                    .shaderLocation = 1,
+                },
+            },
+        };
+    }
+};
+
+const VERTICES = [_]Vertex{
+    // top-left
+    .{
+        .position = .{ -0.5, 0.5 },
+        .color = .{ 1.0, 0.0, 0.0 },
+    },
+
+    // bottom-left
+    .{
+        .position = .{ -0.5, -0.5 },
+        .color = .{ 0.0, 1.0, 0.0 },
+    },
+
+    // bottom-right
+    .{
+        .position = .{ 0.5, -0.5 },
+        .color = .{ 0.0, 0.0, 1.0 },
+    },
+
+    // top-right
+    .{
+        .position = .{ 0.5, 0.5 },
+        .color = .{ 1.0, 1.0, 0.0 },
+    },
+};
+
+const INDICES = [_]u16{
+    0, 1, 2,
+    0, 2, 3,
+};
+
 pub fn main(init: std.process.Init) !void {
     try vit.logz.setup(init.io, init.gpa, .{
         .level = .Info,
@@ -80,8 +135,12 @@ pub const State = struct {
     isSurfaceConfigured: bool,
 
     render_pipeline: vit.RenderPipeline,
+    vertex_buffer: vit.Buffer,
+    index_buffer: vit.Buffer,
 
     fn deinit(self: *@This()) void {
+        self.index_buffer.deinit();
+        self.vertex_buffer.deinit();
         self.render_pipeline.deinit();
 
         self.surface.deinit();
@@ -148,9 +207,12 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         .config = config,
         .isSurfaceConfigured = true,
         .render_pipeline = undefined,
+        .vertex_buffer = undefined,
+        .index_buffer = undefined,
     };
 
     try create_render_pipeline(&state);
+    try create_buffers(&state);
 
     return state;
 }
@@ -158,13 +220,13 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
 fn create_render_pipeline(state: *State) !void {
     var vertex_shader = try state.device.createShaderModule(.{
         .label = "vertex shader",
-        .source = .{ .spirv = @embedFile("shader.vert.spv") },
+        .source = .{ .spirv = @embedFile("slang.spv") },
     });
     defer vertex_shader.deinit();
 
     var fragment_shader = try state.device.createShaderModule(.{
         .label = "fragment shader",
-        .source = .{ .spirv = @embedFile("shader.frag.spv") },
+        .source = .{ .spirv = @embedFile("slang.spv") },
     });
     defer fragment_shader.deinit();
 
@@ -179,13 +241,13 @@ fn create_render_pipeline(state: *State) !void {
         .layout = &render_pipeline_layout,
         .vertex = .{
             .module = vertex_shader,
-            .entry_point = "main",
+            .entry_point = "vertMain",
             .buffers = &.{},
             // .compilationOptions = .default,
         },
         .fragment = .{
             .module = fragment_shader,
-            .entry_point = "main",
+            .entry_point = "fragMain",
             .targets = &.{vit.ColorTargetState{
                 .format = state.config.format,
                 .blend = .REPLACE,
@@ -209,6 +271,31 @@ fn create_render_pipeline(state: *State) !void {
     });
 
     state.render_pipeline = render_pipeline;
+    return;
+}
+
+fn create_buffers(state: *State) !void {
+    var vertex_buffer = state.device.createBuffer(.{
+        .label = "Vertex Buffer",
+        .size = @sizeOf(@TypeOf(VERTICES)),
+        .usage = vit.Buffer.Usage.VERTEX | vit.Buffer.Usage.COPY_DST,
+        .mappedAtCreation = false,
+    });
+
+    state.queue.writeBuffer(&vertex_buffer, 0, std.mem.sliceAsBytes(VERTICES[0..]), 0, null);
+
+    state.vertex_buffer = vertex_buffer;
+
+    var index_buffer = state.device.createBuffer(.{
+        .label = "Index Buffer",
+        .size = @sizeOf(@TypeOf(INDICES)),
+        .usage = vit.Buffer.Usage.INDEX | vit.Buffer.Usage.COPY_DST,
+        .mappedAtCreation = false,
+    });
+
+    state.queue.writeBuffer(&index_buffer, 0, std.mem.sliceAsBytes(INDICES[0..]), 0, null);
+    state.index_buffer = index_buffer;
+
     return;
 }
 
@@ -261,7 +348,9 @@ fn render_the_pipeline(state: *State) !void {
         defer render_pass.end();
 
         render_pass.setPipeline(&state.render_pipeline);
-        render_pass.draw(3, 1, 0, 0);
+        render_pass.setVertexBuffer(0, &state.vertex_buffer, 0, null);
+        render_pass.setIndexBuffer(&state.index_buffer, .uint16, 0, null);
+        render_pass.drawIndexed(.exclusive(0, INDICES.len), .exclusive(0, 1), 0);
     }
 
     state.queue.submit(&[_]vit.CommandBuffer{encoder.finish()});

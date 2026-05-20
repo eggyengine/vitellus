@@ -427,8 +427,11 @@ pub const Device = struct {
     pub fn createBuffer(self: *@This(), descriptor: buffer.Buffer.Descriptor) buffer.Buffer {
         logz.info().fmt("msg", "creating buffer", .{}).log();
         _ = self;
-        _ = descriptor;
-        return .{};
+        return .{
+            .size = descriptor.size,
+            .usage = descriptor.usage,
+            .map_state = if (descriptor.mappedAtCreation) .mapped else .unmapped,
+        };
     }
 
     pub fn createTexture(self: *@This(), descriptor: texture.Texture.Descriptor) texture.Texture {

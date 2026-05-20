@@ -16,6 +16,7 @@ const pipeline = @import("../types/pipeline.zig");
 const sampler = @import("../types/sampler.zig");
 const shader = @import("../types/shader.zig");
 const texture = @import("../types/texture.zig");
+const Range = @import("../utils/range.zig").Range;
 
 pub const noop = if (build_options.enable_backend_noop) @import("noop.zig") else struct {};
 pub const vulkan = if (build_options.enable_backend_vulkan) @import("vulkan.zig") else struct {};
@@ -1094,23 +1095,19 @@ pub const RenderPassEncoder = struct {
 
     pub fn draw(
         self: RenderPassEncoder,
-        vertex_count: def.Size32,
-        instance_count: def.Size32,
-        first_vertex: def.Size32,
-        first_instance: def.Size32,
+        vertices: Range,
+        instances: Range,
     ) void {
-        return self.vtable.draw(self.ptr, vertex_count, instance_count, first_vertex, first_instance);
+        return self.vtable.draw(self.ptr, vertices.count, instances.count, vertices.first, instances.first);
     }
 
     pub fn drawIndexed(
         self: RenderPassEncoder,
-        index_count: def.Size32,
-        instance_count: def.Size32,
-        first_index: def.Size32,
+        indices: Range,
+        instances: Range,
         base_vertex: def.SignedOffset32,
-        first_instance: def.Size32,
     ) void {
-        return self.vtable.drawIndexed(self.ptr, index_count, instance_count, first_index, base_vertex, first_instance);
+        return self.vtable.drawIndexed(self.ptr, indices.count, instances.count, indices.first, base_vertex, instances.first);
     }
 
     pub fn drawIndirect(self: RenderPassEncoder, indirect_buffer: Buffer, indirect_offset: def.Size64) void {
@@ -1230,23 +1227,19 @@ pub const RenderBundleEncoder = struct {
 
     pub fn draw(
         self: RenderBundleEncoder,
-        vertex_count: def.Size32,
-        instance_count: def.Size32,
-        first_vertex: def.Size32,
-        first_instance: def.Size32,
+        vertices: Range,
+        instances: Range,
     ) void {
-        return self.vtable.draw(self.ptr, vertex_count, instance_count, first_vertex, first_instance);
+        return self.vtable.draw(self.ptr, vertices.count, instances.count, vertices.first, instances.first);
     }
 
     pub fn drawIndexed(
         self: RenderBundleEncoder,
-        index_count: def.Size32,
-        instance_count: def.Size32,
-        first_index: def.Size32,
+        indices: Range,
+        instances: Range,
         base_vertex: def.SignedOffset32,
-        first_instance: def.Size32,
     ) void {
-        return self.vtable.drawIndexed(self.ptr, index_count, instance_count, first_index, base_vertex, first_instance);
+        return self.vtable.drawIndexed(self.ptr, indices.count, instances.count, indices.first, base_vertex, instances.first);
     }
 
     pub fn drawIndirect(self: RenderBundleEncoder, indirect_buffer: Buffer, indirect_offset: def.Size64) void {

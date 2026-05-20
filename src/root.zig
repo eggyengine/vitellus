@@ -33,7 +33,11 @@ pub const windowing = if (build_options.enable_sdl3) struct {
 pub const utils = struct {
     pub const dynamic_lib = @import("utils/dynamic_lib.zig");
     pub const DynLib = dynamic_lib.DynLib;
+
+    pub const Range = @import("utils/range.zig").Range;
 };
+
+pub const Range = utils.Range;
 
 pub const splat = if (build_options.enable_splat) @import("splat") else struct {};
 pub const logz = @import("logz");

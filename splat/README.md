@@ -1,3 +1,6 @@
+> [!INFO]
+> currently used as a placeholder in the case anyone implements wgsl shaders. remove when basic implementation completed. 
+
 # splat
 
 a shader translation layer written in zig for the needs of `vitellus`.

@@ -1,13 +1,14 @@
 # vitellus
 
-vitellus is a webgpu implementation fully written in zig, with support for web and native platforms. 
+vitellus is WebGPU-inspired graphics api written in zig, supporting web and native platforms, and uses the similar concepts as WebGPU.  
 
-Follows the WebGPU w3 specification. 
+Shaders are written in [slang](http://github.com/shader-slang/slang) and primarily used with SPIR-V.
 
 ### why not just use sysgpu
 
 albeit [sysgpu](https://code.hexops.org/hexops/mach) is a great project (and hexops' mach project), sysgpu locks you into their own custom version mach-zig version and their ecosystem. vitellus allows you to use any zig version (you always get the most stable version). 
 
+if you do want to use wgsl, you should use sysgpu instead. otherwise if you want write shaders in slang and have more control over your hardware, use vitellus. ~~also, we have a c api~~
 
 ## add to project
 requires zig `0.16.0`

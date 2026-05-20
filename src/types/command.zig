@@ -4,6 +4,7 @@ const def = @import("def.zig");
 const pipeline = @import("pipeline.zig");
 const texture = @import("texture.zig");
 const backend = @import("../backends/hal.zig");
+const Range = @import("../utils/range.zig").Range;
 
 pub const CommandBuffer = struct {
     backend: ?backend.CommandBuffer = null,
@@ -347,19 +348,17 @@ pub const RenderPassEncoder = struct {
         _ = size;
     }
 
-    pub fn draw(self: *@This(), vertexCount: def.Size32, instanceCount: def.Size32, firstVertex: def.Size32, firstInstance: def.Size32) void {
-        if (self.backend) |back| back.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+    pub fn draw(self: *@This(), vertices: Range, instances: Range) void {
+        if (self.backend) |back| back.draw(vertices, instances);
     }
 
     pub fn drawIndexed(
         self: *@This(),
-        indexCount: def.Size32,
-        instanceCount: def.Size32,
-        firstIndex: def.Size32,
+        indices: Range,
+        instances: Range,
         baseVertex: def.SignedOffset32,
-        firstInstance: def.Size32,
     ) void {
-        if (self.backend) |back| back.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+        if (self.backend) |back| back.drawIndexed(indices, instances, baseVertex);
     }
 
     pub fn drawIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {
@@ -457,28 +456,22 @@ pub const RenderBundleEncoder = struct {
         _ = size;
     }
 
-    pub fn draw(self: *@This(), vertexCount: def.Size32, instanceCount: def.Size32, firstVertex: def.Size32, firstInstance: def.Size32) void {
+    pub fn draw(self: *@This(), vertices: Range, instances: Range) void {
         _ = self;
-        _ = vertexCount;
-        _ = instanceCount;
-        _ = firstVertex;
-        _ = firstInstance;
+        _ = vertices;
+        _ = instances;
     }
 
     pub fn drawIndexed(
         self: *@This(),
-        indexCount: def.Size32,
-        instanceCount: def.Size32,
-        firstIndex: def.Size32,
+        indices: Range,
+        instances: Range,
         baseVertex: def.SignedOffset32,
-        firstInstance: def.Size32,
     ) void {
         _ = self;
-        _ = indexCount;
-        _ = instanceCount;
-        _ = firstIndex;
+        _ = indices;
+        _ = instances;
         _ = baseVertex;
-        _ = firstInstance;
     }
 
     pub fn drawIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {
