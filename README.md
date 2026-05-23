@@ -40,7 +40,7 @@ const vit = b.dependency("vitellus", .{
     // .metal = true,
     // .browser_webgpu = true,
     // .opengl = false,
-    // .noop = optimize == .Debug,
+    // .noop = false,
 });
 ```
 

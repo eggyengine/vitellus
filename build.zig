@@ -72,11 +72,8 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         })) |dep| {
-            const splat_mod = b.addModule("splat", .{
-                .root_source_file = dep.path("src/root.zig"),
-                .target = target,
-                .optimize = optimize,
-            });
+            const splat_mod = dep.module("splat");
+            b.modules.put(b.graph.arena, b.dupe("splat"), splat_mod) catch @panic("OOM");
             mod.addImport("splat", splat_mod);
         }
     }
