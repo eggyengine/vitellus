@@ -1,6 +1,7 @@
 const vit = @import("vitellus");
 const sdl3 = vit.windowing.sdl3.sdl;
 const std = @import("std");
+const emath = @import("eggenvector");
 
 const fps = 60;
 const screen_width = 640;
@@ -60,6 +61,8 @@ const INDICES = [_]u16{
     0, 1, 2,
     0, 2, 3,
 };
+
+const UniformBufferObject = struct { model: emath.Mat4, view: emath.Mat4, proj: emath.Mat4 };
 
 pub fn main(init: std.process.Init) !void {
     try vit.logz.setup(init.io, init.gpa, .{

@@ -81,6 +81,11 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    const emath = b.lazyDependency("eggenvector", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // ---------------
 
     const exe_mod = b.createModule(.{
@@ -91,6 +96,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addImport("vitellus", mod);
     exe_mod.addImport("candler", candler.module("candler"));
     exe_mod.addOptions("build_options", options);
+    if (emath) |e| exe_mod.addImport("eggenvector", e.module("eggenvector"));
     if (vulkan) |vulkan_mod| {
         exe_mod.addImport("vulkan", vulkan_mod);
     }

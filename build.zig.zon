@@ -31,6 +31,11 @@
             .url = "git+https://github.com/karlseguin/log.zig#7fa8de39ad4d4adc54fce4d9bb0b6bc6c0076592",
             .hash = "logz-0.0.0-O9YWXsllAgBq-S0z6q8AInWjei8h7polkVVRzJIGE-jW",
         },
+        .eggenvector = .{
+            .url = "git+https://github.com/eggyengine/eggenvector#9877a9ba332dd63aa8654267259a99c6502066b0",
+            .hash = "eggenvector-0.0.0-UyZb9L8qAQC0RBeoVAuyQz6UnDAjp5BKFfIfRIdeDCUd",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",
