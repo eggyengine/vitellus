@@ -26,7 +26,6 @@ pub const NoopDevice = struct {
         .createBuffer = createBuffer,
         .createTexture = createTexture,
         .createSampler = createSampler,
-        .importExternalTexture = importExternalTexture,
         .createBindGroupLayout = createBindGroupLayout,
         .createPipelineLayout = createPipelineLayout,
         .createBindGroup = createBindGroup,
@@ -80,12 +79,6 @@ pub const NoopDevice = struct {
         const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
         _ = descriptor;
         return resource.NoopSampler.init(typed.allocator);
-    }
-
-    fn importExternalTexture(ptr: *anyopaque, descriptor: texture.ExternalTexture.Descriptor) anyerror!hal.ExternalTexture {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return resource.NoopExternalTexture.init(typed.allocator);
     }
 
     fn createBindGroupLayout(ptr: *anyopaque, descriptor: bind_group.BindGroupLayout.Descriptor) anyerror!hal.BindGroupLayout {
@@ -203,7 +196,6 @@ pub const NoopQueue = struct {
         .submit = submit,
         .writeBuffer = writeBuffer,
         .writeTexture = writeTexture,
-        .copyExternalImageToTexture = copyExternalImageToTexture,
         .onSubmittedWorkDone = onSubmittedWorkDone,
     };
 
@@ -240,18 +232,6 @@ pub const NoopQueue = struct {
         _ = data;
         _ = data_layout;
         _ = size;
-    }
-
-    fn copyExternalImageToTexture(
-        ptr: *anyopaque,
-        source: texture.CopyExternalImageSourceInfo,
-        destination: texture.CopyExternalImageDestInfo,
-        copy_size: texture.Texture.Extent3D,
-    ) void {
-        _ = ptr;
-        _ = source;
-        _ = destination;
-        _ = copy_size;
     }
 
     fn onSubmittedWorkDone(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!void) {

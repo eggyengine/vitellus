@@ -300,10 +300,6 @@ pub const Device = struct {
             *anyopaque,
             sampler.Sampler.Descriptor,
         ) anyerror!Sampler,
-        importExternalTexture: *const fn (
-            *anyopaque,
-            texture.ExternalTexture.Descriptor,
-        ) anyerror!ExternalTexture,
         createBindGroupLayout: *const fn (
             *anyopaque,
             bind_group.BindGroupLayout.Descriptor,
@@ -380,13 +376,6 @@ pub const Device = struct {
         descriptor: sampler.Sampler.Descriptor,
     ) anyerror!Sampler {
         return self.vtable.createSampler(self.ptr, descriptor);
-    }
-
-    pub fn importExternalTexture(
-        self: Device,
-        descriptor: texture.ExternalTexture.Descriptor,
-    ) anyerror!ExternalTexture {
-        return self.vtable.importExternalTexture(self.ptr, descriptor);
     }
 
     pub fn createBindGroupLayout(
@@ -507,12 +496,6 @@ pub const Queue = struct {
             texture.TexelCopyBufferLayout,
             texture.Texture.Extent3D,
         ) void,
-        copyExternalImageToTexture: *const fn (
-            *anyopaque,
-            texture.CopyExternalImageSourceInfo,
-            texture.CopyExternalImageDestInfo,
-            texture.Texture.Extent3D,
-        ) void,
         onSubmittedWorkDone: *const fn (*anyopaque, std.Io) std.Io.Future(anyerror!void),
     };
 
@@ -539,15 +522,6 @@ pub const Queue = struct {
         size: texture.Texture.Extent3D,
     ) void {
         return self.vtable.writeTexture(self.ptr, destination, data, data_layout, size);
-    }
-
-    pub fn copyExternalImageToTexture(
-        self: Queue,
-        source: texture.CopyExternalImageSourceInfo,
-        destination: texture.CopyExternalImageDestInfo,
-        copy_size: texture.Texture.Extent3D,
-    ) void {
-        return self.vtable.copyExternalImageToTexture(self.ptr, source, destination, copy_size);
     }
 
     pub fn onSubmittedWorkDone(self: Queue, io: std.Io) std.Io.Future(anyerror!void) {
@@ -628,19 +602,6 @@ pub const TextureView = struct {
     };
 
     pub fn destroy(self: TextureView) void {
-        return self.vtable.destroy(self.ptr);
-    }
-};
-
-pub const ExternalTexture = struct {
-    ptr: *anyopaque,
-    vtable: *const VTable,
-
-    pub const VTable = struct {
-        destroy: *const fn (*anyopaque) void,
-    };
-
-    pub fn destroy(self: ExternalTexture) void {
         return self.vtable.destroy(self.ptr);
     }
 };
@@ -1300,38 +1261,6 @@ pub const QuerySet = struct {
 
     pub fn destroy(self: QuerySet) void {
         return self.vtable.destroy(self.ptr);
-    }
-};
-
-pub const CanvasContext = struct {
-    ptr: *anyopaque,
-    vtable: *const VTable,
-
-    pub const VTable = struct {
-        configure: *const fn (*anyopaque, texture.CanvasContext.Configuration) void,
-        unconfigure: *const fn (*anyopaque) void,
-        getConfiguration: *const fn (*anyopaque) ?texture.CanvasContext.Configuration,
-        getCurrentTexture: *const fn (
-            *anyopaque,
-        ) anyerror!Texture,
-    };
-
-    pub fn configure(self: CanvasContext, configuration: texture.CanvasContext.Configuration) void {
-        return self.vtable.configure(self.ptr, configuration);
-    }
-
-    pub fn unconfigure(self: CanvasContext) void {
-        return self.vtable.unconfigure(self.ptr);
-    }
-
-    pub fn getConfiguration(self: CanvasContext) ?texture.CanvasContext.Configuration {
-        return self.vtable.getConfiguration(self.ptr);
-    }
-
-    pub fn getCurrentTexture(
-        self: CanvasContext,
-    ) anyerror!Texture {
-        return self.vtable.getCurrentTexture(self.ptr);
     }
 };
 

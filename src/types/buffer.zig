@@ -90,39 +90,36 @@ pub const Buffer = struct {
         self: *@This(),
         io: std.Io,
         mode: MapMode,
-        offset: ?u64, // default to 0
+        offset: ?u64, // defaults to 0
         size: u64,
     ) std.Io.Future(MapAsyncError!void) {
-        return io.async(mapAsyncInternal, .{ self, mode, offset, size });
+        return io.async(mapAsyncInternal, .{ self, io, mode, offset, size });
     }
 
     pub fn getMappedRange(
         self: *@This(),
         offset: ?def.Size64,
         size: ?def.Size64,
-    ) anyerror!?def.ArrayBuffer {
-        _ = self;
-        _ = offset;
-        _ = size;
-        return error.NotImplemented;
+    ) !?def.ArrayBuffer {
+        if (self.backend) |b| return b.getMappedRange(offset, size) else @panic("unreachable: for struct to be initialised, backend must be passed and `self.backend` cannot be null. unless...");
     }
 
     pub fn unmap(self: *@This()) void {
-        _ = self;
+        if (self.backend) |b| b.unmap() else @panic("unreachable: for struct to be initialised, backend must be passed and `self.backend` cannot be null. unless...");
     }
-
-    // --- internal ---
 
     fn mapAsyncInternal(
         self: *@This(),
+        io: std.Io,
         mode: MapMode,
         offset: ?u64,
         size: u64,
     ) MapAsyncError!void {
-        _ = self;
-        _ = mode;
-        _ = offset;
-        _ = size;
+        if (self.backend) |backend| {
+            var future = backend.mapAsync(io, mode, offset, size);
+            defer _ = future.cancel(io) catch {};
+            return future.await(io) catch error.NotImplemented;
+        }
         return error.NotImplemented;
     }
 };

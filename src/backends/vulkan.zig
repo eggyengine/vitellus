@@ -28,7 +28,6 @@ pub const vkQueue = device.vkQueue;
 pub const vkBuffer = resource.vkBuffer;
 pub const vkTexture = resource.vkTexture;
 pub const vkTextureView = resource.vkTextureView;
-pub const vkExternalTexture = resource.vkExternalTexture;
 pub const vkSampler = resource.vkSampler;
 pub const vkBindGroupLayout = resource.vkBindGroupLayout;
 pub const vkBindGroup = resource.vkBindGroup;

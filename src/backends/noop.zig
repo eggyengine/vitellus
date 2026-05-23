@@ -25,7 +25,6 @@ pub const NoopQueue = device.NoopQueue;
 pub const NoopBuffer = resource.NoopBuffer;
 pub const NoopTexture = resource.NoopTexture;
 pub const NoopTextureView = resource.NoopTextureView;
-pub const NoopExternalTexture = resource.NoopExternalTexture;
 pub const NoopSampler = resource.NoopSampler;
 pub const NoopBindGroupLayout = resource.NoopBindGroupLayout;
 pub const NoopBindGroup = resource.NoopBindGroup;

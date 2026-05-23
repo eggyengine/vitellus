@@ -187,20 +187,42 @@ pub const vkCommandEncoder = struct {
         _ = descriptor;
         return error.NotImplemented;
     }
+
     fn copyBufferToBuffer(ptr: *anyopaque, source: hal.Buffer, destination: hal.Buffer, size: ?def.Size64) void {
-        _ = ptr;
-        _ = source;
-        _ = destination;
-        _ = size;
+        copyBufferToBufferWithOffsets(ptr, source, 0, destination, 0, size);
     }
+
     fn copyBufferToBufferWithOffsets(ptr: *anyopaque, source: hal.Buffer, source_offset: def.Size64, destination: hal.Buffer, destination_offset: def.Size64, size: ?def.Size64) void {
-        _ = ptr;
-        _ = source;
-        _ = source_offset;
-        _ = destination;
-        _ = destination_offset;
-        _ = size;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        const source_buffer: *resource.vkBuffer = @ptrCast(@alignCast(source.ptr));
+        const destination_buffer: *resource.vkBuffer = @ptrCast(@alignCast(destination.ptr));
+
+        if (source_offset > source_buffer.size or destination_offset > destination_buffer.size) {
+            logz.err().fmt("msg", "buffer copy offset out of bounds: source_offset={} destination_offset={}", .{ source_offset, destination_offset }).log();
+            return;
+        }
+
+        const source_available = source_buffer.size - source_offset;
+        const destination_available = destination_buffer.size - destination_offset;
+        const copy_size = size orelse @min(source_available, destination_available);
+        if (copy_size == 0 or copy_size > source_available or copy_size > destination_available) {
+            logz.err().fmt("msg", "buffer copy size out of bounds: size={?} source_available={} destination_available={}", .{ size, source_available, destination_available }).log();
+            return;
+        }
+
+        const copy_region = vk.BufferCopy{
+            .src_offset = source_offset,
+            .dst_offset = destination_offset,
+            .size = copy_size,
+        };
+        typed.device.device.cmdCopyBuffer(
+            typed.command_buffer,
+            source_buffer.handle,
+            destination_buffer.handle,
+            @as([*]const vk.BufferCopy, @ptrCast(&copy_region))[0..1],
+        );
     }
+
     fn copyBufferToTexture(ptr: *anyopaque, source: texture.TexelCopyBufferInfo, destination: texture.TexelCopyTextureInfo, copy_size: texture.Texture.Extent3D) void {
         _ = ptr;
         _ = source;

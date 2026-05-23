@@ -81,7 +81,9 @@ pub fn main(init: std.process.Init) !void {
     defer sdl3.quit(init_flags);
 
     // Initial window setup.
-    const window = try sdl3.video.Window.init("Hello SDL3", screen_width, screen_height, .{});
+    const window = try sdl3.video.Window.init("Hello SDL3", screen_width, screen_height, .{
+        .resizable = true,
+    });
     defer window.deinit();
 
     // Useful for limiting the FPS and getting the delta time.

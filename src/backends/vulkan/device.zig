@@ -49,7 +49,6 @@ pub const vkDevice = struct {
         .createBuffer = createBuffer,
         .createTexture = createTexture,
         .createSampler = createSampler,
-        .importExternalTexture = importExternalTexture,
         .createBindGroupLayout = createBindGroupLayout,
         .createPipelineLayout = createPipelineLayout,
         .createBindGroup = createBindGroup,
@@ -188,11 +187,6 @@ pub const vkDevice = struct {
         return try resource_backend.vkSampler.init(typed, descriptor);
     }
 
-    fn importExternalTexture(ptr: *anyopaque, descriptor: texture.ExternalTexture.Descriptor) anyerror!hal.ExternalTexture {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        return try resource_backend.vkExternalTexture.init(typed, descriptor);
-    }
-
     fn createBindGroupLayout(ptr: *anyopaque, descriptor: bind_group.BindGroupLayout.Descriptor) anyerror!hal.BindGroupLayout {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         return try resource_backend.vkBindGroupLayout.init(typed, descriptor);
@@ -315,7 +309,6 @@ pub const vkQueue = struct {
         .submit = submit,
         .writeBuffer = writeBuffer,
         .writeTexture = writeTexture,
-        .copyExternalImageToTexture = copyExternalImageToTexture,
         .onSubmittedWorkDone = onSubmittedWorkDone,
     };
 
@@ -472,18 +465,6 @@ pub const vkQueue = struct {
         _ = data;
         _ = data_layout;
         _ = size;
-    }
-
-    fn copyExternalImageToTexture(
-        ptr: *anyopaque,
-        source: texture.CopyExternalImageSourceInfo,
-        destination: texture.CopyExternalImageDestInfo,
-        copy_size: texture.Texture.Extent3D,
-    ) void {
-        _ = ptr;
-        _ = source;
-        _ = destination;
-        _ = copy_size;
     }
 
     fn onSubmittedWorkDone(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!void) {

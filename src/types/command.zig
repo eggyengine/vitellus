@@ -1,3 +1,4 @@
+const std = @import("std");
 const bind_group = @import("bind_group.zig");
 const buffer = @import("buffer.zig");
 const def = @import("def.zig");
@@ -13,6 +14,17 @@ pub const CommandBuffer = struct {
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
     };
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |back| {
+            back.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
+    }
 };
 
 pub const CommandEncoder = struct {
@@ -26,6 +38,7 @@ pub const CommandEncoder = struct {
     pub fn beginRenderPass(self: *@This(), descriptor: RenderPassEncoder.Descriptor) RenderPassEncoder {
         return .{
             .backend = if (self.backend) |back| back.beginRenderPass(descriptor) catch null else null,
+            .label = descriptor.label,
         };
     }
 
@@ -37,10 +50,9 @@ pub const CommandEncoder = struct {
     }
 
     pub fn copyBufferToBuffer(self: *@This(), source: *buffer.Buffer, destination: *buffer.Buffer, size: ?def.Size64) void {
-        _ = self;
-        _ = source;
-        _ = destination;
-        _ = size;
+        if (self.backend) |back| if (source.backend) |source_backend| if (destination.backend) |destination_backend| {
+            back.copyBufferToBuffer(source_backend, destination_backend, size);
+        };
     }
 
     pub fn copyBufferToBufferWithOffsets(
@@ -51,12 +63,9 @@ pub const CommandEncoder = struct {
         destinationOffset: def.Size64,
         size: ?def.Size64,
     ) void {
-        _ = self;
-        _ = source;
-        _ = sourceOffset;
-        _ = destination;
-        _ = destinationOffset;
-        _ = size;
+        if (self.backend) |back| if (source.backend) |source_backend| if (destination.backend) |destination_backend| {
+            back.copyBufferToBufferWithOffsets(source_backend, sourceOffset, destination_backend, destinationOffset, size);
+        };
     }
 
     pub fn copyBufferToTexture(
@@ -65,10 +74,7 @@ pub const CommandEncoder = struct {
         destination: texture.TexelCopyTextureInfo,
         copySize: texture.Texture.Extent3D,
     ) void {
-        _ = self;
-        _ = source;
-        _ = destination;
-        _ = copySize;
+        if (self.backend) |back| back.copyBufferToTexture(source, destination, copySize);
     }
 
     pub fn copyTextureToBuffer(
@@ -77,10 +83,7 @@ pub const CommandEncoder = struct {
         destination: texture.TexelCopyBufferInfo,
         copySize: texture.Texture.Extent3D,
     ) void {
-        _ = self;
-        _ = source;
-        _ = destination;
-        _ = copySize;
+        if (self.backend) |back| back.copyTextureToBuffer(source, destination, copySize);
     }
 
     pub fn copyTextureToTexture(
@@ -89,17 +92,13 @@ pub const CommandEncoder = struct {
         destination: texture.TexelCopyTextureInfo,
         copySize: texture.Texture.Extent3D,
     ) void {
-        _ = self;
-        _ = source;
-        _ = destination;
-        _ = copySize;
+        if (self.backend) |back| back.copyTextureToTexture(source, destination, copySize);
     }
 
     pub fn clearBuffer(self: *@This(), target: *buffer.Buffer, offset: ?def.Size64, size: ?def.Size64) void {
-        _ = self;
-        _ = target;
-        _ = offset;
-        _ = size;
+        if (self.backend) |back| if (target.backend) |target_backend| {
+            back.clearBuffer(target_backend, offset, size);
+        };
     }
 
     pub fn resolveQuerySet(
@@ -110,12 +109,9 @@ pub const CommandEncoder = struct {
         destination: *buffer.Buffer,
         destinationOffset: def.Size64,
     ) void {
-        _ = self;
-        _ = querySet;
-        _ = firstQuery;
-        _ = queryCount;
-        _ = destination;
-        _ = destinationOffset;
+        if (self.backend) |back| if (querySet.backend) |query_backend| if (destination.backend) |destination_backend| {
+            back.resolveQuerySet(query_backend, firstQuery, queryCount, destination_backend, destinationOffset);
+        };
     }
 
     pub fn finish(self: *@This()) CommandBuffer {
@@ -125,17 +121,15 @@ pub const CommandEncoder = struct {
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
-        _ = self;
-        _ = groupLabel;
+        if (self.backend) |back| back.pushDebugGroup(groupLabel);
     }
 
     pub fn popDebugGroup(self: *@This()) void {
-        _ = self;
+        if (self.backend) |back| back.popDebugGroup();
     }
 
     pub fn insertDebugMarker(self: *@This(), markerLabel: []const u8) void {
-        _ = self;
-        _ = markerLabel;
+        if (self.backend) |back| back.insertDebugMarker(markerLabel);
     }
 };
 
@@ -146,10 +140,10 @@ pub const BindingCommands = struct {
         group: ?*bind_group.BindGroup,
         dynamicOffsets: []const def.BufferDynamicOffset,
     ) void {
-        _ = encoder;
-        _ = index;
-        _ = group;
-        _ = dynamicOffsets;
+        if (encoder.backend) |back| {
+            const group_backend = if (group) |target_group| target_group.backend else null;
+            back.setBindGroup(index, group_backend, dynamicOffsets);
+        }
     }
 
     pub fn setBindGroupFromData(
@@ -160,12 +154,10 @@ pub const BindingCommands = struct {
         dynamicOffsetsDataStart: def.Size64,
         dynamicOffsetsDataLength: def.Size32,
     ) void {
-        _ = encoder;
-        _ = index;
-        _ = group;
-        _ = dynamicOffsetsData;
-        _ = dynamicOffsetsDataStart;
-        _ = dynamicOffsetsDataLength;
+        if (encoder.backend) |back| {
+            const group_backend = if (group) |target_group| target_group.backend else null;
+            back.setBindGroupFromData(index, group_backend, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
+        }
     }
 };
 
@@ -185,8 +177,7 @@ pub const ComputePassEncoder = struct {
     };
 
     pub fn setPipeline(self: *@This(), target: *pipeline.ComputePipeline) void {
-        _ = self;
-        _ = target;
+        if (self.backend) |back| if (target.backend) |target_backend| back.setPipeline(target_backend);
     }
 
     pub fn dispatchWorkgroups(
@@ -195,20 +186,17 @@ pub const ComputePassEncoder = struct {
         workgroupCountY: def.Size32,
         workgroupCountZ: def.Size32,
     ) void {
-        _ = self;
-        _ = workgroupCountX;
-        _ = workgroupCountY;
-        _ = workgroupCountZ;
+        if (self.backend) |back| back.dispatchWorkgroups(workgroupCountX, workgroupCountY, workgroupCountZ);
     }
 
     pub fn dispatchWorkgroupsIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {
-        _ = self;
-        _ = indirectBuffer;
-        _ = indirectOffset;
+        if (self.backend) |back| if (indirectBuffer.backend) |indirect_backend| {
+            back.dispatchWorkgroupsIndirect(indirect_backend, indirectOffset);
+        };
     }
 
     pub fn end(self: *@This()) void {
-        _ = self;
+        if (self.backend) |back| back.end();
     }
 
     pub fn setBindGroup(self: *@This(), index: def.Index32, group: ?*bind_group.BindGroup, dynamicOffsets: []const def.BufferDynamicOffset) void {
@@ -227,17 +215,15 @@ pub const ComputePassEncoder = struct {
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
-        _ = self;
-        _ = groupLabel;
+        if (self.backend) |back| back.pushDebugGroup(groupLabel);
     }
 
     pub fn popDebugGroup(self: *@This()) void {
-        _ = self;
+        if (self.backend) |back| back.popDebugGroup();
     }
 
     pub fn insertDebugMarker(self: *@This(), markerLabel: []const u8) void {
-        _ = self;
-        _ = markerLabel;
+        if (self.backend) |back| back.insertDebugMarker(markerLabel);
     }
 };
 
@@ -322,8 +308,18 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn executeBundles(self: *@This(), bundles: []const RenderBundle) void {
-        _ = self;
-        _ = bundles;
+        if (self.backend) |back| {
+            var backend_bundles = std.heap.page_allocator.alloc(backend.RenderBundle, bundles.len) catch return;
+            defer std.heap.page_allocator.free(backend_bundles);
+            var count: usize = 0;
+            for (bundles) |bundle| {
+                if (bundle.backend) |bundle_backend| {
+                    backend_bundles[count] = bundle_backend;
+                    count += 1;
+                }
+            }
+            back.executeBundles(backend_bundles[0..count]);
+        }
     }
 
     pub fn end(self: *@This()) void {
@@ -335,19 +331,16 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn setIndexBuffer(self: *@This(), target: *buffer.Buffer, indexFormat: pipeline.IndexFormat, offset: def.Size64, size: ?def.Size64) void {
-        _ = self;
-        _ = target;
-        _ = indexFormat;
-        _ = offset;
-        _ = size;
+        if (self.backend) |back| if (target.backend) |target_backend| {
+            back.setIndexBuffer(target_backend, indexFormat, offset, size);
+        };
     }
 
     pub fn setVertexBuffer(self: *@This(), slot: def.Index32, target: ?*buffer.Buffer, offset: def.Size64, size: ?def.Size64) void {
-        _ = self;
-        _ = slot;
-        _ = target;
-        _ = offset;
-        _ = size;
+        if (self.backend) |back| {
+            const target_backend = if (target) |target_buffer| target_buffer.backend else null;
+            back.setVertexBuffer(slot, target_backend, offset, size);
+        }
     }
 
     pub fn draw(self: *@This(), vertices: Range, instances: Range) void {
@@ -364,15 +357,15 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn drawIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {
-        _ = self;
-        _ = indirectBuffer;
-        _ = indirectOffset;
+        if (self.backend) |back| if (indirectBuffer.backend) |indirect_backend| {
+            back.drawIndirect(indirect_backend, indirectOffset);
+        };
     }
 
     pub fn drawIndexedIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {
-        _ = self;
-        _ = indirectBuffer;
-        _ = indirectOffset;
+        if (self.backend) |back| if (indirectBuffer.backend) |indirect_backend| {
+            back.drawIndexedIndirect(indirect_backend, indirectOffset);
+        };
     }
 
     pub fn setBindGroup(self: *@This(), index: def.Index32, group: ?*bind_group.BindGroup, dynamicOffsets: []const def.BufferDynamicOffset) void {
@@ -391,17 +384,15 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
-        _ = self;
-        _ = groupLabel;
+        if (self.backend) |back| back.pushDebugGroup(groupLabel);
     }
 
     pub fn popDebugGroup(self: *@This()) void {
-        _ = self;
+        if (self.backend) |back| back.popDebugGroup();
     }
 
     pub fn insertDebugMarker(self: *@This(), markerLabel: []const u8) void {
-        _ = self;
-        _ = markerLabel;
+        if (self.backend) |back| back.insertDebugMarker(markerLabel);
     }
 };
 
@@ -453,30 +444,24 @@ pub const RenderBundleEncoder = struct {
     }
 
     pub fn setPipeline(self: *@This(), target: *pipeline.RenderPipeline) void {
-        _ = self;
-        _ = target;
+        if (self.backend) |back| if (target.backend) |target_backend| back.setPipeline(target_backend);
     }
 
     pub fn setIndexBuffer(self: *@This(), target: *buffer.Buffer, indexFormat: pipeline.IndexFormat, offset: def.Size64, size: ?def.Size64) void {
-        _ = self;
-        _ = target;
-        _ = indexFormat;
-        _ = offset;
-        _ = size;
+        if (self.backend) |back| if (target.backend) |target_backend| {
+            back.setIndexBuffer(target_backend, indexFormat, offset, size);
+        };
     }
 
     pub fn setVertexBuffer(self: *@This(), slot: def.Index32, target: ?*buffer.Buffer, offset: def.Size64, size: ?def.Size64) void {
-        _ = self;
-        _ = slot;
-        _ = target;
-        _ = offset;
-        _ = size;
+        if (self.backend) |back| {
+            const target_backend = if (target) |target_buffer| target_buffer.backend else null;
+            back.setVertexBuffer(slot, target_backend, offset, size);
+        }
     }
 
     pub fn draw(self: *@This(), vertices: Range, instances: Range) void {
-        _ = self;
-        _ = vertices;
-        _ = instances;
+        if (self.backend) |back| back.draw(vertices, instances);
     }
 
     pub fn drawIndexed(
@@ -485,22 +470,19 @@ pub const RenderBundleEncoder = struct {
         instances: Range,
         baseVertex: def.SignedOffset32,
     ) void {
-        _ = self;
-        _ = indices;
-        _ = instances;
-        _ = baseVertex;
+        if (self.backend) |back| back.drawIndexed(indices, instances, baseVertex);
     }
 
     pub fn drawIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {
-        _ = self;
-        _ = indirectBuffer;
-        _ = indirectOffset;
+        if (self.backend) |back| if (indirectBuffer.backend) |indirect_backend| {
+            back.drawIndirect(indirect_backend, indirectOffset);
+        };
     }
 
     pub fn drawIndexedIndirect(self: *@This(), indirectBuffer: *buffer.Buffer, indirectOffset: def.Size64) void {
-        _ = self;
-        _ = indirectBuffer;
-        _ = indirectOffset;
+        if (self.backend) |back| if (indirectBuffer.backend) |indirect_backend| {
+            back.drawIndexedIndirect(indirect_backend, indirectOffset);
+        };
     }
 
     pub fn setBindGroup(self: *@This(), index: def.Index32, group: ?*bind_group.BindGroup, dynamicOffsets: []const def.BufferDynamicOffset) void {
@@ -519,16 +501,14 @@ pub const RenderBundleEncoder = struct {
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
-        _ = self;
-        _ = groupLabel;
+        if (self.backend) |back| back.pushDebugGroup(groupLabel);
     }
 
     pub fn popDebugGroup(self: *@This()) void {
-        _ = self;
+        if (self.backend) |back| back.popDebugGroup();
     }
 
     pub fn insertDebugMarker(self: *@This(), markerLabel: []const u8) void {
-        _ = self;
-        _ = markerLabel;
+        if (self.backend) |back| back.insertDebugMarker(markerLabel);
     }
 };

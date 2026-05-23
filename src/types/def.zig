@@ -46,21 +46,6 @@ pub const Origin3D = struct {
     z: IntegerCoordinate = 0,
 };
 
-pub const PredefinedColorSpace = enum {
-    srgb,
-    @"display-p3",
-};
-
-pub const ExternalImageSource = union(enum) {
-    image_bitmap: *anyopaque,
-    image_data: *anyopaque,
-    html_image_element: *anyopaque,
-    html_video_element: *anyopaque,
-    video_frame: *anyopaque,
-    html_canvas_element: *anyopaque,
-    offscreen_canvas: *anyopaque,
-};
-
 pub const ObjectBase = struct {
     label: ?[*:0]const u8 = null,
 };

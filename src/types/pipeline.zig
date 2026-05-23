@@ -67,8 +67,15 @@ pub const ComputePipeline = struct {
     };
 
     pub fn getBindGroupLayout(self: *@This(), index: u32) bind_group.BindGroupLayout {
-        _ = self;
-        _ = index;
+        if (self.backend) |backend| if (backend.getBindGroupLayout(index)) |layout_backend| {
+            return .{
+                .backend = layout_backend,
+                .label = null,
+                .entryMap = &.{},
+                .dynamicOffsetCount = 0,
+                .exclusivePipeline = self,
+            };
+        } else |_| {};
         return .{
             .label = null,
             .entryMap = &.{},
@@ -105,8 +112,15 @@ pub const RenderPipeline = struct {
     };
 
     pub fn getBindGroupLayout(self: *@This(), index: u32) bind_group.BindGroupLayout {
-        _ = self;
-        _ = index;
+        if (self.backend) |backend| if (backend.getBindGroupLayout(index)) |layout_backend| {
+            return .{
+                .backend = layout_backend,
+                .label = null,
+                .entryMap = &.{},
+                .dynamicOffsetCount = 0,
+                .exclusivePipeline = self,
+            };
+        } else |_| {};
         return .{
             .label = null,
             .entryMap = &.{},

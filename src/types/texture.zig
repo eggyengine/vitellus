@@ -406,32 +406,6 @@ pub const Texture = struct {
     };
 };
 
-pub const ExternalTexture = struct {
-    backend: ?hal.ExternalTexture = null,
-
-    pub const Descriptor = struct {
-        label: ?[*:0]const u8 = null,
-        source: Source,
-        colorSpace: def.PredefinedColorSpace = .srgb,
-    };
-
-    pub const Source = union(enum) {
-        html_video_element: *anyopaque,
-        video_frame: *anyopaque,
-    };
-
-    pub fn destroy(self: *@This()) void {
-        if (self.backend) |backend| {
-            backend.destroy();
-            self.backend = null;
-        }
-    }
-
-    pub fn deinit(self: *@This()) void {
-        self.destroy();
-    }
-};
-
 pub const Surface = struct {
     backend: hal.Surface,
     window: candler.WindowHandle,
@@ -467,7 +441,6 @@ pub const Surface = struct {
         format: Texture.Format,
         usage: Texture.UsageFlags = Texture.Usage.RENDER_ATTACHMENT,
         viewFormats: []const Texture.Format = &.{},
-        colorSpace: def.PredefinedColorSpace = .srgb,
         alphaMode: AlphaMode = .@"opaque",
         width: def.IntegerCoordinate,
         height: def.IntegerCoordinate,
@@ -581,71 +554,4 @@ pub const TexelCopyTextureInfo = struct {
     mipLevel: def.IntegerCoordinate = 0,
     origin: def.Origin3D = .{},
     aspect: Texture.Aspect = .all,
-};
-
-pub const CopyExternalImageDestInfo = struct {
-    texture: *Texture,
-    mipLevel: def.IntegerCoordinate = 0,
-    origin: def.Origin3D = .{},
-    aspect: Texture.Aspect = .all,
-    colorSpace: def.PredefinedColorSpace = .srgb,
-    premultipliedAlpha: bool = false,
-};
-
-pub const CopyExternalImageSourceInfo = struct {
-    source: def.ExternalImageSource,
-    origin: def.Origin2D = .{},
-    flipY: bool = false,
-};
-
-pub const CanvasContext = struct {
-    backend: ?hal.CanvasContext = null,
-    canvas: Canvas,
-    configuration: ?Configuration = null,
-
-    pub const Canvas = union(enum) {
-        html_canvas_element: *anyopaque,
-        offscreen_canvas: *anyopaque,
-    };
-
-    pub const AlphaMode = enum {
-        @"opaque",
-        premultiplied,
-    };
-
-    pub const ToneMappingMode = enum {
-        standard,
-        extended,
-    };
-
-    pub const ToneMapping = struct {
-        mode: ToneMappingMode = .standard,
-    };
-
-    pub const Configuration = struct {
-        device: *@import("gpu.zig").Device,
-        format: Texture.Format,
-        usage: Texture.UsageFlags = Texture.Usage.RENDER_ATTACHMENT,
-        viewFormats: []const Texture.Format = &.{},
-        colorSpace: def.PredefinedColorSpace = .srgb,
-        toneMapping: ToneMapping = .{},
-        alphaMode: AlphaMode = .@"opaque",
-    };
-
-    pub fn configure(self: *@This(), configuration: Configuration) void {
-        self.configuration = configuration;
-    }
-
-    pub fn unconfigure(self: *@This()) void {
-        self.configuration = null;
-    }
-
-    pub fn getConfiguration(self: *@This()) ?Configuration {
-        return self.configuration;
-    }
-
-    pub fn getCurrentTexture(self: *@This()) Texture {
-        _ = self;
-        return undefined;
-    }
 };

@@ -464,12 +464,6 @@ pub const Device = struct {
         return result;
     }
 
-    pub fn importExternalTexture(self: *@This(), descriptor: texture.ExternalTexture.Descriptor) !texture.ExternalTexture {
-        logz.info().fmt("msg", "importing external texture", .{}).log();
-        const backend = try self.backend.importExternalTexture(descriptor);
-        return .{ .backend = backend };
-    }
-
     pub fn createBindGroupLayout(self: *@This(), descriptor: BindGroupLayout.Descriptor) BindGroupLayout {
         logz.info().fmt("msg", "creating bind group layout", .{}).log();
         const backend = self.backend.createBindGroupLayout(descriptor) catch |err| {
@@ -534,18 +528,34 @@ pub const Device = struct {
 
     fn createComputePipelineAsyncInternal(
         self: *@This(),
+        io: std.Io,
         descriptor: ComputePipeline.Descriptor,
     ) CreatePipelineAsyncError!ComputePipeline {
-        _ = self;
-        _ = descriptor;
-        return error.Internal;
+        var future = self.backend.createComputePipelineAsync(io, descriptor);
+        defer _ = future.cancel(io) catch {};
+        const backend = future.await(io) catch |err| {
+            return switch (err) {
+                error.Validation => error.Validation,
+                else => error.Internal,
+            };
+        };
+        return .{ .backend = backend };
     }
 
     fn createRenderPipelineAsyncInternal(
         self: *@This(),
+        io: std.Io,
         descriptor: RenderPipeline.Descriptor,
     ) CreatePipelineAsyncError!RenderPipeline {
-        return self.createRenderPipeline(descriptor);
+        var future = self.backend.createRenderPipelineAsync(io, descriptor);
+        defer _ = future.cancel(io) catch {};
+        const backend = future.await(io) catch |err| {
+            return switch (err) {
+                error.Validation => error.Validation,
+                else => error.Internal,
+            };
+        };
+        return .{ .backend = backend };
     }
 
     pub fn createComputePipelineAsync(
@@ -554,7 +564,7 @@ pub const Device = struct {
         descriptor: ComputePipeline.Descriptor,
     ) std.Io.Future(CreatePipelineAsyncError!ComputePipeline) {
         logz.info().fmt("msg", "creating compute pipeline asynchronously", .{}).log();
-        return io.async(createComputePipelineAsyncInternal, .{ self, descriptor });
+        return io.async(createComputePipelineAsyncInternal, .{ self, io, descriptor });
     }
 
     pub fn createRenderPipelineAsync(
@@ -563,7 +573,7 @@ pub const Device = struct {
         descriptor: RenderPipeline.Descriptor,
     ) std.Io.Future(CreatePipelineAsyncError!RenderPipeline) {
         logz.info().fmt("msg", "creating render pipeline asynchronously", .{}).log();
-        return io.async(createRenderPipelineAsyncInternal, .{ self, descriptor });
+        return io.async(createRenderPipelineAsyncInternal, .{ self, io, descriptor });
     }
 
     pub fn createCommandEncoder(self: *@This(), descriptor: ?CommandEncoder.Descriptor) CommandEncoder {
@@ -599,29 +609,31 @@ pub const Device = struct {
         };
     }
 
-    fn lostInternal(self: *@This()) LostError!LostInfo {
-        _ = self;
-        return error.NotImplemented;
+    fn lostInternal(self: *@This(), io: std.Io) LostError!LostInfo {
+        var future = self.backend.lost(io);
+        defer _ = future.cancel(io) catch {};
+        return future.await(io) catch error.NotImplemented;
     }
 
     pub fn lost(self: *@This(), io: std.Io) std.Io.Future(LostError!LostInfo) {
         logz.info().fmt("msg", "querying device lost future", .{}).log();
-        return io.async(lostInternal, .{self});
+        return io.async(lostInternal, .{ self, io });
     }
 
-    fn popErrorScopeInternal(self: *@This()) PopErrorScopeError!?Error {
-        _ = self;
-        return error.NotImplemented;
+    fn popErrorScopeInternal(self: *@This(), io: std.Io) PopErrorScopeError!?Error {
+        var future = self.backend.popErrorScope(io);
+        defer _ = future.cancel(io) catch {};
+        return future.await(io) catch error.NotImplemented;
     }
 
     pub fn popErrorScope(self: *@This(), io: std.Io) std.Io.Future(PopErrorScopeError!?Error) {
         logz.info().fmt("msg", "popping error scope", .{}).log();
-        return io.async(popErrorScopeInternal, .{self});
+        return io.async(popErrorScopeInternal, .{ self, io });
     }
 
     pub fn pushErrorScope(self: *@This(), filter: ErrorFilter) void {
         logz.info().fmt("msg", "pushing error scope: filter={s}", .{@tagName(filter)}).log();
-        _ = self;
+        self.backend.pushErrorScope(filter);
     }
 };
 
@@ -670,34 +682,18 @@ pub const Queue = struct {
         size: texture.Texture.Extent3D,
     ) void {
         logz.debug().fmt("msg", "writing texture", .{}).log();
-        _ = self;
-        _ = destination;
-        _ = data;
-        _ = dataLayout;
-        _ = size;
+        self.backend.writeTexture(destination, data, dataLayout, size);
     }
 
-    pub fn copyExternalImageToTexture(
-        self: *@This(),
-        source: texture.CopyExternalImageSourceInfo,
-        destination: texture.CopyExternalImageDestInfo,
-        copySize: texture.Texture.Extent3D,
-    ) void {
-        logz.debug().fmt("msg", "copying external image to texture", .{}).log();
-        _ = self;
-        _ = source;
-        _ = destination;
-        _ = copySize;
-    }
-
-    fn onSubmittedWorkDoneInternal(self: *@This()) OnSubmittedWorkDoneError!void {
-        _ = self;
-        return error.NotImplemented;
+    fn onSubmittedWorkDoneInternal(self: *@This(), io: std.Io) OnSubmittedWorkDoneError!void {
+        var future = self.backend.onSubmittedWorkDone(io);
+        defer _ = future.cancel(io) catch {};
+        return future.await(io) catch error.NotImplemented;
     }
 
     pub fn onSubmittedWorkDone(self: *@This(), io: std.Io) std.Io.Future(OnSubmittedWorkDoneError!void) {
         logz.info().fmt("msg", "waiting for submitted queue work", .{}).log();
-        return io.async(onSubmittedWorkDoneInternal, .{self});
+        return io.async(onSubmittedWorkDoneInternal, .{ self, io });
     }
 };
 

@@ -52,13 +52,9 @@ pub const QuerySet = types.gpu.QuerySet;
 pub const Buffer = types.buffer.Buffer;
 pub const Texture = types.texture.Texture;
 pub const Surface = types.texture.Surface;
-pub const ExternalTexture = types.texture.ExternalTexture;
-pub const CanvasContext = types.texture.CanvasContext;
 pub const TexelCopyBufferLayout = types.texture.TexelCopyBufferLayout;
 pub const TexelCopyBufferInfo = types.texture.TexelCopyBufferInfo;
 pub const TexelCopyTextureInfo = types.texture.TexelCopyTextureInfo;
-pub const CopyExternalImageSourceInfo = types.texture.CopyExternalImageSourceInfo;
-pub const CopyExternalImageDestInfo = types.texture.CopyExternalImageDestInfo;
 pub const Sampler = types.sampler.Sampler;
 pub const BindGroupLayout = types.bind_group.BindGroupLayout;
 pub const BindGroup = types.bind_group.BindGroup;
@@ -120,5 +116,6 @@ pub const Color = types.def.Color;
 pub const ColorDict = types.def.ColorDict;
 pub const Origin2D = types.def.Origin2D;
 pub const Origin3D = types.def.Origin3D;
-pub const PredefinedColorSpace = types.def.PredefinedColorSpace;
-pub const ExternalImageSource = types.def.ExternalImageSource;
+
+// --- tests ---
+test {}

@@ -300,23 +300,6 @@ pub const vkTextureView = struct {
     }
 };
 
-pub const vkExternalTexture = struct {
-    pub const vtable = hal.ExternalTexture.VTable{
-        .destroy = destroy,
-    };
-
-    pub fn init(device: *vkDevice, descriptor: texture.ExternalTexture.Descriptor) !hal.ExternalTexture {
-        _ = device;
-        _ = descriptor;
-        return error.NotImplemented;
-    }
-
-    fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan external texture", .{}).log();
-    }
-};
-
 pub const vkSampler = struct {
     pub const vtable = hal.Sampler.VTable{
         .destroy = destroy,

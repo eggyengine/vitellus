@@ -24,15 +24,11 @@ pub const BindGroup = struct {
         };
     }
 
-    pub fn destroy(self: *@This()) void {
+    pub fn deinit(self: *@This()) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
-    }
-
-    pub fn deinit(self: *@This()) void {
-        self.destroy();
     }
 
     pub const Entry = struct {
@@ -47,7 +43,6 @@ pub const BindGroup = struct {
         textureView: *texture_mod.Texture.View,
         buffer: *buffer_mod.Buffer,
         bufferBinding: BufferBinding,
-        externalTexture: *texture_mod.ExternalTexture,
     };
 
     pub const BufferBinding = struct {
@@ -87,15 +82,11 @@ pub const BindGroupLayout = struct {
         };
     }
 
-    pub fn destroy(self: *@This()) void {
+    pub fn deinit(self: *@This()) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
-    }
-
-    pub fn deinit(self: *@This()) void {
-        self.destroy();
     }
 
     pub const ShaderStageFlags = def.ShaderStageFlags;
@@ -128,7 +119,6 @@ pub const BindGroupLayout = struct {
         sampler: ?Sampler = null,
         texture: ?Texture = null,
         storageTexture: ?StorageTexture = null,
-        externalTexture: ?ExternalTexture = null,
 
         pub const Buffer = struct {
             type: Type = .uniform,
@@ -177,7 +167,5 @@ pub const BindGroupLayout = struct {
                 read_write,
             };
         };
-
-        pub const ExternalTexture = struct {};
     };
 };

@@ -44,12 +44,16 @@ pub const ShaderModule = struct {
     };
 
     pub fn getCompilationInfo(self: *@This(), io: std.Io) std.Io.Future(CompilationInfoError!CompilationInfo) {
-        return io.async(getCompilationInfoInternal, .{self});
+        return io.async(getCompilationInfoInternal, .{ self, io });
     }
 
-    fn getCompilationInfoInternal(self: *@This()) CompilationInfoError!CompilationInfo {
-        _ = self;
-        return error.NotImplemented;
+    fn getCompilationInfoInternal(self: *@This(), io: std.Io) CompilationInfoError!CompilationInfo {
+        if (self.backend) |backend| {
+            var future = backend.getCompilationInfo(io);
+            defer _ = future.cancel(io) catch {};
+            return future.await(io) catch error.NotImplemented;
+        }
+        return .{};
     }
 
     pub fn destroy(self: *@This()) void {

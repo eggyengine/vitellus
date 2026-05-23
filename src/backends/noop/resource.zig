@@ -111,26 +111,6 @@ pub const NoopTextureView = struct {
     }
 };
 
-pub const NoopExternalTexture = struct {
-    allocator: std.mem.Allocator,
-
-    pub const vtable = hal.ExternalTexture.VTable{
-        .destroy = destroy,
-    };
-
-    pub fn init(allocator: std.mem.Allocator) !hal.ExternalTexture {
-        const value = try allocator.create(NoopExternalTexture);
-        value.* = .{ .allocator = allocator };
-        return .{ .ptr = value, .vtable = &vtable };
-    }
-
-    fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopExternalTexture = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop external texture", .{}).log();
-        typed.allocator.destroy(typed);
-    }
-};
-
 pub const NoopSampler = struct {
     allocator: std.mem.Allocator,
 
