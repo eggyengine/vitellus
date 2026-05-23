@@ -49,13 +49,14 @@ pub const NoopBuffer = struct {
         _ = mode;
         _ = offset;
         _ = size;
+        return error.NotImplemented;
     }
 
-    fn getMappedRange(ptr: *anyopaque, offset: ?def.Size64, size: ?def.Size64) ?def.ArrayBuffer {
+    fn getMappedRange(ptr: *anyopaque, offset: ?def.Size64, size: ?def.Size64) anyerror!?def.ArrayBuffer {
         _ = ptr;
         _ = offset;
         _ = size;
-        return null;
+        return error.NotImplemented;
     }
 
     fn unmap(ptr: *anyopaque) void {

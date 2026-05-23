@@ -34,6 +34,6 @@ pub const NoopShaderModule = struct {
 
     fn getCompilationInfoInternal(ptr: *anyopaque) anyerror!shader.ShaderModule.CompilationInfo {
         _ = ptr;
-        return .{};
+        return error.NotImplemented;
     }
 };

@@ -1,9 +1,11 @@
 const def = @import("def.zig");
+const hal = @import("../backends/hal.zig");
 const buffer_mod = @import("buffer.zig");
 const sampler_mod = @import("sampler.zig");
 const texture_mod = @import("texture.zig");
 
 pub const BindGroup = struct {
+    backend: ?hal.BindGroup = null,
     label: ?[*:0]const u8,
     layout: *const BindGroupLayout,
     entries: []const Entry,
@@ -20,6 +22,17 @@ pub const BindGroup = struct {
             .layout = descriptor.layout,
             .entries = descriptor.entries,
         };
+    }
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub const Entry = struct {
@@ -45,6 +58,7 @@ pub const BindGroup = struct {
 };
 
 pub const BindGroupLayout = struct {
+    backend: ?hal.BindGroupLayout = null,
     label: ?[*:0]const u8,
     entryMap: []const *const Entry,
     dynamicOffsetCount: def.Size32Out,
@@ -71,6 +85,17 @@ pub const BindGroupLayout = struct {
             .dynamicOffsetCount = dynamic_offset_count,
             .exclusivePipeline = null,
         };
+    }
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub const ShaderStageFlags = def.ShaderStageFlags;

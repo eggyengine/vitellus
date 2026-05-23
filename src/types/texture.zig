@@ -407,6 +407,8 @@ pub const Texture = struct {
 };
 
 pub const ExternalTexture = struct {
+    backend: ?hal.ExternalTexture = null,
+
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
         source: Source,
@@ -417,6 +419,17 @@ pub const ExternalTexture = struct {
         html_video_element: *anyopaque,
         video_frame: *anyopaque,
     };
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
+    }
 };
 
 pub const Surface = struct {
@@ -586,6 +599,7 @@ pub const CopyExternalImageSourceInfo = struct {
 };
 
 pub const CanvasContext = struct {
+    backend: ?hal.CanvasContext = null,
     canvas: Canvas,
     configuration: ?Configuration = null,
 

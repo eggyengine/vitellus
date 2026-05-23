@@ -1,5 +1,6 @@
 const std = @import("std");
 const def = @import("def.zig");
+const hal = @import("../backends/hal.zig");
 
 pub const BufferUsage = packed struct(u32) {
     map_read: bool = false,
@@ -36,6 +37,7 @@ pub const BufferUsage = packed struct(u32) {
 };
 
 pub const Buffer = struct {
+    backend: ?hal.Buffer = null,
     size: def.Size64Out,
     usage: def.FlagsConstant,
 
@@ -78,7 +80,10 @@ pub const Buffer = struct {
     };
 
     pub fn deinit(self: *@This()) void {
-        _ = self;
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
     }
 
     pub fn mapAsync(
@@ -95,12 +100,11 @@ pub const Buffer = struct {
         self: *@This(),
         offset: ?def.Size64,
         size: ?def.Size64,
-    ) ?def.ArrayBuffer {
+    ) anyerror!?def.ArrayBuffer {
         _ = self;
-        const resolved_offset = offset orelse 0;
-        _ = resolved_offset;
+        _ = offset;
         _ = size;
-        return null;
+        return error.NotImplemented;
     }
 
     pub fn unmap(self: *@This()) void {

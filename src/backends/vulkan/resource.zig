@@ -13,6 +13,14 @@ const debug = @import("debug.zig");
 const logz = @import("logz");
 
 pub const vkBuffer = struct {
+    device: *vkDevice,
+    handle: vk.Buffer,
+    memory: vk.DeviceMemory,
+    size: def.Size64,
+    mapped_ptr: ?[*]u8 = null,
+    mapped_offset: def.Size64 = 0,
+    mapped_size: def.Size64 = 0,
+
     pub const vtable = hal.Buffer.VTable{
         .destroy = destroy,
         .mapAsync = mapAsync,
@@ -21,14 +29,82 @@ pub const vkBuffer = struct {
     };
 
     pub fn init(device: *vkDevice, descriptor: buffer.Buffer.Descriptor) !hal.Buffer {
-        _ = device;
-        _ = descriptor;
-        return error.NotImplemented;
+        const create_info = vk.BufferCreateInfo{
+            .size = descriptor.size,
+            .usage = bufferFlagsToVk(descriptor.usage),
+            .sharing_mode = .exclusive,
+        };
+        const handle = try device.device.createBuffer(&create_info, null);
+        errdefer device.device.destroyBuffer(handle, null);
+
+        const requirements = device.device.getBufferMemoryRequirements(handle);
+        const usage = buffer.Buffer.Usage.fromFlags(descriptor.usage);
+        const allocate_info = vk.MemoryAllocateInfo{
+            .allocation_size = requirements.size,
+            .memory_type_index = try findMemoryType(device, requirements.memory_type_bits, memoryFlagsForBuffer(usage, descriptor.mappedAtCreation)),
+        };
+        const memory = try device.device.allocateMemory(&allocate_info, null);
+        errdefer device.device.freeMemory(memory, null);
+
+        try device.device.bindBufferMemory(handle, memory, 0);
+
+        const self = try device.adapter.gpu.allocator.create(vkBuffer);
+        errdefer device.adapter.gpu.allocator.destroy(self);
+        self.* = .{
+            .device = device,
+            .handle = handle,
+            .memory = memory,
+            .size = descriptor.size,
+        };
+        debug.setObjectName(device, .buffer, handle, descriptor.label);
+
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    fn bufferFlagsToVk(flags: u32) vk.BufferUsageFlags {
+        const usage = buffer.Buffer.Usage.fromFlags(flags);
+        return .{
+            .transfer_src_bit = usage.copy_src or usage.map_read,
+            .transfer_dst_bit = usage.copy_dst or usage.map_write or usage.query_resolve,
+            .index_buffer_bit = usage.index,
+            .vertex_buffer_bit = usage.vertex,
+            .uniform_buffer_bit = usage.uniform,
+            .storage_buffer_bit = usage.storage,
+            .indirect_buffer_bit = usage.indirect,
+        };
+    }
+
+    fn memoryFlagsForBuffer(usage: buffer.Buffer.Usage, mapped_at_creation: bool) vk.MemoryPropertyFlags {
+        if (mapped_at_creation or usage.map_read or usage.map_write) {
+            return .{ .host_visible_bit = true, .host_coherent_bit = true };
+        }
+        return .{ .device_local_bit = true };
+    }
+
+    fn findMemoryType(device: *vkDevice, type_filter: u32, properties: vk.MemoryPropertyFlags) !u32 {
+        const memory_properties = device.adapter.gpu.instance.getPhysicalDeviceMemoryProperties(device.adapter.pdev);
+        var i: u32 = 0;
+        while (i < memory_properties.memory_type_count) : (i += 1) {
+            const supported = (type_filter & (@as(u32, 1) << @intCast(i))) != 0;
+            const flags = memory_properties.memory_types[i].property_flags;
+            if (supported and flags.contains(properties)) return i;
+        }
+        return error.NoSuitableMemoryType;
     }
 
     fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan buffer", .{}).log();
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.unmapInternal();
+        if (typed.handle != .null_handle) {
+            logz.info().fmt("msg", "destroying vulkan buffer: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            typed.device.device.destroyBuffer(typed.handle, null);
+            typed.handle = .null_handle;
+        }
+        if (typed.memory != .null_handle) {
+            typed.device.device.freeMemory(typed.memory, null);
+            typed.memory = .null_handle;
+        }
+        typed.device.adapter.gpu.allocator.destroy(typed);
     }
 
     fn mapAsync(
@@ -47,22 +123,47 @@ pub const vkBuffer = struct {
         offset: ?def.Size64,
         size: def.Size64,
     ) anyerror!void {
-        _ = ptr;
-        _ = mode;
-        _ = offset;
-        _ = size;
-        return error.NotImplemented;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        if (!mode.read and !mode.write) return error.InvalidMapMode;
+        if (typed.mapped_ptr != null) return;
+
+        const resolved_offset = offset orelse 0;
+        if (resolved_offset > typed.size or size > typed.size - resolved_offset) return error.MapRangeOutOfBounds;
+
+        const mapped = try typed.device.device.mapMemory(typed.memory, resolved_offset, size, .{});
+        typed.mapped_ptr = @ptrCast(mapped);
+        typed.mapped_offset = resolved_offset;
+        typed.mapped_size = size;
     }
 
-    fn getMappedRange(ptr: *anyopaque, offset: ?def.Size64, size: ?def.Size64) ?def.ArrayBuffer {
-        _ = ptr;
-        _ = offset;
-        _ = size;
-        return null;
+    fn getMappedRange(ptr: *anyopaque, offset: ?def.Size64, size: ?def.Size64) anyerror!?def.ArrayBuffer {
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        const mapped = typed.mapped_ptr orelse return null;
+
+        const resolved_offset = offset orelse typed.mapped_offset;
+        if (resolved_offset < typed.mapped_offset) return error.MapRangeOutOfBounds;
+
+        const relative_offset = resolved_offset - typed.mapped_offset;
+        if (relative_offset > typed.mapped_size) return error.MapRangeOutOfBounds;
+
+        const resolved_size = size orelse (typed.mapped_size - relative_offset);
+        if (resolved_size > typed.mapped_size - relative_offset) return error.MapRangeOutOfBounds;
+
+        return mapped[relative_offset .. relative_offset + resolved_size];
     }
 
     fn unmap(ptr: *anyopaque) void {
-        _ = ptr;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.unmapInternal();
+    }
+
+    fn unmapInternal(self: *@This()) void {
+        if (self.mapped_ptr) |_| {
+            self.device.device.unmapMemory(self.memory);
+            self.mapped_ptr = null;
+            self.mapped_offset = 0;
+            self.mapped_size = 0;
+        }
     }
 };
 

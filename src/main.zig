@@ -16,12 +16,12 @@ const Vertex = struct {
             .stepMode = .vertex,
             .attributes = &.{
                 vit.VertexAttribute{
-                    .format = vit.VertexFormat.Float32x2,
+                    .format = vit.VertexFormat.float32x2,
                     .offset = @offsetOf(Vertex, "position"),
                     .shaderLocation = 0,
                 },
                 vit.VertexAttribute{
-                    .format = vit.VertexFormat.Float32x3,
+                    .format = vit.VertexFormat.float32x3,
                     .offset = @offsetOf(Vertex, "color"),
                     .shaderLocation = 1,
                 },
@@ -242,7 +242,7 @@ fn create_render_pipeline(state: *State) !void {
         .vertex = .{
             .module = vertex_shader,
             .entry_point = "vertMain",
-            .buffers = &.{},
+            .buffers = &.{Vertex.desc()},
             // .compilationOptions = .default,
         },
         .fragment = .{
@@ -275,7 +275,7 @@ fn create_render_pipeline(state: *State) !void {
 }
 
 fn create_buffers(state: *State) !void {
-    var vertex_buffer = state.device.createBuffer(.{
+    var vertex_buffer = try state.device.createBuffer(.{
         .label = "Vertex Buffer",
         .size = @sizeOf(@TypeOf(VERTICES)),
         .usage = vit.Buffer.Usage.VERTEX | vit.Buffer.Usage.COPY_DST,
@@ -286,7 +286,7 @@ fn create_buffers(state: *State) !void {
 
     state.vertex_buffer = vertex_buffer;
 
-    var index_buffer = state.device.createBuffer(.{
+    var index_buffer = try state.device.createBuffer(.{
         .label = "Index Buffer",
         .size = @sizeOf(@TypeOf(INDICES)),
         .usage = vit.Buffer.Usage.INDEX | vit.Buffer.Usage.COPY_DST,

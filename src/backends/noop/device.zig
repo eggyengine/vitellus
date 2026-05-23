@@ -181,7 +181,7 @@ pub const NoopDevice = struct {
 
     fn popErrorScopeInternal(ptr: *anyopaque) anyerror!?gpu.Device.Error {
         _ = ptr;
-        return null;
+        return error.NotImplemented;
     }
 
     fn pushErrorScope(ptr: *anyopaque, filter: gpu.Device.ErrorFilter) void {
@@ -260,5 +260,6 @@ pub const NoopQueue = struct {
 
     fn onSubmittedWorkDoneInternal(ptr: *anyopaque) anyerror!void {
         _ = ptr;
+        return error.NotImplemented;
     }
 };

@@ -16,6 +16,13 @@ const debug = @import("debug.zig");
 
 const logz = @import("logz");
 
+fn indexFormatToVulkan(format: pipeline.IndexFormat) vk.IndexType {
+    return switch (format) {
+        .uint16 => .uint16,
+        .uint32 => .uint32,
+    };
+}
+
 pub const vkCommandBuffer = struct {
     device: *vkDevice,
     command_pool: vk.CommandPool,
@@ -23,6 +30,7 @@ pub const vkCommandBuffer = struct {
     wait_semaphore: vk.Semaphore = .null_handle,
     signal_semaphore: vk.Semaphore = .null_handle,
     fence: vk.Fence = .null_handle,
+    owns_fence: bool = false,
 
     pub const vtable = hal.CommandBuffer.VTable{
         .destroy = destroy,
@@ -33,6 +41,10 @@ pub const vkCommandBuffer = struct {
         if (self.command_pool != .null_handle) {
             self.device.device.destroyCommandPool(self.command_pool, null);
             self.command_pool = .null_handle;
+        }
+        if (self.owns_fence and self.fence != .null_handle) {
+            self.device.device.destroyFence(self.fence, null);
+            self.fence = .null_handle;
         }
         self.device.adapter.gpu.allocator.destroy(self);
     }
@@ -50,6 +62,7 @@ pub const vkCommandEncoder = struct {
     wait_semaphore: vk.Semaphore = .null_handle,
     signal_semaphore: vk.Semaphore = .null_handle,
     fence: vk.Fence = .null_handle,
+    owns_fence: bool = false,
     finished: bool = false,
 
     pub const vtable = hal.CommandEncoder.VTable{
@@ -228,14 +241,27 @@ pub const vkCommandEncoder = struct {
             try typed.device.device.endCommandBuffer(typed.command_buffer);
             typed.finished = true;
         }
-        const buffer_value = try typed.device.adapter.gpu.allocator.create(vkCommandBuffer);
+        const allocator = typed.device.adapter.gpu.allocator;
+        const buffer_value = try allocator.create(vkCommandBuffer);
+        errdefer allocator.destroy(buffer_value);
+
+        var fence = typed.fence;
+        var owns_fence = typed.owns_fence;
+        if (fence == .null_handle) {
+            const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
+            fence = try typed.device.device.createFence(&fence_info, null);
+            owns_fence = true;
+            errdefer typed.device.device.destroyFence(fence, null);
+        }
+
         buffer_value.* = .{
             .device = typed.device,
             .command_pool = typed.command_pool,
             .command_buffer = typed.command_buffer,
             .wait_semaphore = typed.wait_semaphore,
             .signal_semaphore = typed.signal_semaphore,
-            .fence = typed.fence,
+            .fence = fence,
+            .owns_fence = owns_fence,
         };
         typed.command_pool = .null_handle;
         typed.device.adapter.gpu.allocator.destroy(typed);
@@ -417,30 +443,27 @@ pub const vkRenderPassEncoder = struct {
         typed.encoder.device.device.cmdSetScissor(typed.encoder.command_buffer, 0, @as([*]const vk.Rect2D, @ptrCast(&scissor))[0..1]);
     }
     fn setIndexBuffer(ptr: *anyopaque, target: hal.Buffer, index_format: pipeline.IndexFormat, offset: def.Size64, size: ?def.Size64) void {
-        _ = ptr;
-        _ = target;
-        _ = index_format;
-        _ = offset;
         _ = size;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        const vk_buffer: *resource.vkBuffer = @ptrCast(@alignCast(target.ptr));
+        typed.encoder.device.device.cmdBindIndexBuffer(typed.encoder.command_buffer, vk_buffer.handle, offset, indexFormatToVulkan(index_format));
     }
     fn setVertexBuffer(ptr: *anyopaque, slot: def.Index32, target: ?hal.Buffer, offset: def.Size64, size: ?def.Size64) void {
-        _ = ptr;
-        _ = slot;
-        _ = target;
-        _ = offset;
         _ = size;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        const target_buffer = target orelse return;
+        const vk_buffer: *resource.vkBuffer = @ptrCast(@alignCast(target_buffer.ptr));
+        var handle = vk_buffer.handle;
+        var resolved_offset = offset;
+        typed.encoder.device.device.cmdBindVertexBuffers(typed.encoder.command_buffer, slot, @as([*]const vk.Buffer, @ptrCast(&handle))[0..1], @as([*]const vk.DeviceSize, @ptrCast(&resolved_offset))[0..1]);
     }
     fn draw(ptr: *anyopaque, vertex_count: def.Size32, instance_count: def.Size32, first_vertex: def.Size32, first_instance: def.Size32) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         typed.encoder.device.device.cmdDraw(typed.encoder.command_buffer, vertex_count, instance_count, first_vertex, first_instance);
     }
     fn drawIndexed(ptr: *anyopaque, index_count: def.Size32, instance_count: def.Size32, first_index: def.Size32, base_vertex: def.SignedOffset32, first_instance: def.Size32) void {
-        _ = ptr;
-        _ = index_count;
-        _ = instance_count;
-        _ = first_index;
-        _ = base_vertex;
-        _ = first_instance;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.encoder.device.device.cmdDrawIndexed(typed.encoder.command_buffer, index_count, instance_count, first_index, base_vertex, first_instance);
     }
     fn drawIndirect(ptr: *anyopaque, indirect_buffer: hal.Buffer, indirect_offset: def.Size64) void {
         _ = ptr;

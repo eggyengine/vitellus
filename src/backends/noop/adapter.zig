@@ -55,15 +55,15 @@ pub const NoopAdapter = struct {
         };
     }
 
-    fn getDownlevelCapabilities(ptr: *anyopaque) gpu.Adapter.DownlevelCapabilities {
+    fn getDownlevelCapabilities(ptr: *anyopaque) anyerror!gpu.Adapter.DownlevelCapabilities {
         _ = ptr;
-        return .{};
+        return error.NotImplemented;
     }
 
     fn getTextureFormatFeatures(
         ptr: *anyopaque,
         format: texture.Texture.Format,
-    ) gpu.Adapter.TextureFormatFeatures {
+    ) anyerror!gpu.Adapter.TextureFormatFeatures {
         _ = ptr;
         _ = format;
         return .{

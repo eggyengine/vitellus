@@ -1,4 +1,4 @@
-//! vitellus - webgpu implementation in pure zig
+//! vitellus - a webgpu-inspired graphics api
 //!
 //! start off at `vit.Instance`.
 

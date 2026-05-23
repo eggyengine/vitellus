@@ -332,6 +332,7 @@ pub const vkSurface = struct {
         self.swapchain_image_format = surface_format.format;
         self.swapchain_extent = extent;
         try self.createSyncObjects(device, swapchain_image_handles.len);
+        device.registerConfiguredSurface(self, unconfigure);
         debug.setObjectName(device, .swapchain_khr, swapchain, null);
 
         logz.info().fmt("msg", "configured vulkan swapchain: images={} format={s} extent={}x{}", .{
@@ -395,7 +396,8 @@ pub const vkSurface = struct {
     }
 
     fn unconfigureSwapchain(self: *@This()) void {
-        if (self.swapchain_device) |device| {
+        const configured_device = self.swapchain_device;
+        if (configured_device) |device| {
             _ = device.device.deviceWaitIdle() catch {};
             device.queue.cleanupCompleted(true);
         }
@@ -430,6 +432,9 @@ pub const vkSurface = struct {
         }
 
         self.swapchain_device = null;
+        if (configured_device) |device| {
+            device.unregisterConfiguredSurface(self);
+        }
         self.swapchain_image_format = .undefined;
         self.swapchain_extent = .{ .width = 0, .height = 0 };
     }

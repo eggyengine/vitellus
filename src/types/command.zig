@@ -29,10 +29,11 @@ pub const CommandEncoder = struct {
         };
     }
 
-    pub fn beginComputePass(self: *@This(), descriptor: ?ComputePassEncoder.Descriptor) ComputePassEncoder {
-        _ = self;
-        _ = descriptor;
-        return .{};
+    pub fn beginComputePass(self: *@This(), descriptor: ?ComputePassEncoder.Descriptor) anyerror!ComputePassEncoder {
+        return .{
+            .backend = if (self.backend) |back| try back.beginComputePass(descriptor) else null,
+            .label = if (descriptor) |d| d.label else null,
+        };
     }
 
     pub fn copyBufferToBuffer(self: *@This(), source: *buffer.Buffer, destination: *buffer.Buffer, size: ?def.Size64) void {
@@ -169,6 +170,7 @@ pub const BindingCommands = struct {
 };
 
 pub const ComputePassEncoder = struct {
+    backend: ?backend.ComputePassEncoder = null,
     label: ?[*:0]const u8 = null,
 
     pub const TimestampWrites = struct {
@@ -411,14 +413,27 @@ pub const RenderPassLayout = struct {
 };
 
 pub const RenderBundle = struct {
+    backend: ?backend.RenderBundle = null,
     label: ?[*:0]const u8 = null,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
     };
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |back| {
+            back.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
+    }
 };
 
 pub const RenderBundleEncoder = struct {
+    backend: ?backend.RenderBundleEncoder = null,
     label: ?[*:0]const u8 = null,
 
     pub const Descriptor = struct {
@@ -431,8 +446,10 @@ pub const RenderBundleEncoder = struct {
     };
 
     pub fn finish(self: *@This(), descriptor: ?RenderBundle.Descriptor) RenderBundle {
-        _ = self;
-        return .{ .label = if (descriptor) |d| d.label else null };
+        return .{
+            .backend = if (self.backend) |back| back.finish(descriptor) catch null else null,
+            .label = if (descriptor) |d| d.label else null,
+        };
     }
 
     pub fn setPipeline(self: *@This(), target: *pipeline.RenderPipeline) void {

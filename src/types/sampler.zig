@@ -1,4 +1,7 @@
+const hal = @import("../backends/hal.zig");
+
 pub const Sampler = struct {
+    backend: ?hal.Sampler = null,
     descriptor: Descriptor,
     isComparison: bool,
     isFiltering: bool,
@@ -26,6 +29,17 @@ pub const Sampler = struct {
                 descriptor.mipmapFilter == .linear or
                 descriptor.maxAnisotropy > 1,
         };
+    }
+
+    pub fn destroy(self: *@This()) void {
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub const AddressMode = enum {

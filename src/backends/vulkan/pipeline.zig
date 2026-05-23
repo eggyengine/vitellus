@@ -254,6 +254,8 @@ pub const vkRenderPipeline = struct {
             .owns_layout = owns_layout,
             .label = descriptor.label,
         };
+        device.registerDeviceChild(render_pipeline, destroy);
+        device.registerRenderPipelineHandle(handle);
         debug.setObjectName(device, .pipeline, handle, descriptor.label);
         if (render_pass != .null_handle) {
             debug.setObjectName(device, .render_pass, render_pass, descriptor.label);
@@ -271,6 +273,7 @@ pub const vkRenderPipeline = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.device.unregisterDeviceChild(ptr);
         if (typed.handle != .null_handle or typed.render_pass != .null_handle) {
             typed.device.device.deviceWaitIdle() catch |err| {
                 logz.err().src(@src()).err(err).log();
@@ -279,6 +282,7 @@ pub const vkRenderPipeline = struct {
         }
         if (typed.handle != .null_handle) {
             logz.info().fmt("msg", "destroying vulkan render pipeline: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            typed.device.unregisterRenderPipelineHandle(typed.handle);
             typed.device.device.destroyPipeline(typed.handle, null);
             typed.handle = .null_handle;
         }

@@ -289,7 +289,7 @@ pub const Adapter = struct {
         return self.backend.getInfo();
     }
 
-    pub fn getDownlevelCapabilities(self: *const @This()) DownlevelCapabilities {
+    pub fn getDownlevelCapabilities(self: *const @This()) anyerror!DownlevelCapabilities {
         logz.info().fmt("msg", "getting adapter downlevel capabilities", .{}).log();
         return self.backend.getDownlevelCapabilities();
     }
@@ -297,7 +297,7 @@ pub const Adapter = struct {
     pub fn getTextureFormatFeatures(
         self: *const @This(),
         format: texture.Texture.Format,
-    ) TextureFormatFeatures {
+    ) anyerror!TextureFormatFeatures {
         logz.info().fmt("msg", "getting adapter texture format features: format={s}", .{@tagName(format)}).log();
         return self.backend.getTextureFormatFeatures(format);
     }
@@ -424,40 +424,61 @@ pub const Device = struct {
         self.backend.destroy();
     }
 
-    pub fn createBuffer(self: *@This(), descriptor: buffer.Buffer.Descriptor) buffer.Buffer {
+    pub fn createBuffer(self: *@This(), descriptor: buffer.Buffer.Descriptor) !buffer.Buffer {
         logz.info().fmt("msg", "creating buffer", .{}).log();
-        _ = self;
+        const backend = try self.backend.createBuffer(descriptor);
         return .{
+            .backend = backend,
             .size = descriptor.size,
             .usage = descriptor.usage,
             .map_state = if (descriptor.mappedAtCreation) .mapped else .unmapped,
         };
     }
 
-    pub fn createTexture(self: *@This(), descriptor: texture.Texture.Descriptor) texture.Texture {
+    pub fn createTexture(self: *@This(), descriptor: texture.Texture.Descriptor) !texture.Texture {
         logz.info().fmt("msg", "creating texture", .{}).log();
-        _ = self;
-        _ = descriptor;
-        return .{};
+        const backend = try self.backend.createTexture(descriptor);
+        return .{
+            .backend = backend,
+            .width = descriptor.size.width,
+            .height = descriptor.size.height,
+            .depthOrArrayLayers = descriptor.size.depthOrArrayLayers,
+            .mipLevelCount = descriptor.mipLevelCount,
+            .sampleCount = descriptor.sampleCount,
+            .dimension = descriptor.dimension,
+            .format = descriptor.format,
+            .usage = descriptor.usage,
+            .textureBindingViewDimension = descriptor.textureBindingViewDimension,
+        };
     }
 
     pub fn createSampler(self: *@This(), descriptor: ?sampler.Sampler.Descriptor) sampler.Sampler {
         logz.info().fmt("msg", "creating sampler: descriptor={}", .{descriptor != null}).log();
-        _ = self;
-        return sampler.Sampler.init(descriptor orelse .{});
+        const resolved = descriptor orelse .{};
+        const backend = self.backend.createSampler(resolved) catch |err| {
+            logz.err().fmt("msg", "backend sampler creation failed: {s}", .{@errorName(err)}).log();
+            return sampler.Sampler.init(resolved);
+        };
+        var result = sampler.Sampler.init(resolved);
+        result.backend = backend;
+        return result;
     }
 
-    pub fn importExternalTexture(self: *@This(), descriptor: texture.ExternalTexture.Descriptor) texture.ExternalTexture {
+    pub fn importExternalTexture(self: *@This(), descriptor: texture.ExternalTexture.Descriptor) !texture.ExternalTexture {
         logz.info().fmt("msg", "importing external texture", .{}).log();
-        _ = self;
-        _ = descriptor;
-        return .{};
+        const backend = try self.backend.importExternalTexture(descriptor);
+        return .{ .backend = backend };
     }
 
     pub fn createBindGroupLayout(self: *@This(), descriptor: BindGroupLayout.Descriptor) BindGroupLayout {
         logz.info().fmt("msg", "creating bind group layout", .{}).log();
-        _ = self;
-        return BindGroupLayout.init(descriptor);
+        const backend = self.backend.createBindGroupLayout(descriptor) catch |err| {
+            logz.err().fmt("msg", "backend bind group layout creation failed: {s}", .{@errorName(err)}).log();
+            return BindGroupLayout.init(descriptor);
+        };
+        var layout = BindGroupLayout.init(descriptor);
+        layout.backend = backend;
+        return layout;
     }
 
     pub fn createPipelineLayout(self: *@This(), descriptor: PipelineLayout.Descriptor) PipelineLayout {
@@ -473,8 +494,13 @@ pub const Device = struct {
 
     pub fn createBindGroup(self: *@This(), descriptor: BindGroup.Descriptor) BindGroup {
         logz.info().fmt("msg", "creating bind group", .{}).log();
-        _ = self;
-        return BindGroup.init(descriptor);
+        const backend = self.backend.createBindGroup(descriptor) catch |err| {
+            logz.err().fmt("msg", "backend bind group creation failed: {s}", .{@errorName(err)}).log();
+            return BindGroup.init(descriptor);
+        };
+        var group = BindGroup.init(descriptor);
+        group.backend = backend;
+        return group;
     }
 
     pub fn createShaderModule(self: *@This(), descriptor: shader.ShaderModule.Descriptor) !shader.ShaderModule {
@@ -489,11 +515,10 @@ pub const Device = struct {
         };
     }
 
-    pub fn createComputePipeline(self: *@This(), descriptor: ComputePipeline.Descriptor) ComputePipeline {
+    pub fn createComputePipeline(self: *@This(), descriptor: ComputePipeline.Descriptor) !ComputePipeline {
         logz.info().fmt("msg", "creating compute pipeline", .{}).log();
-        _ = self;
-        _ = descriptor;
-        return .{};
+        const backend = try self.backend.createComputePipeline(descriptor);
+        return .{ .backend = backend };
     }
 
     pub fn createRenderPipeline(self: *@This(), descriptor: RenderPipeline.Descriptor) RenderPipeline {
@@ -550,17 +575,24 @@ pub const Device = struct {
         return .{ .backend = backend, .label = if (descriptor) |d| d.label else null };
     }
 
-    pub fn createRenderBundleEncoder(self: *@This(), descriptor: RenderBundleEncoder.Descriptor) RenderBundleEncoder {
+    pub fn createRenderBundleEncoder(self: *@This(), descriptor: RenderBundleEncoder.Descriptor) !RenderBundleEncoder {
         logz.info().fmt("msg", "creating render bundle encoder", .{}).log();
-        _ = self;
-        _ = descriptor;
-        return .{};
+        const backend = try self.backend.createRenderBundleEncoder(descriptor);
+        return .{ .backend = backend, .label = descriptor.label };
     }
 
     pub fn createQuerySet(self: *@This(), descriptor: QuerySet.Descriptor) QuerySet {
         logz.info().fmt("msg", "creating query set: type={s} count={}", .{ @tagName(descriptor.type), descriptor.count }).log();
-        _ = self;
+        const backend = self.backend.createQuerySet(descriptor) catch |err| {
+            logz.err().fmt("msg", "backend query set creation failed: {s}", .{@errorName(err)}).log();
+            return .{
+                .label = descriptor.label,
+                .type = descriptor.type,
+                .count = descriptor.count,
+            };
+        };
         return .{
+            .backend = backend,
             .label = descriptor.label,
             .type = descriptor.type,
             .count = descriptor.count,
@@ -625,9 +657,9 @@ pub const Queue = struct {
         size: ?def.Size64,
     ) void {
         logz.debug().fmt("msg", "writing buffer: offset={} data_offset={} size={?}", .{ bufferOffset, dataOffset, size }).log();
-        _ = self;
-        _ = target;
-        _ = data;
+        if (target.backend) |backend| {
+            self.backend.writeBuffer(backend, bufferOffset, data, dataOffset, size);
+        }
     }
 
     pub fn writeTexture(
@@ -694,6 +726,7 @@ pub const RenderBundle = command.RenderBundle;
 pub const RenderBundleEncoder = command.RenderBundleEncoder;
 
 pub const QuerySet = struct {
+    backend: ?hal.QuerySet = null,
     label: ?[*:0]const u8 = null,
     type: Type,
     count: def.Size32Out,
@@ -710,6 +743,9 @@ pub const QuerySet = struct {
     };
 
     pub fn destroy(self: *@This()) void {
-        _ = self;
+        if (self.backend) |backend| {
+            backend.destroy();
+            self.backend = null;
+        }
     }
 };

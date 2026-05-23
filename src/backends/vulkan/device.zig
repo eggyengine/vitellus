@@ -30,6 +30,19 @@ pub const vkDevice = struct {
     graphics_queue: vk.Queue,
     present_queue: vk.Queue,
     queue: vkQueue,
+    configured_surfaces: std.ArrayList(ConfiguredSurface) = .empty,
+    device_children: std.ArrayList(DeviceChild) = .empty,
+    render_pipeline_handles: std.ArrayList(vk.Pipeline) = .empty,
+
+    pub const ConfiguredSurface = struct {
+        ptr: *anyopaque,
+        unconfigure: *const fn (*anyopaque) void,
+    };
+
+    pub const DeviceChild = struct {
+        ptr: *anyopaque,
+        destroy: *const fn (*anyopaque) void,
+    };
 
     pub const vtable = hal.Device.VTable{
         .destroy = destroy,
@@ -59,11 +72,105 @@ pub const vkDevice = struct {
         if (typed.device_handle != .null_handle) {
             logz.info().fmt("msg", "destroying vulkan logical device: handle=0x{x}", .{@intFromEnum(typed.device_handle)}).log();
             _ = typed.device.deviceWaitIdle() catch {};
+            typed.unconfigureSurfaces();
             typed.queue.cleanupCompleted(true);
+            typed.destroyDeviceChildren();
+            typed.destroyRemainingRenderPipelines();
             typed.device.destroyDevice(null);
             typed.device_handle = .null_handle;
         }
+        typed.configured_surfaces.deinit(typed.adapter.gpu.allocator);
+        typed.device_children.deinit(typed.adapter.gpu.allocator);
+        typed.render_pipeline_handles.deinit(typed.adapter.gpu.allocator);
         typed.adapter.gpu.allocator.destroy(typed);
+    }
+
+    pub fn registerConfiguredSurface(self: *@This(), ptr: *anyopaque, unconfigure: *const fn (*anyopaque) void) void {
+        for (self.configured_surfaces.items) |surface| {
+            if (surface.ptr == ptr) return;
+        }
+        self.configured_surfaces.append(self.adapter.gpu.allocator, .{
+            .ptr = ptr,
+            .unconfigure = unconfigure,
+        }) catch |err| {
+            logz.err().fmt("msg", "failed to track configured vulkan surface: {s}", .{@errorName(err)}).log();
+        };
+    }
+
+    pub fn unregisterConfiguredSurface(self: *@This(), ptr: *anyopaque) void {
+        var index: usize = 0;
+        while (index < self.configured_surfaces.items.len) : (index += 1) {
+            if (self.configured_surfaces.items[index].ptr == ptr) {
+                _ = self.configured_surfaces.swapRemove(index);
+                return;
+            }
+        }
+    }
+
+    fn unconfigureSurfaces(self: *@This()) void {
+        while (self.configured_surfaces.items.len > 0) {
+            const surface = self.configured_surfaces.pop().?;
+            surface.unconfigure(surface.ptr);
+        }
+    }
+
+    pub fn registerDeviceChild(self: *@This(), ptr: *anyopaque, destroy_child: *const fn (*anyopaque) void) void {
+        for (self.device_children.items) |child| {
+            if (child.ptr == ptr) return;
+        }
+        self.device_children.append(self.adapter.gpu.allocator, .{
+            .ptr = ptr,
+            .destroy = destroy_child,
+        }) catch |err| {
+            logz.err().fmt("msg", "failed to track vulkan device child: {s}", .{@errorName(err)}).log();
+        };
+    }
+
+    pub fn unregisterDeviceChild(self: *@This(), ptr: *anyopaque) void {
+        var index: usize = 0;
+        while (index < self.device_children.items.len) : (index += 1) {
+            if (self.device_children.items[index].ptr == ptr) {
+                _ = self.device_children.swapRemove(index);
+                return;
+            }
+        }
+    }
+
+    fn destroyDeviceChildren(self: *@This()) void {
+        while (self.device_children.items.len > 0) {
+            const child = self.device_children.pop().?;
+            child.destroy(child.ptr);
+        }
+    }
+
+    pub fn registerRenderPipelineHandle(self: *@This(), handle: vk.Pipeline) void {
+        if (handle == .null_handle) return;
+        for (self.render_pipeline_handles.items) |existing| {
+            if (existing == handle) return;
+        }
+        self.render_pipeline_handles.append(self.adapter.gpu.allocator, handle) catch |err| {
+            logz.err().fmt("msg", "failed to track vulkan render pipeline handle: {s}", .{@errorName(err)}).log();
+        };
+    }
+
+    pub fn unregisterRenderPipelineHandle(self: *@This(), handle: vk.Pipeline) void {
+        if (handle == .null_handle) return;
+        var index: usize = 0;
+        while (index < self.render_pipeline_handles.items.len) : (index += 1) {
+            if (self.render_pipeline_handles.items[index] == handle) {
+                _ = self.render_pipeline_handles.swapRemove(index);
+                return;
+            }
+        }
+    }
+
+    fn destroyRemainingRenderPipelines(self: *@This()) void {
+        while (self.render_pipeline_handles.items.len > 0) {
+            const handle = self.render_pipeline_handles.pop().?;
+            if (handle == .null_handle) continue;
+            logz.info().fmt("msg", "destroying tracked vulkan render pipeline during device teardown: handle=0x{x}", .{@intFromEnum(handle)}).log();
+            self.device.destroyPipeline(handle, null);
+        }
     }
 
     fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {
@@ -182,7 +289,7 @@ pub const vkDevice = struct {
 
     fn popErrorScopeInternal(ptr: *anyopaque) anyerror!?gpu.Device.Error {
         _ = ptr;
-        return null;
+        return error.NotImplemented;
     }
 
     fn pushErrorScope(ptr: *anyopaque, filter: gpu.Device.ErrorFilter) void {
@@ -266,6 +373,50 @@ pub const vkQueue = struct {
         }
     }
 
+    fn copyBuffer(
+        self: *@This(),
+        source: vk.Buffer,
+        destination: vk.Buffer,
+        source_offset: def.Size64,
+        destination_offset: def.Size64,
+        size: def.Size64,
+    ) !void {
+        const pool_info = vk.CommandPoolCreateInfo{
+            .flags = .{ .transient_bit = true },
+            .queue_family_index = self.device.graphics_queue_family,
+        };
+        const command_pool = try self.device.device.createCommandPool(&pool_info, null);
+        defer self.device.device.destroyCommandPool(command_pool, null);
+
+        const alloc_info = vk.CommandBufferAllocateInfo{
+            .command_pool = command_pool,
+            .level = .primary,
+            .command_buffer_count = 1,
+        };
+        var command_buffers: [1]vk.CommandBuffer = undefined;
+        try self.device.device.allocateCommandBuffers(&alloc_info, &command_buffers);
+
+        const begin_info = vk.CommandBufferBeginInfo{
+            .flags = .{ .one_time_submit_bit = true },
+        };
+        try self.device.device.beginCommandBuffer(command_buffers[0], &begin_info);
+
+        const copy_region = vk.BufferCopy{
+            .src_offset = source_offset,
+            .dst_offset = destination_offset,
+            .size = size,
+        };
+        self.device.device.cmdCopyBuffer(command_buffers[0], source, destination, @as([*]const vk.BufferCopy, @ptrCast(&copy_region))[0..1]);
+        try self.device.device.endCommandBuffer(command_buffers[0]);
+
+        const submit_info = vk.SubmitInfo{
+            .command_buffer_count = 1,
+            .p_command_buffers = @ptrCast(&command_buffers),
+        };
+        try self.device.device.queueSubmit(self.handle, @as([*]const vk.SubmitInfo, @ptrCast(&submit_info))[0..1], .null_handle);
+        try self.device.device.queueWaitIdle(self.handle);
+    }
+
     fn writeBuffer(
         ptr: *anyopaque,
         target: hal.Buffer,
@@ -274,12 +425,39 @@ pub const vkQueue = struct {
         data_offset: def.Size64,
         size: ?def.Size64,
     ) void {
-        _ = ptr;
-        _ = target;
-        _ = buffer_offset;
-        _ = data;
-        _ = data_offset;
-        _ = size;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        const dst_buffer: *resource_backend.vkBuffer = @ptrCast(@alignCast(target.ptr));
+        if (data_offset > data.len) return;
+        const available = data.len - @as(usize, @intCast(data_offset));
+        const write_size = size orelse available;
+        if (write_size > available) return;
+        if (buffer_offset > dst_buffer.size or write_size > dst_buffer.size - buffer_offset) return;
+
+        const staging = resource_backend.vkBuffer.init(typed.device, .{
+            .label = "vitellus staging buffer",
+            .size = write_size,
+            .usage = buffer.Buffer.Usage.COPY_SRC | buffer.Buffer.Usage.MAP_WRITE,
+            .mappedAtCreation = false,
+        }) catch |err| {
+            logz.err().fmt("msg", "failed to create vulkan staging buffer: {s}", .{@errorName(err)}).log();
+            return;
+        };
+        defer staging.destroy();
+
+        const staging_buffer: *resource_backend.vkBuffer = @ptrCast(@alignCast(staging.ptr));
+        const mapped = typed.device.device.mapMemory(staging_buffer.memory, 0, write_size, .{}) catch |err| {
+            logz.err().fmt("msg", "failed to map vulkan staging buffer: {s}", .{@errorName(err)}).log();
+            return;
+        };
+
+        const dst: [*]u8 = @ptrCast(mapped);
+        const src = data[@intCast(data_offset)..][0..@intCast(write_size)];
+        @memcpy(dst[0..@intCast(write_size)], src);
+        typed.device.device.unmapMemory(staging_buffer.memory);
+
+        typed.copyBuffer(staging_buffer.handle, dst_buffer.handle, 0, buffer_offset, write_size) catch |err| {
+            logz.err().fmt("msg", "failed to copy vulkan staging buffer: {s}", .{@errorName(err)}).log();
+        };
     }
 
     fn writeTexture(
@@ -314,5 +492,6 @@ pub const vkQueue = struct {
 
     fn onSubmittedWorkDoneInternal(ptr: *anyopaque) anyerror!void {
         _ = ptr;
+        return error.NotImplemented;
     }
 };

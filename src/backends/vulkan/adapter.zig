@@ -71,7 +71,7 @@ pub fn isPhysicalDeviceSurfaceSupported(instance: *instance_backend.vkInstance, 
     else
         false;
 
-    return indices.isComplete() and extensions_supported and swapchain_adequate;
+    return indices.isComplete() and extensions_supported and swapchain_adequate and supportsRequiredDeviceFeatures(instance, pdev);
 }
 
 pub fn isDeviceSuitable(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice, surface: hal.Surface) anyerror!bool {
@@ -82,7 +82,7 @@ pub fn isDeviceSuitable(instance: *instance_backend.vkInstance, pdev: vk.Physica
     else
         false;
 
-    return indices.isComplete() and extensions_supported and swapchain_adequate;
+    return indices.isComplete() and extensions_supported and swapchain_adequate and supportsRequiredDeviceFeatures(instance, pdev);
 }
 
 pub fn checkDeviceExtensionSupport(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice) bool {
@@ -101,6 +101,22 @@ pub fn checkDeviceExtensionSupport(instance: *instance_backend.vkInstance, pdev:
             logz.info().fmt("msg", "missing vulkan device extension: {s}", .{required_extension}).log();
             return false;
         }
+    }
+
+    return true;
+}
+
+fn supportsRequiredDeviceFeatures(instance: *instance_backend.vkInstance, pdev: vk.PhysicalDevice) bool {
+    var vulkan_11_features = vk.PhysicalDeviceVulkan11Features{};
+    var features = vk.PhysicalDeviceFeatures2{
+        .p_next = @ptrCast(&vulkan_11_features),
+        .features = .{},
+    };
+    instance.instance.getPhysicalDeviceFeatures2(pdev, &features);
+
+    if (vulkan_11_features.shader_draw_parameters != .true) {
+        logz.info().fmt("msg", "missing required vulkan device feature: shaderDrawParameters", .{}).log();
+        return false;
     }
 
     return true;
@@ -206,12 +222,16 @@ pub const vkAdapter = struct {
         const device_features = vk.PhysicalDeviceFeatures{};
 
         // TOOO: implement webgpu-specific features
-        const vulkan_13_features = vk.PhysicalDeviceVulkan13Features{
+        var vulkan_13_features = vk.PhysicalDeviceVulkan13Features{
             .synchronization_2 = .true,
             .dynamic_rendering = .true,
         };
+        const vulkan_11_features = vk.PhysicalDeviceVulkan11Features{
+            .p_next = @ptrCast(&vulkan_13_features),
+            .shader_draw_parameters = .true,
+        };
         const create_info = vk.DeviceCreateInfo{
-            .p_next = &vulkan_13_features,
+            .p_next = @ptrCast(&vulkan_11_features),
             .queue_create_info_count = @intCast(queue_family_count),
             .p_queue_create_infos = @ptrCast(&queue_create_infos),
             .pp_enabled_layer_names = null,
@@ -280,20 +300,20 @@ pub const vkAdapter = struct {
         };
     }
 
-    fn getDownlevelCapabilities(ptr: *anyopaque) gpu.Adapter.DownlevelCapabilities {
+    fn getDownlevelCapabilities(ptr: *anyopaque) anyerror!gpu.Adapter.DownlevelCapabilities {
         _ = ptr;
         logz.info().fmt("msg", "getting vulkan adapter downlevel capabilities", .{}).log();
-        return .{};
+        return error.NotImplemented;
     }
 
     fn getTextureFormatFeatures(
         ptr: *anyopaque,
         format: texture.Texture.Format,
-    ) gpu.Adapter.TextureFormatFeatures {
+    ) anyerror!gpu.Adapter.TextureFormatFeatures {
         _ = ptr;
         _ = format;
         logz.info().fmt("msg", "getting vulkan texture format features", .{}).log();
-        return .{};
+        return error.NotImplemented;
     }
 
     fn isSurfaceSupported(ptr: *anyopaque, surface: hal.Surface) bool {

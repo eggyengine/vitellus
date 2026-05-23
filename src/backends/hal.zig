@@ -241,11 +241,11 @@ pub const Adapter = struct {
             gpu.Device.Descriptor,
         ) std.Io.Future(anyerror!struct { Device, Queue }),
         getInfo: *const fn (*anyopaque) gpu.Adapter.Info,
-        getDownlevelCapabilities: *const fn (*anyopaque) gpu.Adapter.DownlevelCapabilities,
+        getDownlevelCapabilities: *const fn (*anyopaque) anyerror!gpu.Adapter.DownlevelCapabilities,
         getTextureFormatFeatures: *const fn (
             *anyopaque,
             texture.Texture.Format,
-        ) gpu.Adapter.TextureFormatFeatures,
+        ) anyerror!gpu.Adapter.TextureFormatFeatures,
         isSurfaceSupported: *const fn (*anyopaque, Surface) bool,
     };
 
@@ -263,7 +263,7 @@ pub const Adapter = struct {
         return self.vtable.getInfo(self.ptr);
     }
 
-    pub fn getDownlevelCapabilities(self: Adapter) gpu.Adapter.DownlevelCapabilities {
+    pub fn getDownlevelCapabilities(self: Adapter) anyerror!gpu.Adapter.DownlevelCapabilities {
         logz.info().fmt("msg", "adapter.getDownlevelCapabilities dispatch", .{}).log();
         return self.vtable.getDownlevelCapabilities(self.ptr);
     }
@@ -271,7 +271,7 @@ pub const Adapter = struct {
     pub fn getTextureFormatFeatures(
         self: Adapter,
         format: texture.Texture.Format,
-    ) gpu.Adapter.TextureFormatFeatures {
+    ) anyerror!gpu.Adapter.TextureFormatFeatures {
         logz.info().fmt("msg", "adapter.getTextureFormatFeatures dispatch", .{}).log();
         return self.vtable.getTextureFormatFeatures(self.ptr, format);
     }
@@ -568,7 +568,7 @@ pub const Buffer = struct {
             ?def.Size64,
             def.Size64,
         ) std.Io.Future(anyerror!void),
-        getMappedRange: *const fn (*anyopaque, ?def.Size64, ?def.Size64) ?def.ArrayBuffer,
+        getMappedRange: *const fn (*anyopaque, ?def.Size64, ?def.Size64) anyerror!?def.ArrayBuffer,
         unmap: *const fn (*anyopaque) void,
     };
 
@@ -586,7 +586,7 @@ pub const Buffer = struct {
         return self.vtable.mapAsync(self.ptr, io, mode, offset, size);
     }
 
-    pub fn getMappedRange(self: Buffer, offset: ?def.Size64, size: ?def.Size64) ?def.ArrayBuffer {
+    pub fn getMappedRange(self: Buffer, offset: ?def.Size64, size: ?def.Size64) anyerror!?def.ArrayBuffer {
         return self.vtable.getMappedRange(self.ptr, offset, size);
     }
 
