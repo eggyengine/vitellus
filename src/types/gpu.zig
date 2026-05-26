@@ -12,6 +12,7 @@ const shader = @import("shader.zig");
 const hal = @import("../backends/hal.zig");
 const candler = @import("candler");
 const windowing = @import("../windowing/windowing.zig");
+const splat = @import("splat");
 
 const logz = @import("logz");
 
@@ -102,6 +103,10 @@ pub const Instance = struct {
     pub fn deinit(self: *@This()) void {
         logz.info().fmt("msg", "deinitializing instance", .{}).log();
         self.backend.deinit();
+    }
+
+    pub fn destroy(self: *@This()) void {
+        self.deinit();
     }
 
     pub fn createSurface(
@@ -272,7 +277,7 @@ pub const Adapter = struct {
         highPerformance,
     };
 
-    pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future(Device.RequestDeviceError!struct { Device, Queue }) {
+    pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future((Device.RequestDeviceError || splat.context.ParseSpirvError)!struct { Device, Queue }) {
         logz.info().fmt("msg", "requesting device: required_features={} required_limits={}", .{
             options.required_features.len,
             options.required_limits.len,
@@ -311,7 +316,7 @@ pub const Adapter = struct {
         self: *@This(),
         io: std.Io,
         options: Device.Descriptor,
-    ) Device.RequestDeviceError!struct { Device, Queue } {
+    ) (Device.RequestDeviceError || splat.context.ParseSpirvError)!struct { Device, Queue } {
         if (self.state != .valid) {
             logz.info().fmt("msg", "device request rejected: adapter state={s}", .{@tagName(self.state)}).log();
             return error.InvalidAdapter;
@@ -337,6 +342,7 @@ pub const Adapter = struct {
             .queue = .{
                 .backend = backend_queue,
             },
+            .shader_context = try splat.Context.init(),
         };
         return .{ device, device.queue };
     }
@@ -349,6 +355,7 @@ pub const Device = struct {
     limits: []const features.SupportedLimitNumber,
     state: State,
     contentDevice: ?*Device,
+    shader_context: splat.Context,
 
     queue: Queue,
 
@@ -422,6 +429,10 @@ pub const Device = struct {
         logz.info().fmt("msg", "destroying device", .{}).log();
         self.state = .destroyed;
         self.backend.destroy();
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub fn createBuffer(self: *@This(), descriptor: buffer.Buffer.Descriptor) !buffer.Buffer {
@@ -499,6 +510,7 @@ pub const Device = struct {
 
     pub fn createShaderModule(self: *@This(), descriptor: shader.ShaderModule.Descriptor) !shader.ShaderModule {
         logz.info().fmt("msg", "creating shader module", .{}).log();
+
         const backend = self.backend.createShaderModule(descriptor) catch |err| {
             logz.err().fmt("msg", "backend shader module creation failed: {s}", .{@errorName(err)}).log();
             @panic("failed to create shader module");
@@ -743,5 +755,9 @@ pub const QuerySet = struct {
             backend.destroy();
             self.backend = null;
         }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 };

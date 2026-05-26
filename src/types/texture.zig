@@ -64,6 +64,10 @@ pub const Texture = struct {
             std.heap.page_allocator.destroy(self);
         }
 
+        pub fn deinit(self: *@This()) void {
+            self.destroy();
+        }
+
         pub const Descriptor = struct {
             label: ?[*:0]const u8 = null,
             format: ?Format = null,
@@ -111,11 +115,17 @@ pub const Texture = struct {
         @"3d",
     };
 
-    pub fn deinit(self: *Texture) void {
+    pub fn destroy(self: *Texture) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
+        self.present_context = null;
+        self.present_callback = null;
+    }
+
+    pub fn deinit(self: *Texture) void {
+        self.destroy();
     }
 
     pub fn createView(self: *Texture, descriptor: Texture.View.Descriptor) !*Texture.View {
@@ -473,6 +483,11 @@ pub const Surface = struct {
     pub fn deinit(self: *@This()) void {
         logz.info().fmt("msg", "deinitializing surface wrapper", .{}).log();
         self.backend.destroy();
+        self.configuration = null;
+    }
+
+    pub fn destroy(self: *@This()) void {
+        self.deinit();
     }
 
     pub fn getCapabilities(self: *const @This(), adapter: *const @import("gpu.zig").Adapter) Capabilities {

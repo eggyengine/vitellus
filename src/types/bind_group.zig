@@ -24,11 +24,15 @@ pub const BindGroup = struct {
         };
     }
 
-    pub fn deinit(self: *@This()) void {
+    pub fn destroy(self: *@This()) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub const Entry = struct {
@@ -82,11 +86,15 @@ pub const BindGroupLayout = struct {
         };
     }
 
-    pub fn deinit(self: *@This()) void {
+    pub fn destroy(self: *@This()) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub const ShaderStageFlags = def.ShaderStageFlags;

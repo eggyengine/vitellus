@@ -6,6 +6,7 @@ const pipeline = @import("../../types/pipeline.zig");
 const sampler = @import("../../types/sampler.zig");
 const texture = @import("../../types/texture.zig");
 const vkDevice = @import("device.zig").vkDevice;
+const resource = @import("resource.zig");
 const vkShaderModule = @import("shader.zig").vkShaderModule;
 const debug = @import("debug.zig");
 
@@ -14,6 +15,8 @@ const logz = @import("logz");
 pub const vkPipelineLayout = struct {
     device: *vkDevice,
     handle: vk.PipelineLayout,
+    bind_group_layouts: []hal.BindGroupLayout,
+    set_layouts: []vk.DescriptorSetLayout,
     label: ?[*:0]const u8,
 
     pub const vtable = hal.PipelineLayout.VTable{
@@ -22,20 +25,35 @@ pub const vkPipelineLayout = struct {
 
     pub fn init(device: *vkDevice, descriptor: pipeline.PipelineLayout.Descriptor) !hal.PipelineLayout {
         logz.info().fmt("msg", "building vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len}).log();
-        if (descriptor.bindGroupLayouts.len != 0) {
-            logz.info().fmt("msg", "vulkan pipeline layout rejected: bind group layouts are not implemented yet", .{}).log();
-            return error.NotImplemented;
+
+        const allocator = device.adapter.gpu.allocator;
+        const bind_group_layouts = try allocator.alloc(hal.BindGroupLayout, descriptor.bindGroupLayouts.len);
+        errdefer allocator.free(bind_group_layouts);
+        const set_layouts = try allocator.alloc(vk.DescriptorSetLayout, descriptor.bindGroupLayouts.len);
+        errdefer allocator.free(set_layouts);
+
+        for (descriptor.bindGroupLayouts, 0..) |maybe_layout, i| {
+            const layout = maybe_layout orelse return error.AutoPipelineLayoutNotImplemented;
+            const layout_backend = layout.backend orelse return error.InvalidBindGroupLayout;
+            const vk_layout: *resource.vkBindGroupLayout = @ptrCast(@alignCast(layout_backend.ptr));
+            bind_group_layouts[i] = layout_backend;
+            set_layouts[i] = vk_layout.handle;
         }
 
-        const create_info = vk.PipelineLayoutCreateInfo{};
+        const create_info = vk.PipelineLayoutCreateInfo{
+            .set_layout_count = @intCast(set_layouts.len),
+            .p_set_layouts = if (set_layouts.len == 0) null else set_layouts.ptr,
+        };
         const handle = try device.device.createPipelineLayout(&create_info, null);
         errdefer device.device.destroyPipelineLayout(handle, null);
 
-        const layout = try device.adapter.gpu.allocator.create(vkPipelineLayout);
-        errdefer device.adapter.gpu.allocator.destroy(layout);
+        const layout = try allocator.create(vkPipelineLayout);
+        errdefer allocator.destroy(layout);
         layout.* = .{
             .device = device,
             .handle = handle,
+            .bind_group_layouts = bind_group_layouts,
+            .set_layouts = set_layouts,
             .label = descriptor.label,
         };
         debug.setObjectName(device, .pipeline_layout, handle, descriptor.label);
@@ -54,6 +72,8 @@ pub const vkPipelineLayout = struct {
             typed.device.device.destroyPipelineLayout(typed.handle, null);
             typed.handle = .null_handle;
         }
+        typed.device.adapter.gpu.allocator.free(typed.set_layouts);
+        typed.device.adapter.gpu.allocator.free(typed.bind_group_layouts);
         typed.device.adapter.gpu.allocator.destroy(typed);
     }
 };
@@ -299,9 +319,9 @@ pub const vkRenderPipeline = struct {
     }
 
     fn getBindGroupLayout(ptr: *anyopaque, index: u32) anyerror!hal.BindGroupLayout {
-        _ = ptr;
-        _ = index;
-        return error.NotImplemented;
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        if (index >= typed.layout.bind_group_layouts.len) return error.BindGroupLayoutIndexOutOfBounds;
+        return typed.layout.bind_group_layouts[index];
     }
 };
 

@@ -21,17 +21,12 @@ pub const vkShaderModule = struct {
         .getCompilationInfo = getCompilationInfo,
     };
 
-    /// Initialising a Vulkan shader module consumes backend-ready SPIR-V bytecode.
-    /// WGSL translation is not implemented in this backend yet.
     pub fn init(device: *vkDevice, shader_data: vkShader) !hal.ShaderModule {
         logz.info().fmt("msg", "creating vulkan shader module", .{}).log();
 
+        // SPIRV is natively supported on vulkan, so no need for translation.
         const code = switch (shader_data.source) {
             .spirv => |bytes| bytes,
-            .wgsl => {
-                logz.err().fmt("msg", "vulkan shader module creation rejected: WGSL-to-SPIR-V translation is not implemented yet", .{}).log();
-                return error.NotImplemented;
-            },
         };
         if (code.len == 0 or code.len % @sizeOf(u32) != 0) {
             logz.err().fmt("msg", "vulkan shader module creation rejected: SPIR-V bytecode length ({}) is not a non-zero multiple of 4", .{code.len}).log();

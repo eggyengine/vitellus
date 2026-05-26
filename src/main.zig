@@ -64,6 +64,42 @@ const INDICES = [_]u16{
 
 const UniformBufferObject = struct { model: emath.Mat4, view: emath.Mat4, proj: emath.Mat4 };
 
+const Camera = struct {
+    eye: emath.Vec3 = .{ .x = 0.0, .y = 0.0, .z = 2.0 },
+    target: emath.Vec3 = .{ .x = 0.0, .y = 0.0, .z = 0.0 },
+    up: emath.Vec3 = emath.Vec3.up,
+    fov_y: f32 = std.math.pi / 4.0,
+    near: f32 = 0.1,
+    far: f32 = 10.0,
+    model_rotation: f32 = 0.0,
+
+    fn update(self: *@This(), dt: f32) void {
+        self.model_rotation += dt;
+        if (self.model_rotation > std.math.tau) {
+            self.model_rotation -= std.math.tau;
+        }
+    }
+
+    fn uniforms(self: @This(), width: u32, height: u32) UniformBufferObject {
+        const aspect = if (height == 0) 1.0 else @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
+        return .{
+            .model = emath.rotationZ4x4(f32, self.model_rotation),
+            .view = emath.lookAt(self.eye, self.target, self.up),
+            .proj = emath.perspective(self.fov_y, aspect, self.near, self.far),
+        };
+    }
+};
+
+const camera_bind_group_layout_entry = vit.BindGroupLayout.Entry{
+    .binding = 0,
+    .visibility = vit.BindGroupLayout.ShaderStage.VERTEX,
+    .buffer = .{
+        .type = .uniform,
+        .hasDynamicOffset = false,
+        .minBindingSize = @sizeOf(UniformBufferObject),
+    },
+};
+
 pub fn main(init: std.process.Init) !void {
     try vit.logz.setup(init.io, init.gpa, .{
         .level = .Info,
@@ -101,7 +137,6 @@ pub fn main(init: std.process.Init) !void {
 
         // Delay to limit the FPS, returned delta time not needed.
         const dt = fps_capper.delay();
-        _ = dt;
 
         // Event logic.
         while (sdl3.events.poll()) |event|
@@ -127,7 +162,7 @@ pub fn main(init: std.process.Init) !void {
                 else => {},
             };
 
-        try render_the_pipeline(&state);
+        try render_the_pipeline(&state, dt);
     }
 }
 
@@ -140,17 +175,32 @@ pub const State = struct {
     isSurfaceConfigured: bool,
 
     render_pipeline: vit.RenderPipeline,
+    render_pipeline_layout: vit.PipelineLayout,
+    camera_bind_group_layout: vit.BindGroupLayout,
+    camera_bind_group: vit.BindGroup,
+    uniform_buffer: vit.Buffer,
     vertex_buffer: vit.Buffer,
     index_buffer: vit.Buffer,
+    camera: Camera,
 
     fn deinit(self: *@This()) void {
         self.index_buffer.deinit();
         self.vertex_buffer.deinit();
+        self.uniform_buffer.deinit();
+        self.camera_bind_group.deinit();
         self.render_pipeline.deinit();
+        self.render_pipeline_layout.deinit();
+        self.camera_bind_group_layout.deinit();
 
         self.surface.deinit();
         self.device.destroy();
         self.instance.deinit();
+    }
+
+    fn updateCamera(self: *@This(), dt: f32) void {
+        self.camera.update(dt);
+        const ubo = self.camera.uniforms(self.config.width, self.config.height);
+        writeUniformBuffer(&self.uniform_buffer, ubo);
     }
 };
 
@@ -212,14 +262,55 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         .config = config,
         .isSurfaceConfigured = true,
         .render_pipeline = undefined,
+        .render_pipeline_layout = undefined,
+        .camera_bind_group_layout = undefined,
+        .camera_bind_group = undefined,
+        .uniform_buffer = undefined,
         .vertex_buffer = undefined,
         .index_buffer = undefined,
+        .camera = .{},
     };
 
+    try create_camera_resources(&state);
     try create_render_pipeline(&state);
     try create_buffers(&state);
 
     return state;
+}
+
+fn create_camera_resources(state: *State) !void {
+    state.camera_bind_group_layout = state.device.createBindGroupLayout(.{
+        .label = "camera bind group layout",
+        .entries = &.{&camera_bind_group_layout_entry},
+    });
+
+    var uniform_buffer = try state.device.createBuffer(.{
+        .label = "Camera Uniform Buffer",
+        .size = @sizeOf(UniformBufferObject),
+        .usage = vit.Buffer.Usage.UNIFORM | vit.Buffer.Usage.MAP_WRITE,
+        .mappedAtCreation = true,
+    });
+
+    const initial_ubo = state.camera.uniforms(state.config.width, state.config.height);
+    writeUniformBuffer(&uniform_buffer, initial_ubo);
+    state.uniform_buffer = uniform_buffer;
+
+    state.camera_bind_group = state.device.createBindGroup(.{
+        .label = "camera bind group",
+        .layout = &state.camera_bind_group_layout,
+        .entries = &.{
+            .{
+                .binding = 0,
+                .resource = .{ .bufferBinding = .{ .buffer = &state.uniform_buffer } },
+            },
+        },
+    });
+}
+
+fn writeUniformBuffer(target: *vit.Buffer, ubo: UniformBufferObject) void {
+    const mapped = target.getMappedRange(0, @sizeOf(UniformBufferObject)) catch return;
+    const bytes = mapped orelse return;
+    @memcpy(bytes[0..@sizeOf(UniformBufferObject)], std.mem.asBytes(&ubo));
 }
 
 fn create_render_pipeline(state: *State) !void {
@@ -235,15 +326,14 @@ fn create_render_pipeline(state: *State) !void {
     });
     defer fragment_shader.deinit();
 
-    var render_pipeline_layout = state.device.createPipelineLayout(.{
+    state.render_pipeline_layout = state.device.createPipelineLayout(.{
         .label = "render pipeline layout",
-        .bindGroupLayouts = &.{},
+        .bindGroupLayouts = &.{&state.camera_bind_group_layout},
     });
-    defer render_pipeline_layout.deinit();
 
     const render_pipeline = state.device.createRenderPipeline(.{
         .label = "render pipeline",
-        .layout = &render_pipeline_layout,
+        .layout = &state.render_pipeline_layout,
         .vertex = .{
             .module = vertex_shader,
             .entry_point = "vertMain",
@@ -304,10 +394,12 @@ fn create_buffers(state: *State) !void {
     return;
 }
 
-fn render_the_pipeline(state: *State) !void {
+fn render_the_pipeline(state: *State, dt: f32) !void {
     if (!state.isSurfaceConfigured) {
         return;
     }
+
+    state.updateCamera(dt);
 
     var output = switch (try state.surface.getCurrentTexture()) {
         .success => |texture| texture,
@@ -353,6 +445,7 @@ fn render_the_pipeline(state: *State) !void {
         defer render_pass.end();
 
         render_pass.setPipeline(&state.render_pipeline);
+        render_pass.setBindGroup(0, &state.camera_bind_group, &.{});
         render_pass.setVertexBuffer(0, &state.vertex_buffer, 0, null);
         render_pass.setIndexBuffer(&state.index_buffer, .uint16, 0, null);
         render_pass.drawIndexed(.exclusive(0, INDICES.len), .exclusive(0, 1), 0);
