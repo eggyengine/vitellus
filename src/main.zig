@@ -208,7 +208,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     const width, const height = try wrapper.window.getSize();
 
     // initialise the instance
-    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true, .noop = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
+    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = false, .noop = false, .dx12 = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
     errdefer instance.deinit();
 
     // create the surface from the window

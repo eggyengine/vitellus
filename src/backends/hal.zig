@@ -20,6 +20,7 @@ const Range = @import("../utils/range.zig").Range;
 
 pub const noop = if (build_options.enable_backend_noop) @import("noop.zig") else struct {};
 pub const vulkan = if (build_options.enable_backend_vulkan) @import("vulkan.zig") else struct {};
+pub const dx12 = if (build_options.enable_backend_dx12) @import("dx12.zig") else struct {};
 
 const logz = @import("logz");
 
@@ -127,7 +128,7 @@ pub const Instance = struct {
             .windows => {
                 // dx12 takes priority on windows
                 if (build_options.enable_backend_dx12 and flags.dx12) {
-                    return error.NotImplemented;
+                    return dx12.DX_Instance;
                 }
 
                 if (build_options.enable_backend_vulkan and flags.vulkan) {
