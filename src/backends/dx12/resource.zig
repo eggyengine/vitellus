@@ -5,7 +5,6 @@ const def = @import("../../types/def.zig");
 const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 
-const logz = @import("logz");
 
 pub const DX_Buffer = struct {
     allocator: std.mem.Allocator,
@@ -25,7 +24,7 @@ pub const DX_Buffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Buffer = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ buffer", .{}).log();
+        std.log.debug("destroying DX_ buffer", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -80,7 +79,7 @@ pub const DX_Texture = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Texture = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ texture", .{}).log();
+        std.log.debug("destroying DX_ texture", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -106,7 +105,7 @@ pub const DX_TextureView = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_TextureView = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ texture view", .{}).log();
+        std.log.debug("destroying DX_ texture view", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -126,7 +125,7 @@ pub const DX_Sampler = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Sampler = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ sampler", .{}).log();
+        std.log.debug("destroying DX_ sampler", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -146,7 +145,7 @@ pub const DX_BindGroupLayout = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_BindGroupLayout = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ bind group layout", .{}).log();
+        std.log.debug("destroying DX_ bind group layout", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -166,7 +165,7 @@ pub const DX_BindGroup = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_BindGroup = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ bind group", .{}).log();
+        std.log.debug("destroying DX_ bind group", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -186,7 +185,7 @@ pub const DX_QuerySet = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_QuerySet = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ query set", .{}).log();
+        std.log.debug("destroying DX_ query set", .{});
         typed.allocator.destroy(typed);
     }
 };

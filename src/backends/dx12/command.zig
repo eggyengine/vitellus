@@ -6,7 +6,6 @@ const hal = @import("../hal.zig");
 const pipeline = @import("../../types/pipeline.zig");
 const texture = @import("../../types/texture.zig");
 
-const logz = @import("logz");
 
 pub const DX_CommandBuffer = struct {
     allocator: std.mem.Allocator,
@@ -23,7 +22,7 @@ pub const DX_CommandBuffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_CommandBuffer = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ command buffer", .{}).log();
+        std.log.debug("destroying DX_ command buffer", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -150,7 +149,9 @@ pub const DX_CommandEncoder = struct {
     fn finish(ptr: *anyopaque, descriptor: ?command.CommandBuffer.Descriptor) anyerror!hal.CommandBuffer {
         const typed: *DX_CommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return DX_CommandBuffer.init(typed.allocator);
+        const command_buffer = try DX_CommandBuffer.init(typed.allocator);
+        typed.allocator.destroy(typed);
+        return command_buffer;
     }
 
     fn pushDebugGroup(ptr: *anyopaque, group_label: []const u8) void {
@@ -208,7 +209,8 @@ pub const DX_ComputePassEncoder = struct {
     }
 
     fn end(ptr: *anyopaque) void {
-        _ = ptr;
+        const typed: *DX_ComputePassEncoder = @ptrCast(@alignCast(ptr));
+        typed.allocator.destroy(typed);
     }
 
     fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
@@ -324,7 +326,8 @@ pub const DX_RenderPassEncoder = struct {
     }
 
     fn end(ptr: *anyopaque) void {
-        _ = ptr;
+        const typed: *DX_RenderPassEncoder = @ptrCast(@alignCast(ptr));
+        typed.allocator.destroy(typed);
     }
 
     fn setPipeline(ptr: *anyopaque, target: hal.RenderPipeline) void {
@@ -437,7 +440,7 @@ pub const DX_RenderBundle = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_RenderBundle = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ render bundle", .{}).log();
+        std.log.debug("destroying DX_ render bundle", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -470,7 +473,9 @@ pub const DX_RenderBundleEncoder = struct {
     fn finish(ptr: *anyopaque, descriptor: ?command.RenderBundle.Descriptor) anyerror!hal.RenderBundle {
         const typed: *DX_RenderBundleEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return DX_RenderBundle.init(typed.allocator);
+        const bundle = try DX_RenderBundle.init(typed.allocator);
+        typed.allocator.destroy(typed);
+        return bundle;
     }
 
     fn setPipeline(ptr: *anyopaque, target: hal.RenderPipeline) void {

@@ -11,7 +11,6 @@ const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const debug = @import("debug.zig");
 
-const logz = @import("logz");
 
 pub const vkBuffer = struct {
     device: *vkDevice,
@@ -103,7 +102,7 @@ pub const vkBuffer = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         typed.unmapInternal();
         if (typed.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan buffer: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            std.log.debug("destroying vulkan buffer: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.device.destroyBuffer(typed.handle, null);
             typed.handle = .null_handle;
         }
@@ -216,7 +215,7 @@ pub const vkTexture = struct {
 
     pub fn deinit(self: *@This()) void {
         if (self.owns_image and self.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)}).log();
+            std.log.debug("destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)});
             self.device.device.destroyImage(self.handle, null);
         }
         self.handle = .null_handle;
@@ -293,7 +292,7 @@ pub const vkTextureView = struct {
     pub fn deinit(self: *@This()) void {
         if (self.handle != .null_handle) {
             if (self.owns_view) {
-                logz.info().fmt("msg", "destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)}).log();
+                std.log.debug("destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)});
                 self.device.device.destroyImageView(self.handle, null);
             }
             self.handle = .null_handle;
@@ -320,7 +319,7 @@ pub const vkSampler = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan sampler", .{}).log();
+        std.log.debug("destroying vulkan sampler", .{});
     }
 };
 
@@ -372,10 +371,10 @@ pub const vkBindGroupLayout = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         typed.device.device.deviceWaitIdle() catch |err| {
-            logz.err().src(@src()).err(err).log();
+            std.log.err("{s}", .{@errorName(err)});
         };
         if (typed.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan bind group layout: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            std.log.debug("destroying vulkan bind group layout: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.device.destroyDescriptorSetLayout(typed.handle, null);
             typed.handle = .null_handle;
         }
@@ -511,7 +510,7 @@ pub const vkBindGroup = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (typed.descriptor_pool != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan descriptor pool: handle=0x{x}", .{@intFromEnum(typed.descriptor_pool)}).log();
+            std.log.debug("destroying vulkan descriptor pool: handle=0x{x}", .{@intFromEnum(typed.descriptor_pool)});
             typed.device.device.destroyDescriptorPool(typed.descriptor_pool, null);
             typed.descriptor_pool = .null_handle;
             typed.descriptor_set = .null_handle;
@@ -546,6 +545,6 @@ pub const vkQuerySet = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan query set", .{}).log();
+        std.log.debug("destroying vulkan query set", .{});
     }
 };

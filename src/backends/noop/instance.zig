@@ -6,7 +6,6 @@ const hal = @import("../hal.zig");
 const adapter_backend = @import("adapter.zig");
 const surface_backend = @import("surface.zig");
 
-const logz = @import("logz");
 
 pub const NoopInstance = struct {
     allocator: std.mem.Allocator,
@@ -34,14 +33,14 @@ pub const NoopInstance = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop instance", .{}).log();
+        std.log.debug("destroying noop instance", .{});
         typed.allocator.destroy(typed);
     }
 
     fn enumerateAdapters(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror![]const hal.Adapter {
         const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
         _ = options;
-        logz.info().fmt("msg", "enumerating noop adapters", .{}).log();
+        std.log.debug("enumerating noop adapters", .{});
         const adapters = try typed.allocator.alloc(hal.Adapter, 1);
         adapters[0] = .{ .ptr = &typed.adapter, .vtable = &adapter_backend.NoopAdapter.vtable };
         return adapters;
@@ -58,7 +57,7 @@ pub const NoopInstance = struct {
     fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
         const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
         _ = options;
-        logz.info().fmt("msg", "returning noop adapter", .{}).log();
+        std.log.debug("returning noop adapter", .{});
         return .{ .ptr = &typed.adapter, .vtable = &adapter_backend.NoopAdapter.vtable };
     }
 
@@ -68,10 +67,10 @@ pub const NoopInstance = struct {
         display: candler.DisplayHandle,
     ) anyerror!hal.Surface {
         const typed: *NoopInstance = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "creating noop surface: window={s} display={s}", .{
+        std.log.debug("creating noop surface: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
-        }).log();
+        });
         return surface_backend.NoopSurface.init(typed.allocator);
     }
 };

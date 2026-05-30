@@ -6,7 +6,6 @@ const hal = @import("../hal.zig");
 const pipeline = @import("../../types/pipeline.zig");
 const texture = @import("../../types/texture.zig");
 
-const logz = @import("logz");
 
 pub const NoopCommandBuffer = struct {
     allocator: std.mem.Allocator,
@@ -23,7 +22,7 @@ pub const NoopCommandBuffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopCommandBuffer = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop command buffer", .{}).log();
+        std.log.debug("destroying noop command buffer", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -150,7 +149,9 @@ pub const NoopCommandEncoder = struct {
     fn finish(ptr: *anyopaque, descriptor: ?command.CommandBuffer.Descriptor) anyerror!hal.CommandBuffer {
         const typed: *NoopCommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopCommandBuffer.init(typed.allocator);
+        const command_buffer = try NoopCommandBuffer.init(typed.allocator);
+        typed.allocator.destroy(typed);
+        return command_buffer;
     }
 
     fn pushDebugGroup(ptr: *anyopaque, group_label: []const u8) void {
@@ -208,7 +209,8 @@ pub const NoopComputePassEncoder = struct {
     }
 
     fn end(ptr: *anyopaque) void {
-        _ = ptr;
+        const typed: *NoopComputePassEncoder = @ptrCast(@alignCast(ptr));
+        typed.allocator.destroy(typed);
     }
 
     fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
@@ -324,7 +326,8 @@ pub const NoopRenderPassEncoder = struct {
     }
 
     fn end(ptr: *anyopaque) void {
-        _ = ptr;
+        const typed: *NoopRenderPassEncoder = @ptrCast(@alignCast(ptr));
+        typed.allocator.destroy(typed);
     }
 
     fn setPipeline(ptr: *anyopaque, target: hal.RenderPipeline) void {
@@ -437,7 +440,7 @@ pub const NoopRenderBundle = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopRenderBundle = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop render bundle", .{}).log();
+        std.log.debug("destroying noop render bundle", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -470,7 +473,9 @@ pub const NoopRenderBundleEncoder = struct {
     fn finish(ptr: *anyopaque, descriptor: ?command.RenderBundle.Descriptor) anyerror!hal.RenderBundle {
         const typed: *NoopRenderBundleEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopRenderBundle.init(typed.allocator);
+        const bundle = try NoopRenderBundle.init(typed.allocator);
+        typed.allocator.destroy(typed);
+        return bundle;
     }
 
     fn setPipeline(ptr: *anyopaque, target: hal.RenderPipeline) void {

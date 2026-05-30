@@ -15,7 +15,6 @@ const pipeline_backend = @import("pipeline.zig");
 const resource = @import("resource.zig");
 const shader_backend = @import("shader.zig");
 
-const logz = @import("logz");
 
 pub const DX_Device = struct {
     allocator: std.mem.Allocator,
@@ -59,7 +58,7 @@ pub const DX_Device = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ device", .{}).log();
+        std.log.debug("destroying DX_ device", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -201,7 +200,9 @@ pub const DX_Queue = struct {
 
     fn submit(ptr: *anyopaque, command_buffers: []const hal.CommandBuffer) void {
         _ = ptr;
-        _ = command_buffers;
+        for (command_buffers) |command_buffer| {
+            command_buffer.destroy();
+        }
     }
 
     fn writeBuffer(

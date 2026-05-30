@@ -3,7 +3,6 @@ const std = @import("std");
 const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 
-const logz = @import("logz");
 
 pub const DX_Surface = struct {
     allocator: std.mem.Allocator,
@@ -36,7 +35,7 @@ pub const DX_Surface = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Surface = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ surface", .{}).log();
+        std.log.debug("destroying DX_ surface", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -54,17 +53,17 @@ pub const DX_Surface = struct {
         _ = ptr;
         _ = device;
         _ = configuration;
-        logz.info().fmt("msg", "configuring DX_ surface", .{}).log();
+        std.log.debug("configuring DX_ surface", .{});
     }
 
     fn unconfigure(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "unconfiguring DX_ surface", .{}).log();
+        std.log.debug("unconfiguring DX_ surface", .{});
     }
 
     fn getCurrentTexture(ptr: *anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture {
         _ = ptr;
-        logz.info().fmt("msg", "DX_ surface current texture requested", .{}).log();
+        std.log.debug("DX_ surface current texture requested", .{});
         return .{ .success = .{
             .width = 1,
             .height = 1,

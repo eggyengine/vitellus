@@ -6,7 +6,9 @@ const hal = @import("../hal.zig");
 const adapter_backend = @import("adapter.zig");
 const surface_backend = @import("surface.zig");
 const windows = std.os.windows;
-const hr = @import("utils.zig").hr;
+const utils = @import("utils.zig");
+const hr = utils.hr;
+const ComPtr = utils.ComPtr;
 
 const c = @cImport({
     @cDefine("COBJMACROS", "1");
@@ -17,11 +19,11 @@ const c = @cImport({
     @cInclude("dxgi.h");
 });
 
-const logz = @import("logz");
-
 pub const DX_Instance = struct {
     allocator: std.mem.Allocator,
     adapter: adapter_backend.DX_Adapter,
+
+    debug_controller: ?ComPtr(c.ID3D12Debug) = null,
 
     pub const vtable = hal.Instance.VTable{
         .destroy = destroy,
@@ -30,20 +32,46 @@ pub const DX_Instance = struct {
         .createSurface = createSurface,
     };
 
-    pub fn init(descriptor: gpu.Instance.Descriptor) !hal.Instance {
+    pub fn init(descriptor: gpu.Instance.Descriptor) hal.Instance.FromPotentialBackendsError!hal.Instance {
+        return initInternal(descriptor) catch error.NoBackendAvailable;
+    }
+
+    fn initInternal(descriptor: gpu.Instance.Descriptor) !hal.Instance {
         const allocator = descriptor.allocator;
         const instance = try allocator.create(DX_Instance);
+        errdefer allocator.destroy(instance);
 
-        var factory: ?*c.IDXGIFactory = null;
+        var debug_controller: ?ComPtr(c.ID3D12Debug) = null;
+        errdefer if (debug_controller) |*controller| controller.deinit();
+
+        if (descriptor.flags.validation) {
+            var controller: ComPtr(c.ID3D12Debug) = .adopt(null);
+            const result = c.D3D12GetDebugInterface(&c.IID_ID3D12Debug, @ptrCast(controller.outPtr()));
+            if (result == 0) {
+                const debug = controller.unwrap();
+                debug.lpVtbl.*.EnableDebugLayer.?(debug);
+                std.log.debug("enabled validation layers for dx12", .{});
+                debug_controller = controller;
+            } else {
+                // non-crucial error
+                std.log.err("unable to enable validation: hresult={}", .{result});
+            }
+        }
+
+        var factory: ComPtr(c.IDXGIFactory) = .adopt(null);
+        defer factory.deinit();
 
         try hr(c.CreateDXGIFactory(
-            &IID_IDXGIFactory,
-            @ptrCast(&factory),
+            &c.IID_IDXGIFactory,
+            @ptrCast(factory.outPtr()),
         ), @src());
+
+        std.log.debug("successfully created DXGIFactory", .{});
 
         instance.* = .{
             .allocator = allocator,
             .adapter = .{ .allocator = allocator },
+            .debug_controller = debug_controller,
         };
         return .{
             .ptr = instance,
@@ -53,14 +81,15 @@ pub const DX_Instance = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying DX_ instance", .{}).log();
+        std.log.debug("destroying DX_ instance", .{});
+        if (typed.debug_controller) |*controller| controller.deinit();
         typed.allocator.destroy(typed);
     }
 
     fn enumerateAdapters(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror![]const hal.Adapter {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
         _ = options;
-        logz.info().fmt("msg", "enumerating DX_ adapters", .{}).log();
+        std.log.debug("enumerating DX_ adapters", .{});
         const adapters = try typed.allocator.alloc(hal.Adapter, 1);
         adapters[0] = .{ .ptr = &typed.adapter, .vtable = &adapter_backend.DX_Adapter.vtable };
         return adapters;
@@ -77,7 +106,7 @@ pub const DX_Instance = struct {
     fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
         _ = options;
-        logz.info().fmt("msg", "returning DX_ adapter", .{}).log();
+        std.log.debug("returning DX_ adapter", .{});
         return .{ .ptr = &typed.adapter, .vtable = &adapter_backend.DX_Adapter.vtable };
     }
 
@@ -87,10 +116,10 @@ pub const DX_Instance = struct {
         display: candler.DisplayHandle,
     ) anyerror!hal.Surface {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "creating DX_ surface: window={s} display={s}", .{
+        std.log.debug("creating DX_ surface: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
-        }).log();
+        });
         return surface_backend.DX_Surface.init(typed.allocator);
     }
 };

@@ -4,7 +4,6 @@ const def = @import("../../types/def.zig");
 const hal = @import("../hal.zig");
 const resource = @import("resource.zig");
 
-const logz = @import("logz");
 
 pub const NoopPipelineLayout = struct {
     allocator: std.mem.Allocator,
@@ -21,7 +20,7 @@ pub const NoopPipelineLayout = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopPipelineLayout = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop pipeline layout", .{}).log();
+        std.log.debug("destroying noop pipeline layout", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -42,7 +41,7 @@ pub const NoopComputePipeline = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopComputePipeline = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop compute pipeline", .{}).log();
+        std.log.debug("destroying noop compute pipeline", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -69,7 +68,7 @@ pub const NoopRenderPipeline = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopRenderPipeline = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop render pipeline", .{}).log();
+        std.log.debug("destroying noop render pipeline", .{});
         typed.allocator.destroy(typed);
     }
 

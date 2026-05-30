@@ -7,7 +7,8 @@ pub fn build(b: *std.Build) void {
     const enable_sdl3 = b.option(bool, "sdl3", "Enable SDL3 integration (used for testing, but definitely usable)") orelse true;
     const enable_splat = b.option(bool, "splat", "Expose the optional splat shader translation module") orelse true;
     const enable_vulkan = b.option(bool, "vulkan", "Enable the Vulkan backend") orelse true;
-    const enable_dx12 = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
+    const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
+    const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
     const enable_metal = b.option(bool, "metal", "Enable the Metal backend") orelse true;
     const enable_browser_webgpu = b.option(bool, "browser_webgpu", "Enable the browser WebGPU backend") orelse true;
     const enable_opengl = b.option(bool, "opengl", "Enable the OpenGL/WebGL backend") orelse false;
@@ -39,13 +40,6 @@ pub fn build(b: *std.Build) void {
 
     mod.addImport("candler", candler.module("candler"));
 
-    const logz = b.dependency("logz", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    mod.addImport("logz", logz.module("logz"));
-
     const vulkan = if (enable_vulkan) vulkan: {
         const headers = b.lazyDependency("vulkan_headers", .{}) orelse break :vulkan null;
         const dep = b.lazyDependency("vulkan", .{
@@ -65,6 +59,14 @@ pub fn build(b: *std.Build) void {
 
     if (sdl3) |dep| {
         mod.addImport("sdl3", dep.module("sdl3"));
+    }
+
+    if (enable_dx12) {
+        if (b.lazyDependency("directx-headers", .{})) |dep| {
+            mod.addIncludePath(dep.path("include/directx"));
+        }
+        mod.linkSystemLibrary("dxgi", .{});
+        mod.linkSystemLibrary("d3d12", .{});
     }
 
     if (enable_splat) {
@@ -130,7 +132,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     example_test_mod.addImport("candler", candler.module("candler"));
-    example_test_mod.addImport("logz", logz.module("logz"));
     example_test_mod.addOptions("build_options", options);
     if (vulkan) |vulkan_mod| {
         example_test_mod.addImport("vulkan", vulkan_mod);

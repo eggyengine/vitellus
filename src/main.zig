@@ -101,17 +101,6 @@ const camera_bind_group_layout_entry = vit.BindGroupLayout.Entry{
 };
 
 pub fn main(init: std.process.Init) !void {
-    try vit.logz.setup(init.io, init.gpa, .{
-        .level = .Info,
-        .pool_size = 100,
-        .buffer_size = 4096,
-        .large_buffer_count = 8,
-        .large_buffer_size = 16384,
-        .output = .stdout,
-        .encoding = .logfmt,
-    });
-    defer vit.logz.deinit();
-
     defer sdl3.shutdown();
 
     // Initialize SDL with subsystems you need here.
@@ -208,7 +197,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     const width, const height = try wrapper.window.getSize();
 
     // initialise the instance
-    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = false, .noop = false, .dx12 = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
+    var instance = try vit.Instance.initFromPotentialBackends(.{ .dx12 = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
     errdefer instance.deinit();
 
     // create the surface from the window

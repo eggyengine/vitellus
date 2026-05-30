@@ -3,7 +3,6 @@ const std = @import("std");
 const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 
-const logz = @import("logz");
 
 pub const NoopSurface = struct {
     allocator: std.mem.Allocator,
@@ -36,7 +35,7 @@ pub const NoopSurface = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopSurface = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop surface", .{}).log();
+        std.log.debug("destroying noop surface", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -54,17 +53,17 @@ pub const NoopSurface = struct {
         _ = ptr;
         _ = device;
         _ = configuration;
-        logz.info().fmt("msg", "configuring noop surface", .{}).log();
+        std.log.debug("configuring noop surface", .{});
     }
 
     fn unconfigure(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "unconfiguring noop surface", .{}).log();
+        std.log.debug("unconfiguring noop surface", .{});
     }
 
     fn getCurrentTexture(ptr: *anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture {
         _ = ptr;
-        logz.info().fmt("msg", "noop surface current texture requested", .{}).log();
+        std.log.debug("noop surface current texture requested", .{});
         return .{ .success = .{
             .width = 1,
             .height = 1,

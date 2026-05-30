@@ -14,7 +14,6 @@ const candler = @import("candler");
 const windowing = @import("../windowing/windowing.zig");
 const splat = @import("splat");
 
-const logz = @import("logz");
 
 pub const Instance = struct {
     allocator: std.mem.Allocator,
@@ -48,7 +47,7 @@ pub const Instance = struct {
     };
 
     pub fn enumerateAdapters(self: *@This(), options: ?Adapter.RequestOptions) ![]Adapter {
-        logz.info().fmt("msg", "enumerating adapters: options={}", .{options != null}).log();
+        std.log.debug("enumerating adapters: options={}", .{options != null});
         const backend_adapters = try self.backend.enumerateAdapters(options orelse .{});
         defer self.allocator.free(backend_adapters);
 
@@ -61,11 +60,11 @@ pub const Instance = struct {
     }
 
     pub fn requestAdapter(self: *@This(), io: std.Io, options: Adapter.RequestOptions) std.Io.Future(Adapter.RequestAdapterError!Adapter) {
-        logz.info().fmt("msg", "requesting adapter: feature_level={s} fallback={} surface={}", .{
+        std.log.debug("requesting adapter: feature_level={s} fallback={} surface={}", .{
             @tagName(options.feature_level),
             options.force_fallback_adapter,
             options.surface != null,
-        }).log();
+        });
         return io.async(requestAdapterInternal, .{ self, io, options });
     }
 
@@ -73,7 +72,7 @@ pub const Instance = struct {
     ///
     /// The `init` function must have a signature of `fn init(descriptor: vit.Instance.Descriptor) !vit.Instance`
     pub fn init(comptime Backend: type, descriptor: Descriptor) !Instance {
-        logz.info().fmt("msg", "initializing instance with backend {s}", .{@typeName(Backend)}).log();
+        std.log.info("initializing instance with backend {s}", .{@typeName(Backend)});
         const backend = try Backend.init(descriptor);
 
         return .{
@@ -85,7 +84,7 @@ pub const Instance = struct {
 
     /// Creates a `vit.Instance` object from an already initialised backend.
     pub fn initFromBackend(backend: hal.Instance, descriptor: Descriptor) Instance {
-        logz.info().fmt("msg", "initializing instance from backend handle", .{}).log();
+        std.log.info("initializing instance from backend handle", .{});
         return .{
             .backend = backend,
             .descriptor = descriptor,
@@ -95,13 +94,13 @@ pub const Instance = struct {
 
     /// Initialises `vit.Instance` type using the Backends specified in `flags`.
     pub fn initFromPotentialBackends(comptime flags: hal.Backends, descriptor: Descriptor) hal.Instance.FromPotentialBackendsError!Instance {
-        logz.info().fmt("msg", "selecting instance backend: flags=0x{x}", .{flags.toFlags()}).log();
+        std.log.info("selecting instance backend: flags=0x{x}", .{flags.toFlags()});
         const Backend = try hal.Instance.fromPotentialBackends(flags);
         return init(Backend, descriptor);
     }
 
     pub fn deinit(self: *@This()) void {
-        logz.info().fmt("msg", "deinitializing instance", .{}).log();
+        std.log.debug("deinitializing instance", .{});
         self.backend.deinit();
     }
 
@@ -113,21 +112,21 @@ pub const Instance = struct {
         self: @This(),
         window: anytype,
     ) texture.Surface.CreateError!texture.Surface {
-        logz.info().fmt("msg", "creating surface from window", .{}).log();
+        std.log.debug("creating surface from window", .{});
         const window_handle = getWindowHandle(window) catch |err| {
-            logz.info().fmt("msg", "window handle unavailable: {s}", .{@errorName(err)}).log();
+            std.log.debug("window handle unavailable: {s}", .{@errorName(err)});
             return error.HandleUnavailable;
         };
         const display_handle = getDisplayHandle(window) catch |err| {
-            logz.info().fmt("msg", "display handle unavailable: {s}", .{@errorName(err)}).log();
+            std.log.debug("display handle unavailable: {s}", .{@errorName(err)});
             return error.HandleUnavailable;
         };
         const backend_surface = self.backend.createSurface(window_handle, display_handle) catch |err| {
-            logz.info().fmt("msg", "backend surface creation failed: {s}", .{@errorName(err)}).log();
+            std.log.debug("backend surface creation failed: {s}", .{@errorName(err)});
             return error.BackendFailed;
         };
 
-        logz.info().fmt("msg", "surface creation succeeded", .{}).log();
+        std.log.debug("surface creation succeeded", .{});
 
         return texture.Surface.init(backend_surface, window_handle, display_handle);
     }
@@ -159,10 +158,10 @@ pub const Instance = struct {
         defer _ = future.cancel(io) catch {};
 
         const backend_adapter = future.await(io) catch |err| {
-            logz.info().fmt("msg", "adapter request failed: {s}", .{@errorName(err)}).log();
+            std.log.debug("adapter request failed: {s}", .{@errorName(err)});
             return error.NoAdapter;
         };
-        logz.info().fmt("msg", "adapter request completed", .{}).log();
+        std.log.debug("adapter request completed", .{});
         return self.adapterFromBackend(backend_adapter, options);
     }
 
@@ -278,24 +277,24 @@ pub const Adapter = struct {
     };
 
     pub fn requestDevice(self: *@This(), io: std.Io, options: Device.Descriptor) std.Io.Future((Device.RequestDeviceError || splat.context.ParseSpirvError)!struct { Device, Queue }) {
-        logz.info().fmt("msg", "requesting device: required_features={} required_limits={}", .{
+        std.log.debug("requesting device: required_features={} required_limits={}", .{
             options.required_features.len,
             options.required_limits.len,
-        }).log();
+        });
         return io.async(requestDeviceInternal, .{ self, io, options });
     }
 
     pub fn deinit(self: *@This()) void {
-        logz.info().fmt("msg", "deinitializing adapter: state={s}", .{@tagName(self.state)}).log();
+        std.log.debug("deinitializing adapter: state={s}", .{@tagName(self.state)});
     }
 
     pub fn getInfo(self: *const @This()) Info {
-        logz.info().fmt("msg", "getting adapter info", .{}).log();
+        std.log.debug("getting adapter info", .{});
         return self.backend.getInfo();
     }
 
     pub fn getDownlevelCapabilities(self: *const @This()) anyerror!DownlevelCapabilities {
-        logz.info().fmt("msg", "getting adapter downlevel capabilities", .{}).log();
+        std.log.debug("getting adapter downlevel capabilities", .{});
         return self.backend.getDownlevelCapabilities();
     }
 
@@ -303,12 +302,12 @@ pub const Adapter = struct {
         self: *const @This(),
         format: texture.Texture.Format,
     ) anyerror!TextureFormatFeatures {
-        logz.info().fmt("msg", "getting adapter texture format features: format={s}", .{@tagName(format)}).log();
+        std.log.debug("getting adapter texture format features: format={s}", .{@tagName(format)});
         return self.backend.getTextureFormatFeatures(format);
     }
 
     pub fn isSurfaceSupported(self: *const @This(), surface: *const texture.Surface) bool {
-        logz.info().fmt("msg", "checking adapter surface support", .{}).log();
+        std.log.debug("checking adapter surface support", .{});
         return self.backend.isSurfaceSupported(surface.backend);
     }
 
@@ -318,7 +317,7 @@ pub const Adapter = struct {
         options: Device.Descriptor,
     ) (Device.RequestDeviceError || splat.context.ParseSpirvError)!struct { Device, Queue } {
         if (self.state != .valid) {
-            logz.info().fmt("msg", "device request rejected: adapter state={s}", .{@tagName(self.state)}).log();
+            std.log.debug("device request rejected: adapter state={s}", .{@tagName(self.state)});
             return error.InvalidAdapter;
         }
 
@@ -326,11 +325,11 @@ pub const Adapter = struct {
         defer _ = future.cancel(io) catch {};
 
         const backend_device, const backend_queue = future.await(io) catch |err| {
-            logz.info().fmt("msg", "backend device request failed: {s}", .{@errorName(err)}).log();
+            std.log.debug("backend device request failed: {s}", .{@errorName(err)});
             return error.UnsupportedFeature;
         };
         self.state = .consumed;
-        logz.info().fmt("msg", "device request completed", .{}).log();
+        std.log.debug("device request completed", .{});
 
         const device = Device{
             .backend = backend_device,
@@ -422,11 +421,11 @@ pub const Device = struct {
 
     pub fn destroy(self: *@This()) void {
         if (self.state == .destroyed) {
-            logz.info().fmt("msg", "device destroy ignored: already destroyed", .{}).log();
+            std.log.debug("device destroy ignored: already destroyed", .{});
             return;
         }
 
-        logz.info().fmt("msg", "destroying device", .{}).log();
+        std.log.debug("destroying device", .{});
         self.state = .destroyed;
         self.backend.destroy();
     }
@@ -436,7 +435,7 @@ pub const Device = struct {
     }
 
     pub fn createBuffer(self: *@This(), descriptor: buffer.Buffer.Descriptor) !buffer.Buffer {
-        logz.info().fmt("msg", "creating buffer", .{}).log();
+        std.log.debug("creating buffer", .{});
         const backend = try self.backend.createBuffer(descriptor);
         return .{
             .backend = backend,
@@ -447,7 +446,7 @@ pub const Device = struct {
     }
 
     pub fn createTexture(self: *@This(), descriptor: texture.Texture.Descriptor) !texture.Texture {
-        logz.info().fmt("msg", "creating texture", .{}).log();
+        std.log.debug("creating texture", .{});
         const backend = try self.backend.createTexture(descriptor);
         return .{
             .backend = backend,
@@ -464,10 +463,10 @@ pub const Device = struct {
     }
 
     pub fn createSampler(self: *@This(), descriptor: ?sampler.Sampler.Descriptor) sampler.Sampler {
-        logz.info().fmt("msg", "creating sampler: descriptor={}", .{descriptor != null}).log();
+        std.log.debug("creating sampler: descriptor={}", .{descriptor != null});
         const resolved = descriptor orelse .{};
         const backend = self.backend.createSampler(resolved) catch |err| {
-            logz.err().fmt("msg", "backend sampler creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend sampler creation failed: {s}", .{@errorName(err)});
             return sampler.Sampler.init(resolved);
         };
         var result = sampler.Sampler.init(resolved);
@@ -476,9 +475,9 @@ pub const Device = struct {
     }
 
     pub fn createBindGroupLayout(self: *@This(), descriptor: BindGroupLayout.Descriptor) BindGroupLayout {
-        logz.info().fmt("msg", "creating bind group layout", .{}).log();
+        std.log.debug("creating bind group layout", .{});
         const backend = self.backend.createBindGroupLayout(descriptor) catch |err| {
-            logz.err().fmt("msg", "backend bind group layout creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend bind group layout creation failed: {s}", .{@errorName(err)});
             return BindGroupLayout.init(descriptor);
         };
         var layout = BindGroupLayout.init(descriptor);
@@ -487,9 +486,9 @@ pub const Device = struct {
     }
 
     pub fn createPipelineLayout(self: *@This(), descriptor: PipelineLayout.Descriptor) PipelineLayout {
-        logz.info().fmt("msg", "creating pipeline layout", .{}).log();
+        std.log.debug("creating pipeline layout", .{});
         const backend = self.backend.createPipelineLayout(descriptor) catch |err| {
-            logz.err().fmt("msg", "backend pipeline layout creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend pipeline layout creation failed: {s}", .{@errorName(err)});
             @panic("failed to create pipeline layout");
         };
         var layout = PipelineLayout.init(descriptor);
@@ -498,9 +497,9 @@ pub const Device = struct {
     }
 
     pub fn createBindGroup(self: *@This(), descriptor: BindGroup.Descriptor) BindGroup {
-        logz.info().fmt("msg", "creating bind group", .{}).log();
+        std.log.debug("creating bind group", .{});
         const backend = self.backend.createBindGroup(descriptor) catch |err| {
-            logz.err().fmt("msg", "backend bind group creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend bind group creation failed: {s}", .{@errorName(err)});
             return BindGroup.init(descriptor);
         };
         var group = BindGroup.init(descriptor);
@@ -509,10 +508,10 @@ pub const Device = struct {
     }
 
     pub fn createShaderModule(self: *@This(), descriptor: shader.ShaderModule.Descriptor) !shader.ShaderModule {
-        logz.info().fmt("msg", "creating shader module", .{}).log();
+        std.log.debug("creating shader module", .{});
 
         const backend = self.backend.createShaderModule(descriptor) catch |err| {
-            logz.err().fmt("msg", "backend shader module creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend shader module creation failed: {s}", .{@errorName(err)});
             @panic("failed to create shader module");
         };
         return .{
@@ -522,15 +521,15 @@ pub const Device = struct {
     }
 
     pub fn createComputePipeline(self: *@This(), descriptor: ComputePipeline.Descriptor) !ComputePipeline {
-        logz.info().fmt("msg", "creating compute pipeline", .{}).log();
+        std.log.debug("creating compute pipeline", .{});
         const backend = try self.backend.createComputePipeline(descriptor);
         return .{ .backend = backend };
     }
 
     pub fn createRenderPipeline(self: *@This(), descriptor: RenderPipeline.Descriptor) RenderPipeline {
-        logz.info().fmt("msg", "creating render pipeline", .{}).log();
+        std.log.debug("creating render pipeline", .{});
         const backend = self.backend.createRenderPipeline(descriptor) catch |err| {
-            logz.err().fmt("msg", "backend render pipeline creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend render pipeline creation failed: {s}", .{@errorName(err)});
             @panic("failed to create render pipeline");
         };
         return .{
@@ -575,7 +574,7 @@ pub const Device = struct {
         io: std.Io,
         descriptor: ComputePipeline.Descriptor,
     ) std.Io.Future(CreatePipelineAsyncError!ComputePipeline) {
-        logz.info().fmt("msg", "creating compute pipeline asynchronously", .{}).log();
+        std.log.debug("creating compute pipeline asynchronously", .{});
         return io.async(createComputePipelineAsyncInternal, .{ self, io, descriptor });
     }
 
@@ -584,29 +583,29 @@ pub const Device = struct {
         io: std.Io,
         descriptor: RenderPipeline.Descriptor,
     ) std.Io.Future(CreatePipelineAsyncError!RenderPipeline) {
-        logz.info().fmt("msg", "creating render pipeline asynchronously", .{}).log();
+        std.log.debug("creating render pipeline asynchronously", .{});
         return io.async(createRenderPipelineAsyncInternal, .{ self, io, descriptor });
     }
 
     pub fn createCommandEncoder(self: *@This(), descriptor: ?CommandEncoder.Descriptor) CommandEncoder {
-        logz.debug().fmt("msg", "creating command encoder: descriptor={}", .{descriptor != null}).log();
+        std.log.debug("creating command encoder: descriptor={}", .{descriptor != null});
         const backend = self.backend.createCommandEncoder(descriptor) catch |err| {
-            logz.err().fmt("msg", "backend command encoder creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend command encoder creation failed: {s}", .{@errorName(err)});
             return .{ .label = if (descriptor) |d| d.label else null };
         };
         return .{ .backend = backend, .label = if (descriptor) |d| d.label else null };
     }
 
     pub fn createRenderBundleEncoder(self: *@This(), descriptor: RenderBundleEncoder.Descriptor) !RenderBundleEncoder {
-        logz.info().fmt("msg", "creating render bundle encoder", .{}).log();
+        std.log.debug("creating render bundle encoder", .{});
         const backend = try self.backend.createRenderBundleEncoder(descriptor);
         return .{ .backend = backend, .label = descriptor.label };
     }
 
     pub fn createQuerySet(self: *@This(), descriptor: QuerySet.Descriptor) QuerySet {
-        logz.info().fmt("msg", "creating query set: type={s} count={}", .{ @tagName(descriptor.type), descriptor.count }).log();
+        std.log.debug("creating query set: type={s} count={}", .{ @tagName(descriptor.type), descriptor.count });
         const backend = self.backend.createQuerySet(descriptor) catch |err| {
-            logz.err().fmt("msg", "backend query set creation failed: {s}", .{@errorName(err)}).log();
+            std.log.err("backend query set creation failed: {s}", .{@errorName(err)});
             return .{
                 .label = descriptor.label,
                 .type = descriptor.type,
@@ -628,7 +627,7 @@ pub const Device = struct {
     }
 
     pub fn lost(self: *@This(), io: std.Io) std.Io.Future(LostError!LostInfo) {
-        logz.info().fmt("msg", "querying device lost future", .{}).log();
+        std.log.debug("querying device lost future", .{});
         return io.async(lostInternal, .{ self, io });
     }
 
@@ -639,12 +638,12 @@ pub const Device = struct {
     }
 
     pub fn popErrorScope(self: *@This(), io: std.Io) std.Io.Future(PopErrorScopeError!?Error) {
-        logz.info().fmt("msg", "popping error scope", .{}).log();
+        std.log.debug("popping error scope", .{});
         return io.async(popErrorScopeInternal, .{ self, io });
     }
 
     pub fn pushErrorScope(self: *@This(), filter: ErrorFilter) void {
-        logz.info().fmt("msg", "pushing error scope: filter={s}", .{@tagName(filter)}).log();
+        std.log.debug("pushing error scope: filter={s}", .{@tagName(filter)});
         self.backend.pushErrorScope(filter);
     }
 };
@@ -659,7 +658,7 @@ pub const Queue = struct {
     };
 
     pub fn submit(self: *@This(), commandBuffers: []const command.CommandBuffer) void {
-        logz.debug().fmt("msg", "submitting queue work: command_buffers={}", .{commandBuffers.len}).log();
+        std.log.debug("submitting queue work: command_buffers={}", .{commandBuffers.len});
         var backend_buffers = std.heap.page_allocator.alloc(hal.CommandBuffer, commandBuffers.len) catch return;
         defer std.heap.page_allocator.free(backend_buffers);
         var count: usize = 0;
@@ -680,7 +679,7 @@ pub const Queue = struct {
         dataOffset: def.Size64,
         size: ?def.Size64,
     ) void {
-        logz.debug().fmt("msg", "writing buffer: offset={} data_offset={} size={?}", .{ bufferOffset, dataOffset, size }).log();
+        std.log.debug("writing buffer: offset={} data_offset={} size={?}", .{ bufferOffset, dataOffset, size });
         if (target.backend) |backend| {
             self.backend.writeBuffer(backend, bufferOffset, data, dataOffset, size);
         }
@@ -693,7 +692,7 @@ pub const Queue = struct {
         dataLayout: texture.TexelCopyBufferLayout,
         size: texture.Texture.Extent3D,
     ) void {
-        logz.debug().fmt("msg", "writing texture", .{}).log();
+        std.log.debug("writing texture", .{});
         self.backend.writeTexture(destination, data, dataLayout, size);
     }
 
@@ -704,7 +703,7 @@ pub const Queue = struct {
     }
 
     pub fn onSubmittedWorkDone(self: *@This(), io: std.Io) std.Io.Future(OnSubmittedWorkDoneError!void) {
-        logz.info().fmt("msg", "waiting for submitted queue work", .{}).log();
+        std.log.debug("waiting for submitted queue work", .{});
         return io.async(onSubmittedWorkDoneInternal, .{ self, io });
     }
 };

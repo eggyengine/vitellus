@@ -5,7 +5,6 @@ const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 const device_backend = @import("device.zig");
 
-const logz = @import("logz");
 
 pub const DX_Adapter = struct {
     allocator: std.mem.Allocator,
@@ -38,17 +37,17 @@ pub const DX_Adapter = struct {
     fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
         const typed: *DX_Adapter = @ptrCast(@alignCast(ptr));
         _ = options;
-        logz.info().fmt("msg", "returning noop device", .{}).log();
-        return try device_backend.NoopDevice.init(typed.allocator);
+        std.log.debug("returning DX_ device", .{});
+        return try device_backend.DX_Device.init(typed.allocator);
     }
 
     fn getInfo(ptr: *anyopaque) gpu.Adapter.Info {
         _ = ptr;
         return .{
             .vendor = "vitellus",
-            .architecture = "noop",
-            .device = "noop",
-            .description = "vitellus noop backend",
+            .architecture = "DX_",
+            .device = "DX_",
+            .description = "vitellus DX_ backend",
             .subgroupMinSize = 0,
             .subgroupMaxSize = 0,
             .isFallbackAdapter = true,

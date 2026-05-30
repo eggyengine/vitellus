@@ -5,7 +5,6 @@ const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 const device_backend = @import("device.zig");
 
-const logz = @import("logz");
 
 pub const NoopAdapter = struct {
     allocator: std.mem.Allocator,
@@ -38,7 +37,7 @@ pub const NoopAdapter = struct {
     fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
         const typed: *NoopAdapter = @ptrCast(@alignCast(ptr));
         _ = options;
-        logz.info().fmt("msg", "returning noop device", .{}).log();
+        std.log.debug("returning noop device", .{});
         return try device_backend.NoopDevice.init(typed.allocator);
     }
 

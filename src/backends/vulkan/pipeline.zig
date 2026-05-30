@@ -10,7 +10,6 @@ const resource = @import("resource.zig");
 const vkShaderModule = @import("shader.zig").vkShaderModule;
 const debug = @import("debug.zig");
 
-const logz = @import("logz");
 
 pub const vkPipelineLayout = struct {
     device: *vkDevice,
@@ -24,7 +23,7 @@ pub const vkPipelineLayout = struct {
     };
 
     pub fn init(device: *vkDevice, descriptor: pipeline.PipelineLayout.Descriptor) !hal.PipelineLayout {
-        logz.info().fmt("msg", "building vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len}).log();
+        std.log.debug("building vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len});
 
         const allocator = device.adapter.gpu.allocator;
         const bind_group_layouts = try allocator.alloc(hal.BindGroupLayout, descriptor.bindGroupLayouts.len);
@@ -58,7 +57,7 @@ pub const vkPipelineLayout = struct {
         };
         debug.setObjectName(device, .pipeline_layout, handle, descriptor.label);
 
-        logz.info().fmt("msg", "created vulkan pipeline layout: handle=0x{x}", .{@intFromEnum(handle)}).log();
+        std.log.debug("created vulkan pipeline layout: handle=0x{x}", .{@intFromEnum(handle)});
         return .{
             .ptr = layout,
             .vtable = &vkPipelineLayout.vtable,
@@ -68,7 +67,7 @@ pub const vkPipelineLayout = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (typed.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan pipeline layout: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            std.log.debug("destroying vulkan pipeline layout: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.device.destroyPipelineLayout(typed.handle, null);
             typed.handle = .null_handle;
         }
@@ -92,7 +91,7 @@ pub const vkComputePipeline = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan compute pipeline", .{}).log();
+        std.log.debug("destroying vulkan compute pipeline", .{});
     }
 
     fn getBindGroupLayout(ptr: *anyopaque, index: u32) anyerror!hal.BindGroupLayout {
@@ -116,12 +115,12 @@ pub const vkRenderPipeline = struct {
     };
 
     pub fn init(device: *vkDevice, descriptor: pipeline.RenderPipeline.Descriptor) !hal.RenderPipeline {
-        logz.info().fmt("msg", "building vulkan render pipeline: topology={s} cull={s} samples={} color_targets={}", .{
+        std.log.debug("building vulkan render pipeline: topology={s} cull={s} samples={} color_targets={}", .{
             @tagName(descriptor.primitive.topology),
             @tagName(descriptor.primitive.cullMode),
             descriptor.multisample.count,
             if (descriptor.fragment) |fragment| fragment.targets.len else 0,
-        }).log();
+        });
         const layout, const owns_layout = try resolvePipelineLayout(device, descriptor.layout, descriptor.label);
         errdefer if (owns_layout) layout.vtable.destroy(layout.ptr);
         const vk_layout: *vkPipelineLayout = @ptrCast(@alignCast(layout.ptr));
@@ -150,12 +149,12 @@ pub const vkRenderPipeline = struct {
             );
             stage_count += 1;
             if (fragment.constants.len != 0) {
-                logz.info().fmt("msg", "vulkan render pipeline rejected: fragment specialization constants are not implemented yet", .{}).log();
+                std.log.debug("vulkan render pipeline rejected: fragment specialization constants are not implemented yet", .{});
                 return error.NotImplemented;
             }
         }
         if (descriptor.vertex.constants.len != 0) {
-            logz.info().fmt("msg", "vulkan render pipeline rejected: vertex specialization constants are not implemented yet", .{}).log();
+            std.log.debug("vulkan render pipeline rejected: vertex specialization constants are not implemented yet", .{});
             return error.NotImplemented;
         }
 
@@ -259,7 +258,7 @@ pub const vkRenderPipeline = struct {
             @as([*]vk.Pipeline, @ptrCast(&handle))[0..1],
         );
         if (result != .success) {
-            logz.info().fmt("msg", "vulkan graphics pipeline creation returned non-success result: {s}", .{@tagName(result)}).log();
+            std.log.debug("vulkan graphics pipeline creation returned non-success result: {s}", .{@tagName(result)});
             return error.PipelineCompileRequired;
         }
         errdefer device.device.destroyPipeline(handle, null);
@@ -281,10 +280,10 @@ pub const vkRenderPipeline = struct {
             debug.setObjectName(device, .render_pass, render_pass, descriptor.label);
         }
 
-        logz.info().fmt("msg", "created vulkan render pipeline: handle=0x{x} render_pass=0x{x}", .{
+        std.log.debug("created vulkan render pipeline: handle=0x{x} render_pass=0x{x}", .{
             @intFromEnum(handle),
             @intFromEnum(render_pass),
-        }).log();
+        });
         return .{
             .ptr = render_pipeline,
             .vtable = &vkRenderPipeline.vtable,
@@ -296,18 +295,18 @@ pub const vkRenderPipeline = struct {
         typed.device.unregisterDeviceChild(ptr);
         if (typed.handle != .null_handle or typed.render_pass != .null_handle) {
             typed.device.device.deviceWaitIdle() catch |err| {
-                logz.err().src(@src()).err(err).log();
+                std.log.err("{s}", .{@errorName(err)});
             };
             typed.device.queue.cleanupCompleted(true);
         }
         if (typed.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan render pipeline: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            std.log.debug("destroying vulkan render pipeline: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.unregisterRenderPipelineHandle(typed.handle);
             typed.device.device.destroyPipeline(typed.handle, null);
             typed.handle = .null_handle;
         }
         if (typed.render_pass != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan render pass: handle=0x{x}", .{@intFromEnum(typed.render_pass)}).log();
+            std.log.debug("destroying vulkan render pass: handle=0x{x}", .{@intFromEnum(typed.render_pass)});
             typed.device.device.destroyRenderPass(typed.render_pass, null);
             typed.render_pass = .null_handle;
         }
@@ -542,12 +541,12 @@ fn createRenderPass(device: *vkDevice, descriptor: pipeline.RenderPipeline.Descr
     };
 
     const render_pass = try device.device.createRenderPass(&render_pass_info, null);
-    logz.info().fmt("msg", "created vulkan render pass: handle=0x{x} attachments={} color_targets={} has_depth={}", .{
+    std.log.debug("created vulkan render pass: handle=0x{x} attachments={} color_targets={} has_depth={}", .{
         @intFromEnum(render_pass),
         attachment_count,
         color_refs.len,
         has_depth,
-    }).log();
+    });
     return render_pass;
 }
 

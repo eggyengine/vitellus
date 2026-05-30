@@ -5,7 +5,6 @@ const def = @import("../../types/def.zig");
 const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 
-const logz = @import("logz");
 
 pub const NoopBuffer = struct {
     allocator: std.mem.Allocator,
@@ -25,7 +24,7 @@ pub const NoopBuffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopBuffer = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop buffer", .{}).log();
+        std.log.debug("destroying noop buffer", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -80,7 +79,7 @@ pub const NoopTexture = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopTexture = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop texture", .{}).log();
+        std.log.debug("destroying noop texture", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -106,7 +105,7 @@ pub const NoopTextureView = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopTextureView = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop texture view", .{}).log();
+        std.log.debug("destroying noop texture view", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -126,7 +125,7 @@ pub const NoopSampler = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopSampler = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop sampler", .{}).log();
+        std.log.debug("destroying noop sampler", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -146,7 +145,7 @@ pub const NoopBindGroupLayout = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopBindGroupLayout = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop bind group layout", .{}).log();
+        std.log.debug("destroying noop bind group layout", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -166,7 +165,7 @@ pub const NoopBindGroup = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopBindGroup = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop bind group", .{}).log();
+        std.log.debug("destroying noop bind group", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -186,7 +185,7 @@ pub const NoopQuerySet = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *NoopQuerySet = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "destroying noop query set", .{}).log();
+        std.log.debug("destroying noop query set", .{});
         typed.allocator.destroy(typed);
     }
 };

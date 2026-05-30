@@ -14,7 +14,6 @@ const resource = @import("resource.zig");
 const surface_backend = @import("surface.zig");
 const debug = @import("debug.zig");
 
-const logz = @import("logz");
 
 fn indexFormatToVulkan(format: pipeline.IndexFormat) vk.IndexType {
     return switch (format) {
@@ -37,7 +36,7 @@ pub const vkCommandBuffer = struct {
     };
 
     pub fn deinit(self: *@This()) void {
-        logz.debug().fmt("msg", "destroying vulkan command buffer", .{}).log();
+        std.log.debug("destroying vulkan command buffer", .{});
         if (self.command_pool != .null_handle) {
             self.device.device.destroyCommandPool(self.command_pool, null);
             self.command_pool = .null_handle;
@@ -198,7 +197,7 @@ pub const vkCommandEncoder = struct {
         const destination_buffer: *resource.vkBuffer = @ptrCast(@alignCast(destination.ptr));
 
         if (source_offset > source_buffer.size or destination_offset > destination_buffer.size) {
-            logz.err().fmt("msg", "buffer copy offset out of bounds: source_offset={} destination_offset={}", .{ source_offset, destination_offset }).log();
+            std.log.err("buffer copy offset out of bounds: source_offset={} destination_offset={}", .{ source_offset, destination_offset });
             return;
         }
 
@@ -206,7 +205,7 @@ pub const vkCommandEncoder = struct {
         const destination_available = destination_buffer.size - destination_offset;
         const copy_size = size orelse @min(source_available, destination_available);
         if (copy_size == 0 or copy_size > source_available or copy_size > destination_available) {
-            logz.err().fmt("msg", "buffer copy size out of bounds: size={?} source_available={} destination_available={}", .{ size, source_available, destination_available }).log();
+            std.log.err("buffer copy size out of bounds: size={?} source_available={} destination_available={}", .{ size, source_available, destination_available });
             return;
         }
 
@@ -503,7 +502,7 @@ pub const vkRenderPassEncoder = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         const target = group orelse return;
         if (typed.pipeline_layout == .null_handle) {
-            logz.err().fmt("msg", "cannot bind vulkan bind group before a render pipeline is bound", .{}).log();
+            std.log.err("cannot bind vulkan bind group before a render pipeline is bound", .{});
             return;
         }
         const vk_group: *resource.vkBindGroup = @ptrCast(@alignCast(target.ptr));
@@ -520,7 +519,7 @@ pub const vkRenderPassEncoder = struct {
     fn setBindGroupFromData(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets_data: []const u32, dynamic_offsets_data_start: def.Size64, dynamic_offsets_data_length: def.Size32) void {
         const offsets_end = dynamic_offsets_data_start + dynamic_offsets_data_length;
         if (dynamic_offsets_data_start > dynamic_offsets_data.len or offsets_end > dynamic_offsets_data.len) {
-            logz.err().fmt("msg", "bind group dynamic offsets range is out of bounds: start={} length={} available={}", .{ dynamic_offsets_data_start, dynamic_offsets_data_length, dynamic_offsets_data.len }).log();
+            std.log.err("bind group dynamic offsets range is out of bounds: start={} length={} available={}", .{ dynamic_offsets_data_start, dynamic_offsets_data_length, dynamic_offsets_data.len });
             return;
         }
         setBindGroup(ptr, index, group, dynamic_offsets_data[dynamic_offsets_data_start..offsets_end]);
@@ -542,7 +541,7 @@ pub const vkRenderBundle = struct {
     pub const vtable = hal.RenderBundle.VTable{ .destroy = destroy };
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan render bundle", .{}).log();
+        std.log.debug("destroying vulkan render bundle", .{});
     }
 };
 
