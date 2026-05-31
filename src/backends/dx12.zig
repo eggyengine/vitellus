@@ -43,8 +43,7 @@ pub const DX_RenderPassEncoder = command.DX_RenderPassEncoder;
 pub const DX_RenderBundle = command.DX_RenderBundle;
 pub const DX_RenderBundleEncoder = command.DX_RenderBundleEncoder;
 
-
 pub fn init(descriptor: gpu.Instance.Descriptor) hal.Instance.FromPotentialBackendsError!hal.Instance {
-    std.log.info("initializing DX_ backend", .{});
+    std.log.info("initializing dx12 backend", .{});
     return DX_Instance.init(descriptor) catch error.NoBackendAvailable;
 }

@@ -4,7 +4,6 @@ const def = @import("../../types/def.zig");
 const hal = @import("../hal.zig");
 const resource = @import("resource.zig");
 
-
 pub const DX_PipelineLayout = struct {
     allocator: std.mem.Allocator,
 
@@ -20,7 +19,7 @@ pub const DX_PipelineLayout = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_PipelineLayout = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ pipeline layout", .{});
+        std.log.debug("destroying dx12 pipeline layout", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -41,7 +40,7 @@ pub const DX_ComputePipeline = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_ComputePipeline = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ compute pipeline", .{});
+        std.log.debug("destroying dx12 compute pipeline", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -68,7 +67,7 @@ pub const DX_RenderPipeline = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_RenderPipeline = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ render pipeline", .{});
+        std.log.debug("destroying dx12 render pipeline", .{});
         typed.allocator.destroy(typed);
     }
 

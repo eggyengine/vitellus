@@ -22,7 +22,6 @@ pub const noop = if (build_options.enable_backend_noop) @import("noop.zig") else
 pub const vulkan = if (build_options.enable_backend_vulkan) @import("vulkan.zig") else struct {};
 pub const dx12 = if (build_options.enable_backend_dx12) @import("dx12.zig") else struct {};
 
-
 pub const Backends = packed struct(u32) {
     /// No operation backend
     ///
@@ -121,79 +120,6 @@ pub const Instance = struct {
         NotImplemented,
         NoBackendAvailable,
     };
-
-    pub fn fromPotentialBackends(comptime flags: Backends) FromPotentialBackendsError!type {
-        switch (builtin.os.tag) {
-            .windows => {
-                // dx12 takes priority on windows
-                if (build_options.enable_backend_dx12 and flags.dx12) {
-                    return dx12.DX_Instance;
-                }
-
-                if (build_options.enable_backend_vulkan and flags.vulkan) {
-                    return vulkan.vkInstance;
-                }
-            },
-
-            .linux => {
-                // vulkan only
-                if (build_options.enable_backend_vulkan and flags.vulkan) {
-                    return vulkan.vkInstance;
-                }
-            },
-
-            // vulkan can be supported through moltenvk
-            .macos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .ios => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .watchos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .tvos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .visionos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-
-            // wasm uses `navigator.gpu` api
-            .emscripten => {
-                if (build_options.enable_backend_browser_webgpu and flags.browser_webgpu) {
-                    return error.NotImplemented;
-                }
-            },
-            .wasi => {
-                if (build_options.enable_backend_browser_webgpu and flags.browser_webgpu) {
-                    return error.NotImplemented;
-                }
-            },
-            else => {},
-        }
-
-        // basically all platforms support some form of opengl
-        if (build_options.enable_backend_opengl and flags.opengl) {
-            return error.NotImplemented;
-        }
-
-        if (build_options.enable_backend_noop and flags.noop) {
-            return noop;
-        }
-
-        return error.NoBackendAvailable;
-    }
 
     pub fn requestAdapter(
         self: Instance,

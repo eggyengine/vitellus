@@ -3,7 +3,6 @@ const std = @import("std");
 const hal = @import("../hal.zig");
 const shader = @import("../../types/shader.zig");
 
-
 pub const DX_ShaderModule = struct {
     allocator: std.mem.Allocator,
 
@@ -23,7 +22,7 @@ pub const DX_ShaderModule = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_ShaderModule = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ shader module", .{});
+        std.log.debug("destroying dx12 shader module", .{});
         typed.allocator.destroy(typed);
     }
 

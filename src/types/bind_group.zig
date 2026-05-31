@@ -151,16 +151,15 @@ pub const BindGroupLayout = struct {
         };
 
         pub const Texture = struct {
-            sampleType: SampleType = .float,
+            sampleType: SampleType = .{ .float = .{ .filterable = true } },
             viewDimension: texture_mod.Texture.View.Dimension = .@"2d",
             multisampled: bool = false,
 
-            pub const SampleType = enum {
-                float,
-                unfilterable_float,
-                depth,
-                sint,
-                uint,
+            pub const SampleType = union(enum) {
+                float: struct { filterable: bool },
+                depth: void,
+                sint: void,
+                uint: void,
             };
         };
 

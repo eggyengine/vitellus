@@ -6,7 +6,6 @@ const hal = @import("../hal.zig");
 const pipeline = @import("../../types/pipeline.zig");
 const texture = @import("../../types/texture.zig");
 
-
 pub const DX_CommandBuffer = struct {
     allocator: std.mem.Allocator,
 
@@ -22,7 +21,7 @@ pub const DX_CommandBuffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_CommandBuffer = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ command buffer", .{});
+        std.log.debug("destroying dx12 command buffer", .{});
         typed.allocator.destroy(typed);
     }
 };
@@ -440,7 +439,7 @@ pub const DX_RenderBundle = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_RenderBundle = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ render bundle", .{});
+        std.log.debug("destroying dx12 render bundle", .{});
         typed.allocator.destroy(typed);
     }
 };

@@ -5,7 +5,6 @@ const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 const device_backend = @import("device.zig");
 
-
 pub const DX_Adapter = struct {
     allocator: std.mem.Allocator,
 
@@ -17,13 +16,8 @@ pub const DX_Adapter = struct {
         .isSurfaceSupported = isSurfaceSupported,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !hal.Adapter {
-        const adapter = try allocator.create(DX_Adapter);
-        adapter.* = .{ .allocator = allocator };
-        return .{
-            .ptr = adapter,
-            .vtable = &vtable,
-        };
+    pub fn deinit(self: *@This()) void {
+        _ = self;
     }
 
     fn requestDevice(
@@ -37,7 +31,7 @@ pub const DX_Adapter = struct {
     fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
         const typed: *DX_Adapter = @ptrCast(@alignCast(ptr));
         _ = options;
-        std.log.debug("returning DX_ device", .{});
+        std.log.debug("returning dx12 device", .{});
         return try device_backend.DX_Device.init(typed.allocator);
     }
 
@@ -47,7 +41,7 @@ pub const DX_Adapter = struct {
             .vendor = "vitellus",
             .architecture = "DX_",
             .device = "DX_",
-            .description = "vitellus DX_ backend",
+            .description = "vitellus dx12 backend",
             .subgroupMinSize = 0,
             .subgroupMaxSize = 0,
             .isFallbackAdapter = true,

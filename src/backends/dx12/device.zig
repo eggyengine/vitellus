@@ -15,7 +15,6 @@ const pipeline_backend = @import("pipeline.zig");
 const resource = @import("resource.zig");
 const shader_backend = @import("shader.zig");
 
-
 pub const DX_Device = struct {
     allocator: std.mem.Allocator,
     queue: DX_Queue = .{},
@@ -58,7 +57,7 @@ pub const DX_Device = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ device", .{});
+        std.log.debug("destroying dx12 device", .{});
         typed.allocator.destroy(typed);
     }
 

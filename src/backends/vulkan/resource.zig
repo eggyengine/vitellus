@@ -10,7 +10,7 @@ const texture = @import("../../types/texture.zig");
 const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const debug = @import("debug.zig");
-
+const utils = @import("utils.zig");
 
 pub const vkBuffer = struct {
     device: *vkDevice,
@@ -173,8 +173,92 @@ pub const vkBuffer = struct {
     }
 };
 
+fn imageTypeFromDimension(dimension: texture.Texture.Dimension) vk.ImageType {
+    return switch (dimension) {
+        .@"1d" => .@"1d",
+        .@"2d" => .@"2d",
+        .@"3d" => .@"3d",
+    };
+}
+
+fn imageExtentFromDescriptor(descriptor: texture.Texture.Descriptor) vk.Extent3D {
+    return switch (descriptor.dimension) {
+        .@"1d" => .{
+            .width = descriptor.size.width,
+            .height = 1,
+            .depth = 1,
+        },
+        .@"2d" => .{
+            .width = descriptor.size.width,
+            .height = descriptor.size.height,
+            .depth = 1,
+        },
+        .@"3d" => .{
+            .width = descriptor.size.width,
+            .height = descriptor.size.height,
+            .depth = descriptor.size.depthOrArrayLayers,
+        },
+    };
+}
+
+fn imageArrayLayersFromDescriptor(descriptor: texture.Texture.Descriptor) u32 {
+    return switch (descriptor.dimension) {
+        .@"1d", .@"2d" => descriptor.size.depthOrArrayLayers,
+        .@"3d" => 1,
+    };
+}
+
+fn imageCreateFlagsFromDescriptor(descriptor: texture.Texture.Descriptor) vk.ImageCreateFlags {
+    const cube_compatible = if (descriptor.textureBindingViewDimension) |view_dimension|
+        view_dimension == .cube or view_dimension == .@"cube-array"
+    else
+        false;
+
+    return .{
+        .cube_compatible_bit = cube_compatible,
+        .mutable_format_bit = descriptor.viewFormats.len > 0,
+    };
+}
+
+fn imageUsageFromTextureUsage(flags: texture.Texture.UsageFlags) vk.ImageUsageFlags {
+    const usage = texture.Texture.Usage.fromFlags(flags);
+    return .{
+        .transfer_src_bit = usage.copy_src,
+        .transfer_dst_bit = usage.copy_dst,
+        .sampled_bit = usage.texture_binding,
+        .storage_bit = usage.storage_binding,
+        .color_attachment_bit = usage.render_attachment,
+        .transient_attachment_bit = usage.transient_attachment,
+    };
+}
+
+fn sampleCountToVk(count: u32) vk.SampleCountFlags {
+    return switch (count) {
+        1 => .{ .@"1_bit" = true },
+        2 => .{ .@"2_bit" = true },
+        4 => .{ .@"4_bit" = true },
+        8 => .{ .@"8_bit" = true },
+        16 => .{ .@"16_bit" = true },
+        32 => .{ .@"32_bit" = true },
+        64 => .{ .@"64_bit" = true },
+        else => .{ .@"1_bit" = true },
+    };
+}
+
+fn findImageMemoryType(device: *vkDevice, type_filter: u32, properties: vk.MemoryPropertyFlags) !u32 {
+    const memory_properties = device.adapter.gpu.instance.getPhysicalDeviceMemoryProperties(device.adapter.pdev);
+    var i: u32 = 0;
+    while (i < memory_properties.memory_type_count) : (i += 1) {
+        const supported = (type_filter & (@as(u32, 1) << @intCast(i))) != 0;
+        const flags = memory_properties.memory_types[i].property_flags;
+        if (supported and flags.contains(properties)) return i;
+    }
+    return error.NoSuitableMemoryType;
+}
+
 pub const vkTexture = struct {
     device: *vkDevice,
+    memory: vk.DeviceMemory = undefined,
     handle: vk.Image,
     format: vk.Format,
     extent: vk.Extent3D,
@@ -190,9 +274,53 @@ pub const vkTexture = struct {
     };
 
     pub fn init(device: *vkDevice, descriptor: texture.Texture.Descriptor) !hal.Texture {
-        _ = device;
-        _ = descriptor;
-        return error.NotImplemented;
+        const format = utils.formatToVk(descriptor.format) orelse return error.UnsupportedTextureFormat;
+        const extent = imageExtentFromDescriptor(descriptor);
+        const array_layers = imageArrayLayersFromDescriptor(descriptor);
+
+        const image_create = vk.ImageCreateInfo{
+            .flags = imageCreateFlagsFromDescriptor(descriptor),
+            .image_type = imageTypeFromDimension(descriptor.dimension),
+            .format = format,
+            .extent = extent,
+            .mip_levels = descriptor.mipLevelCount,
+            .array_layers = array_layers,
+            .samples = sampleCountToVk(descriptor.sampleCount),
+            .tiling = .optimal,
+            .usage = imageUsageFromTextureUsage(descriptor.usage),
+            .sharing_mode = .exclusive,
+            .initial_layout = .undefined,
+        };
+
+        const handle = try device.device.createImage(&image_create, null);
+        errdefer device.device.destroyImage(handle, null);
+
+        const requirements = device.device.getImageMemoryRequirements(handle);
+        const allocate_info = vk.MemoryAllocateInfo{
+            .allocation_size = requirements.size,
+            .memory_type_index = try findImageMemoryType(device, requirements.memory_type_bits, .{ .device_local_bit = true }),
+        };
+        const memory = try device.device.allocateMemory(&allocate_info, null);
+        errdefer device.device.freeMemory(memory, null);
+
+        try device.device.bindImageMemory(handle, memory, 0);
+        debug.setObjectName(device, .image, handle, descriptor.label);
+
+        const self = try device.adapter.gpu.allocator.create(vkTexture);
+        self.* = .{
+            .label = descriptor.label,
+            .device = device,
+            .memory = memory,
+            .handle = handle,
+            .format = format,
+            .extent = extent,
+            .owns_image = true,
+        };
+
+        return hal.Texture{
+            .ptr = self,
+            .vtable = &vtable,
+        };
     }
 
     pub fn initSwapchainImage(device: *vkDevice, image: vk.Image, format: vk.Format, extent: vk.Extent2D) @This() {
@@ -219,6 +347,11 @@ pub const vkTexture = struct {
             self.device.device.destroyImage(self.handle, null);
         }
         self.handle = .null_handle;
+
+        if (self.owns_image and self.memory != .null_handle) {
+            self.device.device.freeMemory(self.memory, null);
+            self.memory = .null_handle;
+        }
     }
 
     fn destroy(ptr: *anyopaque) void {

@@ -19,10 +19,15 @@ const c = @cImport({
     @cInclude("dxgi.h");
 });
 
+pub const DX_Descriptor = struct {
+    useWarpDevice: bool = true,
+};
+
 pub const DX_Instance = struct {
     allocator: std.mem.Allocator,
-    adapter: adapter_backend.DX_Adapter,
+    adapter: ?adapter_backend.DX_Adapter = null,
 
+    factory: ComPtr(c.IDXGIFactory),
     debug_controller: ?ComPtr(c.ID3D12Debug) = null,
 
     pub const vtable = hal.Instance.VTable{
@@ -59,7 +64,6 @@ pub const DX_Instance = struct {
         }
 
         var factory: ComPtr(c.IDXGIFactory) = .adopt(null);
-        defer factory.deinit();
 
         try hr(c.CreateDXGIFactory(
             &c.IID_IDXGIFactory,
@@ -70,8 +74,9 @@ pub const DX_Instance = struct {
 
         instance.* = .{
             .allocator = allocator,
-            .adapter = .{ .allocator = allocator },
+            .adapter = null,
             .debug_controller = debug_controller,
+            .factory = factory,
         };
         return .{
             .ptr = instance,
@@ -81,15 +86,17 @@ pub const DX_Instance = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying DX_ instance", .{});
+        std.log.debug("destroying dx12 instance", .{});
+        if (typed.adapter) |*adapter| adapter.deinit();
         if (typed.debug_controller) |*controller| controller.deinit();
+        typed.factory.deinit();
         typed.allocator.destroy(typed);
     }
 
     fn enumerateAdapters(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror![]const hal.Adapter {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
         _ = options;
-        std.log.debug("enumerating DX_ adapters", .{});
+        std.log.debug("enumerating dx12 adapters", .{});
         const adapters = try typed.allocator.alloc(hal.Adapter, 1);
         adapters[0] = .{ .ptr = &typed.adapter, .vtable = &adapter_backend.DX_Adapter.vtable };
         return adapters;
@@ -106,7 +113,7 @@ pub const DX_Instance = struct {
     fn requestAdapterInternal(ptr: *anyopaque, options: gpu.Adapter.RequestOptions) anyerror!hal.Adapter {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
         _ = options;
-        std.log.debug("returning DX_ adapter", .{});
+        std.log.debug("returning dx12 adapter", .{});
         return .{ .ptr = &typed.adapter, .vtable = &adapter_backend.DX_Adapter.vtable };
     }
 
@@ -116,7 +123,7 @@ pub const DX_Instance = struct {
         display: candler.DisplayHandle,
     ) anyerror!hal.Surface {
         const typed: *DX_Instance = @ptrCast(@alignCast(ptr));
-        std.log.debug("creating DX_ surface: window={s} display={s}", .{
+        std.log.debug("creating dx12 surface: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
         });

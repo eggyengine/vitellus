@@ -2,10 +2,23 @@ const vit = @import("vitellus");
 const sdl3 = vit.windowing.sdl3.sdl;
 const std = @import("std");
 const emath = @import("eggenvector");
+const zigimg = @import("zigimg");
 
 const fps = 60;
 const screen_width = 640;
 const screen_height = 480;
+
+const Tex = struct {
+    texture: vit.Texture,
+    view: *vit.Texture.View,
+    sampler: vit.Sampler,
+
+    fn deinit(self: *@This()) void {
+        self.sampler.deinit();
+        self.view.deinit();
+        self.texture.deinit();
+    }
+};
 
 const Vertex = struct {
     position: [2]f32,
@@ -100,6 +113,16 @@ const camera_bind_group_layout_entry = vit.BindGroupLayout.Entry{
     },
 };
 
+const texture_layout_entry = vit.BindGroupLayout.Entry{
+    .binding = 1,
+    .visibility = vit.BindGroupLayout.ShaderStage.FRAGMENT,
+    .texture = .{
+        .sampleType = .{ .float = .{ .filterable = true } },
+        .viewDimension = .@"2d",
+        .multisampled = false,
+    },
+};
+
 pub fn main(init: std.process.Init) !void {
     defer sdl3.shutdown();
 
@@ -166,17 +189,20 @@ pub const State = struct {
     render_pipeline: vit.RenderPipeline,
     render_pipeline_layout: vit.PipelineLayout,
     camera_bind_group_layout: vit.BindGroupLayout,
-    camera_bind_group: vit.BindGroup,
+    bind_group: vit.BindGroup,
     uniform_buffer: vit.Buffer,
     vertex_buffer: vit.Buffer,
     index_buffer: vit.Buffer,
     camera: Camera,
 
+    tex: Tex,
+
     fn deinit(self: *@This()) void {
+        self.tex.deinit();
         self.index_buffer.deinit();
         self.vertex_buffer.deinit();
         self.uniform_buffer.deinit();
-        self.camera_bind_group.deinit();
+        self.bind_group.deinit();
         self.render_pipeline.deinit();
         self.render_pipeline_layout.deinit();
         self.camera_bind_group_layout.deinit();
@@ -189,7 +215,8 @@ pub const State = struct {
     fn updateCamera(self: *@This(), dt: f32) void {
         self.camera.update(dt);
         const ubo = self.camera.uniforms(self.config.width, self.config.height);
-        writeUniformBuffer(&self.uniform_buffer, ubo);
+        const bytes = std.mem.asBytes(&ubo);
+        self.queue.writeBuffer(&self.uniform_buffer, 0, bytes[0..], 0, null);
     }
 };
 
@@ -197,7 +224,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     const width, const height = try wrapper.window.getSize();
 
     // initialise the instance
-    var instance = try vit.Instance.initFromPotentialBackends(.{ .dx12 = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
+    var instance = try vit.Instance.initFromPotentialBackends(.{ .vulkan = true }, .{ .allocator = init.gpa, .flags = .{ .validation = true } });
     errdefer instance.deinit();
 
     // create the surface from the window
@@ -253,13 +280,15 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         .render_pipeline = undefined,
         .render_pipeline_layout = undefined,
         .camera_bind_group_layout = undefined,
-        .camera_bind_group = undefined,
+        .bind_group = undefined,
         .uniform_buffer = undefined,
         .vertex_buffer = undefined,
         .index_buffer = undefined,
         .camera = .{},
+        .tex = undefined,
     };
 
+    try create_images(&state, init);
     try create_camera_resources(&state);
     try create_render_pipeline(&state);
     try create_buffers(&state);
@@ -267,39 +296,78 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     return state;
 }
 
+fn create_images(state: *State, init: std.process.Init) !void {
+    const image_data = @embedFile("f08.jpg");
+
+    var image = try zigimg.Image.fromMemory(init.gpa, image_data[0..]);
+    defer image.deinit(init.gpa);
+    try image.convert(init.gpa, .rgba32);
+
+    const size = vit.Texture.Extent3D{
+        .width = @intCast(image.width),
+        .height = @intCast(image.height),
+    };
+
+    var texture = try state.device.createTexture(.{
+        .label = "bird texture",
+        .size = size,
+        .format = .rgba8unorm_srgb,
+        .usage = vit.Texture.Usage.TEXTURE_BINDING | vit.Texture.Usage.COPY_DST,
+    });
+
+    state.queue.writeTexture(
+        .{
+            .texture = &texture,
+        },
+        std.mem.sliceAsBytes(image.pixels.rgba32),
+        .{
+            .bytesPerRow = @intCast(4 * image.width),
+            .rowsPerImage = @intCast(image.height),
+        },
+        size,
+    );
+
+    const texture_view = try texture.createView(.{ .label = "bird texture view" });
+    const sampler = state.device.createSampler(.{
+        .label = "bird sampler",
+        .magFilter = .linear,
+        .minFilter = .linear,
+    });
+
+    state.tex.texture = texture;
+    state.tex.view = texture_view;
+    state.tex.sampler = sampler;
+}
+
 fn create_camera_resources(state: *State) !void {
     state.camera_bind_group_layout = state.device.createBindGroupLayout(.{
         .label = "camera bind group layout",
-        .entries = &.{&camera_bind_group_layout_entry},
+        .entries = &.{ &camera_bind_group_layout_entry, &texture_layout_entry },
     });
 
     var uniform_buffer = try state.device.createBuffer(.{
         .label = "Camera Uniform Buffer",
         .size = @sizeOf(UniformBufferObject),
-        .usage = vit.Buffer.Usage.UNIFORM | vit.Buffer.Usage.MAP_WRITE,
-        .mappedAtCreation = true,
+        .usage = vit.Buffer.Usage.UNIFORM | vit.Buffer.Usage.COPY_DST,
+        .mappedAtCreation = false,
     });
 
     const initial_ubo = state.camera.uniforms(state.config.width, state.config.height);
-    writeUniformBuffer(&uniform_buffer, initial_ubo);
+    const initial_bytes = std.mem.asBytes(&initial_ubo);
+    state.queue.writeBuffer(&uniform_buffer, 0, initial_bytes[0..], 0, null);
     state.uniform_buffer = uniform_buffer;
 
-    state.camera_bind_group = state.device.createBindGroup(.{
+    state.bind_group = state.device.createBindGroup(.{
         .label = "camera bind group",
         .layout = &state.camera_bind_group_layout,
-        .entries = &.{
-            .{
-                .binding = 0,
-                .resource = .{ .bufferBinding = .{ .buffer = &state.uniform_buffer } },
-            },
-        },
+        .entries = &.{ .{
+            .binding = 0,
+            .resource = .{ .bufferBinding = .{ .buffer = &state.uniform_buffer } },
+        }, .{
+            .binding = 1,
+            .resource = .{ .textureView = state.tex.view },
+        } },
     });
-}
-
-fn writeUniformBuffer(target: *vit.Buffer, ubo: UniformBufferObject) void {
-    const mapped = target.getMappedRange(0, @sizeOf(UniformBufferObject)) catch return;
-    const bytes = mapped orelse return;
-    @memcpy(bytes[0..@sizeOf(UniformBufferObject)], std.mem.asBytes(&ubo));
 }
 
 fn create_render_pipeline(state: *State) !void {
@@ -434,7 +502,7 @@ fn render_the_pipeline(state: *State, dt: f32) !void {
         defer render_pass.end();
 
         render_pass.setPipeline(&state.render_pipeline);
-        render_pass.setBindGroup(0, &state.camera_bind_group, &.{});
+        render_pass.setBindGroup(0, &state.bind_group, &.{});
         render_pass.setVertexBuffer(0, &state.vertex_buffer, 0, null);
         render_pass.setIndexBuffer(&state.index_buffer, .uint16, 0, null);
         render_pass.drawIndexed(.exclusive(0, INDICES.len), .exclusive(0, 1), 0);

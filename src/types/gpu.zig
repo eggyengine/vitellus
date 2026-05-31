@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const features = @import("features.zig");
 const buffer = @import("buffer.zig");
@@ -13,7 +14,6 @@ const hal = @import("../backends/hal.zig");
 const candler = @import("candler");
 const windowing = @import("../windowing/windowing.zig");
 const splat = @import("splat");
-
 
 pub const Instance = struct {
     allocator: std.mem.Allocator,
@@ -95,8 +95,64 @@ pub const Instance = struct {
     /// Initialises `vit.Instance` type using the Backends specified in `flags`.
     pub fn initFromPotentialBackends(comptime flags: hal.Backends, descriptor: Descriptor) hal.Instance.FromPotentialBackendsError!Instance {
         std.log.info("selecting instance backend: flags=0x{x}", .{flags.toFlags()});
-        const Backend = try hal.Instance.fromPotentialBackends(flags);
-        return init(Backend, descriptor);
+        const available = comptime hal.Backends.defaultAvailable();
+
+        switch (builtin.os.tag) {
+            .windows => {
+                // dx12 takes priority on windows
+                if (comptime available.dx12 and flags.dx12) {
+                    if (tryInitBackend(hal.dx12.DX_Instance, descriptor)) |instance| return instance;
+                }
+
+                if (comptime available.vulkan and flags.vulkan) {
+                    if (tryInitBackend(hal.vulkan.vkInstance, descriptor)) |instance| return instance;
+                }
+            },
+
+            .linux => {
+                // vulkan only
+                if (comptime available.vulkan and flags.vulkan) {
+                    if (tryInitBackend(hal.vulkan.vkInstance, descriptor)) |instance| return instance;
+                }
+            },
+
+            // vulkan can be supported through moltenvk
+            .macos, .ios, .watchos, .tvos, .visionos => {
+                if (comptime available.metal and flags.metal) {
+                    std.log.err("metal backend is not implemented", .{});
+                }
+            },
+
+            // wasm uses `navigator.gpu` api
+            .emscripten, .wasi => {
+                if (comptime available.browser_webgpu and flags.browser_webgpu) {
+                    std.log.err("browser webgpu backend is not implemented", .{});
+                }
+            },
+
+            else => {},
+        }
+
+        // basically all platforms support some form of opengl
+        if (comptime available.opengl and flags.opengl) {
+            std.log.err("opengl backend is not implemented", .{});
+        }
+
+        if (comptime available.noop and flags.noop) {
+            if (tryInitBackend(hal.noop.NoopInstance, descriptor)) |instance| return instance;
+        }
+
+        return error.NoBackendAvailable;
+    }
+
+    fn tryInitBackend(comptime Backend: type, descriptor: Descriptor) ?Instance {
+        return init(Backend, descriptor) catch |err| {
+            std.log.err("failed to initialise instance with backend {s}: {s}", .{
+                @typeName(Backend),
+                @errorName(err),
+            });
+            return null;
+        };
     }
 
     pub fn deinit(self: *@This()) void {
@@ -464,7 +520,7 @@ pub const Device = struct {
 
     pub fn createSampler(self: *@This(), descriptor: ?sampler.Sampler.Descriptor) sampler.Sampler {
         std.log.debug("creating sampler: descriptor={}", .{descriptor != null});
-        const resolved = descriptor orelse .{};
+        const resolved = descriptor orelse sampler.Sampler.Descriptor{};
         const backend = self.backend.createSampler(resolved) catch |err| {
             std.log.err("backend sampler creation failed: {s}", .{@errorName(err)});
             return sampler.Sampler.init(resolved);

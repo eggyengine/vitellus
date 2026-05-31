@@ -2,6 +2,8 @@
 
 a shader translation layer written in zig for the needs of `vitellus`.
 
+currently backed by spirv-cross
+
 ## backends
 
 - [spirv-cross](https://github.com/KhronosGroup/SPIRV-Cross)
@@ -12,19 +14,21 @@ a shader translation layer written in zig for the needs of `vitellus`.
 ## add to project
 requires zig `0.16.0`
 
+since `splat` is a submodule for `vitellus`, you are required to save the vitellus package (but not be required to download unnecessary dependencies). 
+
 to use this with the zig build system, import as so:
 ```bash
-zig fetch --save=splat git+https://github.com/eggyengine/vitellus
+zig fetch --save git+https://github.com/eggyengine/vitellus
 ```
 
 and then in `build.zig`:
 ```zig
-const splat = b.dependency("splat", .{
+const vit = b.dependency("vitellus", .{
     .target = target,
     .optimize = optimize,
 });
 
-exe.root_module.addImport("splat", splat.module("splat"));
+exe.root_module.addImport("splat", vit.module("splat"));
 ```
 
 and lastly in your library/executable:
