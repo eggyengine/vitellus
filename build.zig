@@ -7,7 +7,8 @@ pub fn build(b: *std.Build) void {
     const enable_sdl3 = b.option(bool, "sdl3", "Enable SDL3 integration (used for testing, but definitely usable)") orelse true;
     const enable_splat = b.option(bool, "splat", "Expose the optional splat shader translation module") orelse true;
     const enable_vulkan = b.option(bool, "vulkan", "Enable the Vulkan backend") orelse true;
-    const enable_dx12 = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
+    const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
+    const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
     const enable_metal = b.option(bool, "metal", "Enable the Metal backend") orelse true;
     const enable_browser_webgpu = b.option(bool, "browser_webgpu", "Enable the browser WebGPU backend") orelse true;
     const enable_opengl = b.option(bool, "opengl", "Enable the OpenGL/WebGL backend") orelse false;
@@ -39,13 +40,6 @@ pub fn build(b: *std.Build) void {
 
     mod.addImport("candler", candler.module("candler"));
 
-    const logz = b.dependency("logz", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    mod.addImport("logz", logz.module("logz"));
-
     const vulkan = if (enable_vulkan) vulkan: {
         const headers = b.lazyDependency("vulkan_headers", .{}) orelse break :vulkan null;
         const dep = b.lazyDependency("vulkan", .{
@@ -67,21 +61,32 @@ pub fn build(b: *std.Build) void {
         mod.addImport("sdl3", dep.module("sdl3"));
     }
 
+    if (enable_dx12) {
+        if (b.lazyDependency("directx-headers", .{})) |dep| {
+            mod.addIncludePath(dep.path("include/directx"));
+        }
+        mod.linkSystemLibrary("dxgi", .{});
+        mod.linkSystemLibrary("d3d12", .{});
+    }
+
     if (enable_splat) {
         if (b.lazyDependency("splat", .{
             .target = target,
             .optimize = optimize,
         })) |dep| {
-            const splat_mod = b.addModule("splat", .{
-                .root_source_file = dep.path("src/root.zig"),
-                .target = target,
-                .optimize = optimize,
-            });
+            const splat_mod = dep.module("splat");
+            b.modules.put(b.graph.arena, b.dupe("splat"), splat_mod) catch @panic("OOM");
             mod.addImport("splat", splat_mod);
         }
     }
 
-    const emath = b.lazyDependency("eggenvector", .{
+    // --- exe deps ---
+    const emath = b.dependency("eggenvector", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const zigimg_dependency = b.dependency("zigimg", .{
         .target = target,
         .optimize = optimize,
     });
@@ -95,8 +100,11 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addImport("vitellus", mod);
     exe_mod.addImport("candler", candler.module("candler"));
+
+    exe_mod.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    exe_mod.addImport("eggenvector", emath.module("eggenvector"));
+
     exe_mod.addOptions("build_options", options);
-    if (emath) |e| exe_mod.addImport("eggenvector", e.module("eggenvector"));
     if (vulkan) |vulkan_mod| {
         exe_mod.addImport("vulkan", vulkan_mod);
     }
@@ -133,7 +141,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     example_test_mod.addImport("candler", candler.module("candler"));
-    example_test_mod.addImport("logz", logz.module("logz"));
     example_test_mod.addOptions("build_options", options);
     if (vulkan) |vulkan_mod| {
         example_test_mod.addImport("vulkan", vulkan_mod);

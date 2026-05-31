@@ -20,8 +20,7 @@ const Range = @import("../utils/range.zig").Range;
 
 pub const noop = if (build_options.enable_backend_noop) @import("noop.zig") else struct {};
 pub const vulkan = if (build_options.enable_backend_vulkan) @import("vulkan.zig") else struct {};
-
-const logz = @import("logz");
+pub const dx12 = if (build_options.enable_backend_dx12) @import("dx12.zig") else struct {};
 
 pub const Backends = packed struct(u32) {
     /// No operation backend
@@ -122,85 +121,12 @@ pub const Instance = struct {
         NoBackendAvailable,
     };
 
-    pub fn fromPotentialBackends(comptime flags: Backends) FromPotentialBackendsError!type {
-        switch (builtin.os.tag) {
-            .windows => {
-                // dx12 takes priority on windows
-                if (build_options.enable_backend_dx12 and flags.dx12) {
-                    return error.NotImplemented;
-                }
-
-                if (build_options.enable_backend_vulkan and flags.vulkan) {
-                    return vulkan.vkInstance;
-                }
-            },
-
-            .linux => {
-                // vulkan only
-                if (build_options.enable_backend_vulkan and flags.vulkan) {
-                    return vulkan.vkInstance;
-                }
-            },
-
-            // vulkan can be supported through moltenvk
-            .macos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .ios => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .watchos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .tvos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-            .visionos => {
-                if (build_options.enable_backend_metal and flags.metal) {
-                    return error.NotImplemented;
-                }
-            },
-
-            // wasm uses `navigator.gpu` api
-            .emscripten => {
-                if (build_options.enable_backend_browser_webgpu and flags.browser_webgpu) {
-                    return error.NotImplemented;
-                }
-            },
-            .wasi => {
-                if (build_options.enable_backend_browser_webgpu and flags.browser_webgpu) {
-                    return error.NotImplemented;
-                }
-            },
-            else => {},
-        }
-
-        // basically all platforms support some form of opengl
-        if (build_options.enable_backend_opengl and flags.opengl) {
-            return error.NotImplemented;
-        }
-
-        if (build_options.enable_backend_noop and flags.noop) {
-            return noop;
-        }
-
-        return error.NoBackendAvailable;
-    }
-
     pub fn requestAdapter(
         self: Instance,
         io: std.Io,
         options: gpu.Adapter.RequestOptions,
     ) std.Io.Future(anyerror!Adapter) {
-        logz.info().fmt("msg", "instance.requestAdapter dispatch", .{}).log();
+        std.log.debug("instance.requestAdapter dispatch", .{});
         return self.vtable.requestAdapter(self.ptr, io, options);
     }
 
@@ -208,7 +134,7 @@ pub const Instance = struct {
         self: Instance,
         options: gpu.Adapter.RequestOptions,
     ) anyerror![]const Adapter {
-        logz.info().fmt("msg", "instance.enumerateAdapters dispatch", .{}).log();
+        std.log.debug("instance.enumerateAdapters dispatch", .{});
         return self.vtable.enumerateAdapters(self.ptr, options);
     }
 
@@ -217,15 +143,15 @@ pub const Instance = struct {
         window: candler.WindowHandle,
         display: candler.DisplayHandle,
     ) anyerror!Surface {
-        logz.info().fmt("msg", "instance.createSurface dispatch: window={s} display={s}", .{
+        std.log.debug("instance.createSurface dispatch: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
-        }).log();
+        });
         return self.vtable.createSurface(self.ptr, window, display);
     }
 
     pub fn deinit(self: Instance) void {
-        logz.info().fmt("msg", "instance.destroy dispatch", .{}).log();
+        std.log.debug("instance.destroy dispatch", .{});
         return self.vtable.destroy(self.ptr);
     }
 };
@@ -254,17 +180,17 @@ pub const Adapter = struct {
         io: std.Io,
         options: gpu.Device.Descriptor,
     ) std.Io.Future(anyerror!struct { Device, Queue }) {
-        logz.info().fmt("msg", "adapter.requestDevice dispatch", .{}).log();
+        std.log.debug("adapter.requestDevice dispatch", .{});
         return self.vtable.requestDevice(self.ptr, io, options);
     }
 
     pub fn getInfo(self: Adapter) gpu.Adapter.Info {
-        logz.info().fmt("msg", "adapter.getInfo dispatch", .{}).log();
+        std.log.debug("adapter.getInfo dispatch", .{});
         return self.vtable.getInfo(self.ptr);
     }
 
     pub fn getDownlevelCapabilities(self: Adapter) anyerror!gpu.Adapter.DownlevelCapabilities {
-        logz.info().fmt("msg", "adapter.getDownlevelCapabilities dispatch", .{}).log();
+        std.log.debug("adapter.getDownlevelCapabilities dispatch", .{});
         return self.vtable.getDownlevelCapabilities(self.ptr);
     }
 
@@ -272,12 +198,12 @@ pub const Adapter = struct {
         self: Adapter,
         format: texture.Texture.Format,
     ) anyerror!gpu.Adapter.TextureFormatFeatures {
-        logz.info().fmt("msg", "adapter.getTextureFormatFeatures dispatch", .{}).log();
+        std.log.debug("adapter.getTextureFormatFeatures dispatch", .{});
         return self.vtable.getTextureFormatFeatures(self.ptr, format);
     }
 
     pub fn isSurfaceSupported(self: Adapter, surface: Surface) bool {
-        logz.info().fmt("msg", "adapter.isSurfaceSupported dispatch", .{}).log();
+        std.log.debug("adapter.isSurfaceSupported dispatch", .{});
         return self.vtable.isSurfaceSupported(self.ptr, surface);
     }
 };
@@ -353,7 +279,7 @@ pub const Device = struct {
     };
 
     pub fn destroy(self: Device) void {
-        logz.info().fmt("msg", "device.destroy dispatch", .{}).log();
+        std.log.debug("device.destroy dispatch", .{});
         return self.vtable.destroy(self.ptr);
     }
 
@@ -470,7 +396,7 @@ pub const Device = struct {
     }
 
     pub fn getQueue(self: Device) Queue {
-        logz.info().fmt("msg", "device.getQueue dispatch", .{}).log();
+        std.log.debug("device.getQueue dispatch", .{});
         return self.vtable.getQueue(self.ptr);
     }
 };
@@ -1277,27 +1203,27 @@ pub const Surface = struct {
     };
 
     pub fn destroy(self: Surface) void {
-        logz.info().fmt("msg", "surface.destroy dispatch", .{}).log();
+        std.log.debug("surface.destroy dispatch", .{});
         return self.vtable.destroy(self.ptr);
     }
 
     pub fn getCapabilities(self: Surface, adapter: Adapter) texture.Surface.Capabilities {
-        logz.info().fmt("msg", "surface.getCapabilities dispatch", .{}).log();
+        std.log.debug("surface.getCapabilities dispatch", .{});
         return self.vtable.getCapabilities(self.ptr, adapter);
     }
 
     pub fn configure(self: Surface, device: Device, configuration: texture.Surface.Configuration) void {
-        logz.info().fmt("msg", "surface.configure dispatch", .{}).log();
+        std.log.debug("surface.configure dispatch", .{});
         return self.vtable.configure(self.ptr, device, configuration);
     }
 
     pub fn unconfigure(self: Surface) void {
-        logz.info().fmt("msg", "surface.unconfigure dispatch", .{}).log();
+        std.log.debug("surface.unconfigure dispatch", .{});
         return self.vtable.unconfigure(self.ptr);
     }
 
     pub fn getCurrentTexture(self: Surface) anyerror!texture.Surface.CurrentSurfaceTexture {
-        logz.debug().fmt("msg", "surface.getCurrentTexture dispatch", .{}).log();
+        std.log.debug("surface.getCurrentTexture dispatch", .{});
         return self.vtable.getCurrentTexture(self.ptr);
     }
 };

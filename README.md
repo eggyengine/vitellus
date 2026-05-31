@@ -2,7 +2,7 @@
 
 vitellus is WebGPU-inspired graphics api written in zig, supporting web and native platforms, and uses the similar concepts as WebGPU.  
 
-Shaders are written in [slang](http://github.com/shader-slang/slang) and primarily used with SPIR-V.
+Shaders are parsed with SPIR-V and compiled with the [splat](splat) project (spirv-cross packaged for zig)
 
 ### why not just use sysgpu
 
@@ -40,7 +40,7 @@ const vit = b.dependency("vitellus", .{
     // .metal = true,
     // .browser_webgpu = true,
     // .opengl = false,
-    // .noop = optimize == .Debug,
+    // .noop = false,
 });
 ```
 

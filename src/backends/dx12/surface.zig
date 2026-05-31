@@ -3,8 +3,7 @@ const std = @import("std");
 const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 
-
-pub const NoopSurface = struct {
+pub const DX_Surface = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.Surface.VTable{
@@ -25,7 +24,7 @@ pub const NoopSurface = struct {
     const alpha_modes = [_]texture.Surface.AlphaMode{ .@"opaque", .premultiplied };
 
     pub fn init(allocator: std.mem.Allocator) !hal.Surface {
-        const surface = try allocator.create(NoopSurface);
+        const surface = try allocator.create(DX_Surface);
         surface.* = .{ .allocator = allocator };
         return .{
             .ptr = surface,
@@ -34,8 +33,8 @@ pub const NoopSurface = struct {
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopSurface = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop surface", .{});
+        const typed: *DX_Surface = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 surface", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -53,17 +52,17 @@ pub const NoopSurface = struct {
         _ = ptr;
         _ = device;
         _ = configuration;
-        std.log.debug("configuring noop surface", .{});
+        std.log.debug("configuring dx12 surface", .{});
     }
 
     fn unconfigure(ptr: *anyopaque) void {
         _ = ptr;
-        std.log.debug("unconfiguring noop surface", .{});
+        std.log.debug("unconfiguring dx12 surface", .{});
     }
 
     fn getCurrentTexture(ptr: *anyopaque) anyerror!texture.Surface.CurrentSurfaceTexture {
         _ = ptr;
-        std.log.debug("noop surface current texture requested", .{});
+        std.log.debug("dx12 surface current texture requested", .{});
         return .{ .success = .{
             .width = 1,
             .height = 1,

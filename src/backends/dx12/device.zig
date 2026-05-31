@@ -15,10 +15,9 @@ const pipeline_backend = @import("pipeline.zig");
 const resource = @import("resource.zig");
 const shader_backend = @import("shader.zig");
 
-
-pub const NoopDevice = struct {
+pub const DX_Device = struct {
     allocator: std.mem.Allocator,
-    queue: NoopQueue = .{},
+    queue: DX_Queue = .{},
 
     pub const vtable = hal.Device.VTable{
         .destroy = destroy,
@@ -43,7 +42,7 @@ pub const NoopDevice = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !struct { hal.Device, hal.Queue } {
-        const device = try allocator.create(NoopDevice);
+        const device = try allocator.create(DX_Device);
         device.* = .{ .allocator = allocator };
         const device_handle = hal.Device{
             .ptr = device,
@@ -51,69 +50,69 @@ pub const NoopDevice = struct {
         };
         const queue_handle = hal.Queue{
             .ptr = &device.queue,
-            .vtable = &NoopQueue.vtable,
+            .vtable = &DX_Queue.vtable,
         };
         return .{ device_handle, queue_handle };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop device", .{});
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 device", .{});
         typed.allocator.destroy(typed);
     }
 
     fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopBuffer.init(typed.allocator);
+        return resource.DX_Buffer.init(typed.allocator);
     }
 
     fn createTexture(ptr: *anyopaque, descriptor: texture.Texture.Descriptor) anyerror!hal.Texture {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopTexture.init(typed.allocator);
+        return resource.DX_Texture.init(typed.allocator);
     }
 
     fn createSampler(ptr: *anyopaque, descriptor: sampler.Sampler.Descriptor) anyerror!hal.Sampler {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopSampler.init(typed.allocator);
+        return resource.DX_Sampler.init(typed.allocator);
     }
 
     fn createBindGroupLayout(ptr: *anyopaque, descriptor: bind_group.BindGroupLayout.Descriptor) anyerror!hal.BindGroupLayout {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopBindGroupLayout.init(typed.allocator);
+        return resource.DX_BindGroupLayout.init(typed.allocator);
     }
 
     fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return pipeline_backend.NoopPipelineLayout.init(typed.allocator);
+        return pipeline_backend.DX_PipelineLayout.init(typed.allocator);
     }
 
     fn createBindGroup(ptr: *anyopaque, descriptor: bind_group.BindGroup.Descriptor) anyerror!hal.BindGroup {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopBindGroup.init(typed.allocator);
+        return resource.DX_BindGroup.init(typed.allocator);
     }
 
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return shader_backend.NoopShaderModule.init(typed.allocator);
+        return shader_backend.DX_ShaderModule.init(typed.allocator);
     }
 
     fn createComputePipeline(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return pipeline_backend.NoopComputePipeline.init(typed.allocator);
+        return pipeline_backend.DX_ComputePipeline.init(typed.allocator);
     }
 
     fn createRenderPipeline(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return pipeline_backend.NoopRenderPipeline.init(typed.allocator);
+        return pipeline_backend.DX_RenderPipeline.init(typed.allocator);
     }
 
     fn createComputePipelineAsync(
@@ -141,21 +140,21 @@ pub const NoopDevice = struct {
     }
 
     fn createCommandEncoder(ptr: *anyopaque, descriptor: ?command.CommandEncoder.Descriptor) anyerror!hal.CommandEncoder {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return command_backend.NoopCommandEncoder.init(typed.allocator);
+        return command_backend.DX_CommandEncoder.init(typed.allocator);
     }
 
     fn createRenderBundleEncoder(ptr: *anyopaque, descriptor: command.RenderBundleEncoder.Descriptor) anyerror!hal.RenderBundleEncoder {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return command_backend.NoopRenderBundleEncoder.init(typed.allocator);
+        return command_backend.DX_RenderBundleEncoder.init(typed.allocator);
     }
 
     fn createQuerySet(ptr: *anyopaque, descriptor: gpu.QuerySet.Descriptor) anyerror!hal.QuerySet {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.NoopQuerySet.init(typed.allocator);
+        return resource.DX_QuerySet.init(typed.allocator);
     }
 
     fn lost(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!gpu.Device.LostInfo) {
@@ -182,15 +181,15 @@ pub const NoopDevice = struct {
     }
 
     fn getQueue(ptr: *anyopaque) hal.Queue {
-        const typed: *NoopDevice = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         return .{
             .ptr = &typed.queue,
-            .vtable = &NoopQueue.vtable,
+            .vtable = &DX_Queue.vtable,
         };
     }
 };
 
-pub const NoopQueue = struct {
+pub const DX_Queue = struct {
     pub const vtable = hal.Queue.VTable{
         .submit = submit,
         .writeBuffer = writeBuffer,

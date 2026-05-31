@@ -14,7 +14,6 @@ const BaseWrapper = vk.BaseWrapper;
 const InstanceWrapper = vk.InstanceWrapper;
 const Instance = vk.InstanceProxy;
 
-const logz = @import("logz");
 
 pub const default_validation_layers = [_][*:0]const u8{
     "VK_LAYER_KHRONOS_validation",
@@ -54,24 +53,24 @@ pub const vkInstance = struct {
     };
 
     pub fn init(descriptor: gpu.Instance.Descriptor) hal.Instance.FromPotentialBackendsError!hal.Instance {
-        logz.info().fmt("msg", "initializing vulkan backend with default descriptor", .{}).log();
+        std.log.info("initializing vulkan backend with default descriptor", .{});
         return initWithDescriptor(descriptor.allocator, .{
             .enable_validation = descriptor.flags.validation,
         }) catch error.NoBackendAvailable;
     }
 
     pub fn initWithDescriptor(allocator: std.mem.Allocator, descriptor: InstanceDescriptor) !hal.Instance {
-        logz.info().fmt("msg", "initializing vulkan backend: required_extensions={} api_version=0x{x}", .{
+        std.log.info("initializing vulkan backend: required_extensions={} api_version=0x{x}", .{
             descriptor.required_extensions.len,
             descriptor.api_version,
-        }).log();
+        });
 
         const self = try allocator.create(vkInstance);
         self.* = .{ .allocator = allocator };
         errdefer destroyGPU(self);
 
         const get_instance_proc_addr = descriptor.getInstanceProcAddr orelse try loadDefaultGetInstanceProcAddr(self);
-        logz.info().fmt("msg", "loaded vkGetInstanceProcAddr", .{}).log();
+        std.log.debug("loaded vkGetInstanceProcAddr", .{});
         self.vkb = BaseWrapper.load(get_instance_proc_addr);
 
         const extension_properties = try self.vkb.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
@@ -79,7 +78,7 @@ pub const vkInstance = struct {
         const validation_layers_enabled = descriptor.enable_validation and
             validationLayersAvailable(allocator, self.vkb, descriptor.requested_validation_layers);
         if (descriptor.enable_validation and !validation_layers_enabled) {
-            logz.warn().fmt("msg", "vulkan validation requested, but required validation layers are unavailable; continuing without validation", .{}).log();
+            std.log.warn("vulkan validation requested, but required validation layers are unavailable; continuing without validation", .{});
         }
 
         var enabled_extensions: [64][*:0]const u8 = undefined;
@@ -107,12 +106,12 @@ pub const vkInstance = struct {
                     false,
                 );
             } else {
-                logz.warn().fmt("msg", "vulkan validation enabled, but {s} is unavailable; continuing without debug messenger callback", .{
+                std.log.warn("vulkan validation enabled, but {s} is unavailable; continuing without debug messenger callback", .{
                     vk.extensions.ext_debug_utils.name,
-                }).log();
+                });
             }
         }
-        logz.info().fmt("msg", "enabled vulkan instance extensions: count={}", .{enabled_extension_count}).log();
+        std.log.debug("enabled vulkan instance extensions: count={}", .{enabled_extension_count});
 
         const app_info = vk.ApplicationInfo{
             .p_application_name = descriptor.application_name,
@@ -135,7 +134,7 @@ pub const vkInstance = struct {
 
         const instance_handle = try self.vkb.createInstance(&create_info, null);
         errdefer self.vkb.destroyInstance(instance_handle, null);
-        logz.info().fmt("msg", "created vulkan instance: handle=0x{x}", .{@intFromEnum(instance_handle)}).log();
+        std.log.debug("created vulkan instance: handle=0x{x}", .{@intFromEnum(instance_handle)});
 
         self.vki = InstanceWrapper.load(instance_handle, get_instance_proc_addr);
         self.instance = Instance.init(instance_handle, &self.vki);
@@ -146,7 +145,7 @@ pub const vkInstance = struct {
 
         if (debug_utils_enabled) {
             self.debug_messenger = self.instance.createDebugUtilsMessengerEXT(&debug_create_info, null) catch |err| blk: {
-                logz.warn().fmt("msg", "failed to set up vulkan debug messenger: {s}; continuing without callback", .{@errorName(err)}).log();
+                std.log.warn("failed to set up vulkan debug messenger: {s}; continuing without callback", .{@errorName(err)});
                 self.debug_utils_enabled = false;
                 break :blk .null_handle;
             };
@@ -161,13 +160,13 @@ pub const vkInstance = struct {
     fn destroyGPU(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (typed.debug_messenger != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan debug messenger: handle=0x{x}", .{@intFromEnum(typed.debug_messenger)}).log();
+            std.log.debug("destroying vulkan debug messenger: handle=0x{x}", .{@intFromEnum(typed.debug_messenger)});
             typed.instance.destroyDebugUtilsMessengerEXT(typed.debug_messenger, null);
             typed.debug_messenger = .null_handle;
         }
 
         if (typed.headless_surface) |surface| {
-            logz.info().fmt("msg", "destroying cached vulkan headless surface", .{}).log();
+            std.log.debug("destroying cached vulkan headless surface", .{});
             surface.destroy();
             typed.headless_surface = null;
         }
@@ -178,7 +177,7 @@ pub const vkInstance = struct {
         typed.adapters.deinit(typed.allocator);
 
         if (typed.instance_handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan instance: handle=0x{x}", .{@intFromEnum(typed.instance_handle)}).log();
+            std.log.debug("destroying vulkan instance: handle=0x{x}", .{@intFromEnum(typed.instance_handle)});
             typed.instance.destroyInstance(null);
             typed.instance_handle = .null_handle;
             typed.instance.handle = .null_handle;
@@ -189,7 +188,7 @@ pub const vkInstance = struct {
         typed.debug_utils_enabled = false;
 
         if (typed.loader) |*loader| {
-            logz.info().fmt("msg", "closing vulkan loader", .{}).log();
+            std.log.debug("closing vulkan loader", .{});
             loader.close();
             typed.loader = null;
         }
@@ -201,7 +200,7 @@ pub const vkInstance = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         const selection_surface = try typed.selectionSurface(options);
 
-        logz.info().fmt("msg", "enumerating vulkan adapters", .{}).log();
+        std.log.debug("enumerating vulkan adapters", .{});
 
         const pdevs = try typed.instance.enumeratePhysicalDevicesAlloc(typed.allocator);
         defer typed.allocator.free(pdevs);
@@ -233,12 +232,12 @@ pub const vkInstance = struct {
         display: candler.DisplayHandle,
     ) anyerror!hal.Surface {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "allocating vulkan surface wrapper", .{}).log();
+        std.log.debug("allocating vulkan surface wrapper", .{});
         const surface = try typed.allocator.create(surface_backend.vkSurface);
         errdefer typed.allocator.destroy(surface);
 
         surface.* = try surface_backend.vkSurface.initRaw(typed, window, display);
-        logz.info().fmt("msg", "created vulkan surface wrapper: handle=0x{x}", .{@intFromEnum(surface.handle)}).log();
+        std.log.debug("created vulkan surface wrapper: handle=0x{x}", .{@intFromEnum(surface.handle)});
         return .{
             .ptr = surface,
             .vtable = &surface_backend.vkSurface.vtable,
@@ -250,7 +249,7 @@ pub const vkInstance = struct {
         io: std.Io,
         options: gpu.Adapter.RequestOptions,
     ) std.Io.Future(anyerror!hal.Adapter) {
-        logz.info().fmt("msg", "requesting vulkan adapter", .{}).log();
+        std.log.debug("requesting vulkan adapter", .{});
         return io.async(requestAdapterInternal, .{ ptr, options });
     }
 
@@ -258,7 +257,7 @@ pub const vkInstance = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         const selection_surface = try typed.selectionSurface(options);
 
-        logz.info().fmt("msg", "picking vulkan physical device", .{}).log();
+        std.log.debug("picking vulkan physical device", .{});
         const pdev = try pickPhysicalDevice(typed, selection_surface);
         const adapter = try typed.allocator.create(adapter_backend.vkAdapter);
         errdefer typed.allocator.destroy(adapter);
@@ -293,7 +292,7 @@ pub const vkInstance = struct {
 
     fn getOrCreateHeadlessSurface(instance: *@This()) anyerror!hal.Surface {
         if (instance.headless_surface == null) {
-            logz.info().fmt("msg", "creating cached vulkan headless surface for adapter selection", .{}).log();
+            std.log.debug("creating cached vulkan headless surface for adapter selection", .{});
             const surface = try instance.allocator.create(surface_backend.vkSurface);
             errdefer instance.allocator.destroy(surface);
             surface.* = try surface_backend.vkSurface.initHeadless(instance);
@@ -313,14 +312,14 @@ fn validationLayersAvailable(allocator: std.mem.Allocator, vkb: BaseWrapper, req
     }
 
     const available_layers = vkb.enumerateInstanceLayerPropertiesAlloc(allocator) catch |err| {
-        logz.warn().fmt("msg", "failed to enumerate vulkan validation layers: {s}", .{@errorName(err)}).log();
+        std.log.warn("failed to enumerate vulkan validation layers: {s}", .{@errorName(err)});
         return false;
     };
     defer allocator.free(available_layers);
 
     for (requested_layers) |requested_layer| {
         if (!hasInstanceLayer(available_layers, std.mem.span(requested_layer))) {
-            logz.warn().fmt("msg", "vulkan validation layer unavailable: {s}", .{requested_layer}).log();
+            std.log.warn("vulkan validation layer unavailable: {s}", .{requested_layer});
             return false;
         }
     }
@@ -370,11 +369,11 @@ fn debugCallback(
         "(missing validation callback data)";
 
     if (message_severity.error_bit_ext) {
-        logz.err().fmt("msg", "{s}", .{message}).log();
+        std.log.err("{s}", .{message});
     } else if (message_severity.warning_bit_ext) {
-        logz.warn().fmt("msg", "{s}", .{message}).log();
+        std.log.warn("{s}", .{message});
     } else {
-        logz.debug().fmt("msg", "{s}", .{message}).log();
+        std.log.debug("{s}", .{message});
     }
 
     return .false;
@@ -382,7 +381,7 @@ fn debugCallback(
 
 fn loadDefaultGetInstanceProcAddr(instance: *vkInstance) !vk.PfnGetInstanceProcAddr {
     if (instance.loader == null) {
-        logz.info().fmt("msg", "opening vulkan loader: {s}", .{defaultVulkanLoaderName()}).log();
+        std.log.debug("opening vulkan loader: {s}", .{defaultVulkanLoaderName()});
         instance.loader = try DynLib.open(defaultVulkanLoaderName());
     }
 
@@ -404,13 +403,13 @@ fn addRequiredInstanceExtensions(
     required_extensions: []const [*:0]const u8,
 ) !void {
     if (required_extensions.len == 0) {
-        logz.info().fmt("msg", "no vulkan instance extensions requested", .{}).log();
+        std.log.debug("no vulkan instance extensions requested", .{});
         return;
     }
 
     for (required_extensions) |required_extension| {
         if (!hasInstanceExtension(extension_properties, std.mem.span(required_extension))) {
-            logz.info().fmt("msg", "missing vulkan instance extension: {s}", .{required_extension}).log();
+            std.log.debug("missing vulkan instance extension: {s}", .{required_extension});
             return error.RequiredInstanceExtensionNotSupported;
         }
         try addInstanceExtension(enabled_extensions, enabled_extension_count, required_extension, true);
@@ -425,11 +424,11 @@ fn addSupportedInstanceExtensions(
 ) void {
     for (candidate_extensions) |candidate_extension| {
         if (!hasInstanceExtension(extension_properties, std.mem.span(candidate_extension))) {
-            logz.info().fmt("msg", "skipping unsupported default vulkan instance extension: {s}", .{candidate_extension}).log();
+            std.log.debug("skipping unsupported default vulkan instance extension: {s}", .{candidate_extension});
             continue;
         }
         addInstanceExtension(enabled_extensions, enabled_extension_count, candidate_extension, false) catch |err| {
-            logz.info().fmt("msg", "skipping default vulkan instance extension {s}: {s}", .{ candidate_extension, @errorName(err) }).log();
+            std.log.debug("skipping default vulkan instance extension {s}: {s}", .{ candidate_extension, @errorName(err) });
         };
     }
 }
@@ -450,7 +449,7 @@ fn addInstanceExtension(
 
     enabled_extensions[enabled_extension_count.*] = extension;
     enabled_extension_count.* += 1;
-    logz.info().fmt("msg", "{s} vulkan instance extension: {s}", .{ if (required) "required" else "default", extension }).log();
+    std.log.debug("{s} vulkan instance extension: {s}", .{ if (required) "required" else "default", extension });
 }
 
 fn hasEnabledInstanceExtension(enabled_extensions: []const [*:0]const u8, extension: []const u8) bool {

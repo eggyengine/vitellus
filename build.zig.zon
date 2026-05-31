@@ -27,13 +27,17 @@
             .path = "splat",
             .lazy = true,
         },
-        .logz = .{
-            .url = "git+https://github.com/karlseguin/log.zig#7fa8de39ad4d4adc54fce4d9bb0b6bc6c0076592",
-            .hash = "logz-0.0.0-O9YWXsllAgBq-S0z6q8AInWjei8h7polkVVRzJIGE-jW",
-        },
         .eggenvector = .{
             .url = "git+https://github.com/eggyengine/eggenvector#9877a9ba332dd63aa8654267259a99c6502066b0",
             .hash = "eggenvector-0.0.0-UyZb9L8qAQC0RBeoVAuyQz6UnDAjp5BKFfIfRIdeDCUd",
+        },
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#0bbe201a5591219177f2444371c2897746b47774",
+            .hash = "zigimg-0.1.0-8_eo2sGbFwCrsBjkTTP-kinCH62m5vmYDHQnQcngFuwh",
+        },
+        .@"directx-headers" = .{
+            .url = "git+https://github.com/microsoft/DirectX-Headers#24e89ba7bd3d47e2d7199eb3e40e37510188735a",
+            .hash = "N-V-__8AAGDkQADCRDGdlexiYCH1CyT40ZYCd_aSqju8W7y1",
             .lazy = true,
         },
     },

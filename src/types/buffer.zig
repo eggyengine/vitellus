@@ -79,11 +79,16 @@ pub const Buffer = struct {
         }
     };
 
-    pub fn deinit(self: *@This()) void {
+    pub fn destroy(self: *@This()) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
+        self.map_state = .unmapped;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub fn mapAsync(
@@ -105,7 +110,10 @@ pub const Buffer = struct {
     }
 
     pub fn unmap(self: *@This()) void {
-        if (self.backend) |b| b.unmap() else @panic("unreachable: for struct to be initialised, backend must be passed and `self.backend` cannot be null. unless...");
+        if (self.backend) |b| {
+            b.unmap();
+            self.map_state = .unmapped;
+        } else @panic("unreachable: for struct to be initialised, backend must be passed and `self.backend` cannot be null. unless...");
     }
 
     fn mapAsyncInternal(
@@ -116,9 +124,16 @@ pub const Buffer = struct {
         size: u64,
     ) MapAsyncError!void {
         if (self.backend) |backend| {
+            self.map_state = .pending;
             var future = backend.mapAsync(io, mode, offset, size);
             defer _ = future.cancel(io) catch {};
-            return future.await(io) catch error.NotImplemented;
+            future.await(io) catch |err| {
+                self.map_state = .unmapped;
+                _ = err;
+                return error.NotImplemented;
+            };
+            self.map_state = .mapped;
+            return;
         }
         return error.NotImplemented;
     }

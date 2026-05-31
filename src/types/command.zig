@@ -115,8 +115,10 @@ pub const CommandEncoder = struct {
     }
 
     pub fn finish(self: *@This()) CommandBuffer {
+        const back = self.backend orelse return .{};
+        self.backend = null;
         return .{
-            .backend = if (self.backend) |back| back.finish(null) catch null else null,
+            .backend = back.finish(null) catch null,
         };
     }
 
@@ -196,7 +198,10 @@ pub const ComputePassEncoder = struct {
     }
 
     pub fn end(self: *@This()) void {
-        if (self.backend) |back| back.end();
+        if (self.backend) |back| {
+            self.backend = null;
+            back.end();
+        }
     }
 
     pub fn setBindGroup(self: *@This(), index: def.Index32, group: ?*bind_group.BindGroup, dynamicOffsets: []const def.BufferDynamicOffset) void {
@@ -323,7 +328,10 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn end(self: *@This()) void {
-        if (self.backend) |back| back.end();
+        if (self.backend) |back| {
+            self.backend = null;
+            back.end();
+        }
     }
 
     pub fn setPipeline(self: *@This(), target: *pipeline.RenderPipeline) void {
@@ -437,8 +445,12 @@ pub const RenderBundleEncoder = struct {
     };
 
     pub fn finish(self: *@This(), descriptor: ?RenderBundle.Descriptor) RenderBundle {
+        const back = self.backend orelse return .{
+            .label = if (descriptor) |d| d.label else null,
+        };
+        self.backend = null;
         return .{
-            .backend = if (self.backend) |back| back.finish(descriptor) catch null else null,
+            .backend = back.finish(descriptor) catch null,
             .label = if (descriptor) |d| d.label else null,
         };
     }

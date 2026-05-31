@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const bind_group = @import("../../types/bind_group.zig");
 const buffer = @import("../../types/buffer.zig");
 const def = @import("../../types/def.zig");
 const gpu = @import("../../types/gpu.zig");
@@ -9,8 +10,7 @@ const texture = @import("../../types/texture.zig");
 const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const debug = @import("debug.zig");
-
-const logz = @import("logz");
+const utils = @import("utils.zig");
 
 pub const vkBuffer = struct {
     device: *vkDevice,
@@ -56,6 +56,12 @@ pub const vkBuffer = struct {
             .memory = memory,
             .size = descriptor.size,
         };
+        if (descriptor.mappedAtCreation) {
+            const mapped = try device.device.mapMemory(memory, 0, descriptor.size, .{});
+            self.mapped_ptr = @ptrCast(mapped);
+            self.mapped_offset = 0;
+            self.mapped_size = descriptor.size;
+        }
         debug.setObjectName(device, .buffer, handle, descriptor.label);
 
         return .{ .ptr = self, .vtable = &vtable };
@@ -96,7 +102,7 @@ pub const vkBuffer = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         typed.unmapInternal();
         if (typed.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan buffer: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            std.log.debug("destroying vulkan buffer: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.device.destroyBuffer(typed.handle, null);
             typed.handle = .null_handle;
         }
@@ -167,8 +173,92 @@ pub const vkBuffer = struct {
     }
 };
 
+fn imageTypeFromDimension(dimension: texture.Texture.Dimension) vk.ImageType {
+    return switch (dimension) {
+        .@"1d" => .@"1d",
+        .@"2d" => .@"2d",
+        .@"3d" => .@"3d",
+    };
+}
+
+fn imageExtentFromDescriptor(descriptor: texture.Texture.Descriptor) vk.Extent3D {
+    return switch (descriptor.dimension) {
+        .@"1d" => .{
+            .width = descriptor.size.width,
+            .height = 1,
+            .depth = 1,
+        },
+        .@"2d" => .{
+            .width = descriptor.size.width,
+            .height = descriptor.size.height,
+            .depth = 1,
+        },
+        .@"3d" => .{
+            .width = descriptor.size.width,
+            .height = descriptor.size.height,
+            .depth = descriptor.size.depthOrArrayLayers,
+        },
+    };
+}
+
+fn imageArrayLayersFromDescriptor(descriptor: texture.Texture.Descriptor) u32 {
+    return switch (descriptor.dimension) {
+        .@"1d", .@"2d" => descriptor.size.depthOrArrayLayers,
+        .@"3d" => 1,
+    };
+}
+
+fn imageCreateFlagsFromDescriptor(descriptor: texture.Texture.Descriptor) vk.ImageCreateFlags {
+    const cube_compatible = if (descriptor.textureBindingViewDimension) |view_dimension|
+        view_dimension == .cube or view_dimension == .@"cube-array"
+    else
+        false;
+
+    return .{
+        .cube_compatible_bit = cube_compatible,
+        .mutable_format_bit = descriptor.viewFormats.len > 0,
+    };
+}
+
+fn imageUsageFromTextureUsage(flags: texture.Texture.UsageFlags) vk.ImageUsageFlags {
+    const usage = texture.Texture.Usage.fromFlags(flags);
+    return .{
+        .transfer_src_bit = usage.copy_src,
+        .transfer_dst_bit = usage.copy_dst,
+        .sampled_bit = usage.texture_binding,
+        .storage_bit = usage.storage_binding,
+        .color_attachment_bit = usage.render_attachment,
+        .transient_attachment_bit = usage.transient_attachment,
+    };
+}
+
+fn sampleCountToVk(count: u32) vk.SampleCountFlags {
+    return switch (count) {
+        1 => .{ .@"1_bit" = true },
+        2 => .{ .@"2_bit" = true },
+        4 => .{ .@"4_bit" = true },
+        8 => .{ .@"8_bit" = true },
+        16 => .{ .@"16_bit" = true },
+        32 => .{ .@"32_bit" = true },
+        64 => .{ .@"64_bit" = true },
+        else => .{ .@"1_bit" = true },
+    };
+}
+
+fn findImageMemoryType(device: *vkDevice, type_filter: u32, properties: vk.MemoryPropertyFlags) !u32 {
+    const memory_properties = device.adapter.gpu.instance.getPhysicalDeviceMemoryProperties(device.adapter.pdev);
+    var i: u32 = 0;
+    while (i < memory_properties.memory_type_count) : (i += 1) {
+        const supported = (type_filter & (@as(u32, 1) << @intCast(i))) != 0;
+        const flags = memory_properties.memory_types[i].property_flags;
+        if (supported and flags.contains(properties)) return i;
+    }
+    return error.NoSuitableMemoryType;
+}
+
 pub const vkTexture = struct {
     device: *vkDevice,
+    memory: vk.DeviceMemory = undefined,
     handle: vk.Image,
     format: vk.Format,
     extent: vk.Extent3D,
@@ -184,9 +274,53 @@ pub const vkTexture = struct {
     };
 
     pub fn init(device: *vkDevice, descriptor: texture.Texture.Descriptor) !hal.Texture {
-        _ = device;
-        _ = descriptor;
-        return error.NotImplemented;
+        const format = utils.formatToVk(descriptor.format) orelse return error.UnsupportedTextureFormat;
+        const extent = imageExtentFromDescriptor(descriptor);
+        const array_layers = imageArrayLayersFromDescriptor(descriptor);
+
+        const image_create = vk.ImageCreateInfo{
+            .flags = imageCreateFlagsFromDescriptor(descriptor),
+            .image_type = imageTypeFromDimension(descriptor.dimension),
+            .format = format,
+            .extent = extent,
+            .mip_levels = descriptor.mipLevelCount,
+            .array_layers = array_layers,
+            .samples = sampleCountToVk(descriptor.sampleCount),
+            .tiling = .optimal,
+            .usage = imageUsageFromTextureUsage(descriptor.usage),
+            .sharing_mode = .exclusive,
+            .initial_layout = .undefined,
+        };
+
+        const handle = try device.device.createImage(&image_create, null);
+        errdefer device.device.destroyImage(handle, null);
+
+        const requirements = device.device.getImageMemoryRequirements(handle);
+        const allocate_info = vk.MemoryAllocateInfo{
+            .allocation_size = requirements.size,
+            .memory_type_index = try findImageMemoryType(device, requirements.memory_type_bits, .{ .device_local_bit = true }),
+        };
+        const memory = try device.device.allocateMemory(&allocate_info, null);
+        errdefer device.device.freeMemory(memory, null);
+
+        try device.device.bindImageMemory(handle, memory, 0);
+        debug.setObjectName(device, .image, handle, descriptor.label);
+
+        const self = try device.adapter.gpu.allocator.create(vkTexture);
+        self.* = .{
+            .label = descriptor.label,
+            .device = device,
+            .memory = memory,
+            .handle = handle,
+            .format = format,
+            .extent = extent,
+            .owns_image = true,
+        };
+
+        return hal.Texture{
+            .ptr = self,
+            .vtable = &vtable,
+        };
     }
 
     pub fn initSwapchainImage(device: *vkDevice, image: vk.Image, format: vk.Format, extent: vk.Extent2D) @This() {
@@ -209,10 +343,15 @@ pub const vkTexture = struct {
 
     pub fn deinit(self: *@This()) void {
         if (self.owns_image and self.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)}).log();
+            std.log.debug("destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)});
             self.device.device.destroyImage(self.handle, null);
         }
         self.handle = .null_handle;
+
+        if (self.owns_image and self.memory != .null_handle) {
+            self.device.device.freeMemory(self.memory, null);
+            self.memory = .null_handle;
+        }
     }
 
     fn destroy(ptr: *anyopaque) void {
@@ -286,7 +425,7 @@ pub const vkTextureView = struct {
     pub fn deinit(self: *@This()) void {
         if (self.handle != .null_handle) {
             if (self.owns_view) {
-                logz.info().fmt("msg", "destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)}).log();
+                std.log.debug("destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)});
                 self.device.device.destroyImageView(self.handle, null);
             }
             self.handle = .null_handle;
@@ -313,41 +452,216 @@ pub const vkSampler = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan sampler", .{}).log();
+        std.log.debug("destroying vulkan sampler", .{});
     }
 };
 
 pub const vkBindGroupLayout = struct {
+    device: *vkDevice,
+    handle: vk.DescriptorSetLayout,
+    bindings: []vk.DescriptorSetLayoutBinding,
+    label: ?[*:0]const u8,
+
     pub const vtable = hal.BindGroupLayout.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(device: *vkDevice, descriptor: @import("../../types/bind_group.zig").BindGroupLayout.Descriptor) !hal.BindGroupLayout {
-        _ = device;
-        _ = descriptor;
-        return error.NotImplemented;
+    pub fn init(device: *vkDevice, descriptor: bind_group.BindGroupLayout.Descriptor) !hal.BindGroupLayout {
+        const allocator = device.adapter.gpu.allocator;
+        const bindings = try allocator.alloc(vk.DescriptorSetLayoutBinding, descriptor.entries.len);
+        errdefer allocator.free(bindings);
+
+        for (descriptor.entries, bindings) |entry_ptr, *binding| {
+            const entry = entry_ptr.*;
+            binding.* = .{
+                .binding = entry.binding,
+                .descriptor_type = try descriptorTypeForLayoutEntry(entry),
+                .descriptor_count = 1,
+                .stage_flags = shaderStageFlagsToVulkan(entry.visibility),
+            };
+        }
+
+        const create_info = vk.DescriptorSetLayoutCreateInfo{
+            .binding_count = @intCast(bindings.len),
+            .p_bindings = if (bindings.len == 0) null else bindings.ptr,
+        };
+        const handle = try device.device.createDescriptorSetLayout(&create_info, null);
+        errdefer device.device.destroyDescriptorSetLayout(handle, null);
+
+        const self = try allocator.create(vkBindGroupLayout);
+        errdefer allocator.destroy(self);
+        self.* = .{
+            .device = device,
+            .handle = handle,
+            .bindings = bindings,
+            .label = descriptor.label,
+        };
+        debug.setObjectName(device, .descriptor_set_layout, handle, descriptor.label);
+
+        return .{ .ptr = self, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan bind group layout", .{}).log();
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.device.device.deviceWaitIdle() catch |err| {
+            std.log.err("{s}", .{@errorName(err)});
+        };
+        if (typed.handle != .null_handle) {
+            std.log.debug("destroying vulkan bind group layout: handle=0x{x}", .{@intFromEnum(typed.handle)});
+            typed.device.device.destroyDescriptorSetLayout(typed.handle, null);
+            typed.handle = .null_handle;
+        }
+        typed.device.adapter.gpu.allocator.free(typed.bindings);
+        typed.device.adapter.gpu.allocator.destroy(typed);
+    }
+
+    fn descriptorTypeForLayoutEntry(entry: bind_group.BindGroupLayout.Entry) !vk.DescriptorType {
+        if (entry.buffer) |buffer_binding| {
+            return switch (buffer_binding.type) {
+                .uniform => if (buffer_binding.hasDynamicOffset) .uniform_buffer_dynamic else .uniform_buffer,
+                .storage, .read_only_storage => if (buffer_binding.hasDynamicOffset) .storage_buffer_dynamic else .storage_buffer,
+            };
+        }
+        if (entry.sampler != null) return .sampler;
+        if (entry.texture != null) return .sampled_image;
+        if (entry.storageTexture != null) return .storage_image;
+        return error.InvalidBindGroupLayoutEntry;
+    }
+
+    fn shaderStageFlagsToVulkan(flags: bind_group.BindGroupLayout.ShaderStageFlags) vk.ShaderStageFlags {
+        const stages = bind_group.BindGroupLayout.ShaderStage.fromFlags(flags);
+        return .{
+            .vertex_bit = stages.vertex,
+            .fragment_bit = stages.fragment,
+            .compute_bit = stages.compute,
+        };
+    }
+
+    pub fn descriptorTypeForBinding(self: *const @This(), binding: def.Index32) !vk.DescriptorType {
+        for (self.bindings) |layout_binding| {
+            if (layout_binding.binding == binding) return layout_binding.descriptor_type;
+        }
+        return error.MissingBindGroupLayoutBinding;
     }
 };
 
 pub const vkBindGroup = struct {
+    device: *vkDevice,
+    layout: *vkBindGroupLayout,
+    descriptor_pool: vk.DescriptorPool,
+    descriptor_set: vk.DescriptorSet,
+    label: ?[*:0]const u8,
+
     pub const vtable = hal.BindGroup.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(device: *vkDevice, descriptor: @import("../../types/bind_group.zig").BindGroup.Descriptor) !hal.BindGroup {
-        _ = device;
-        _ = descriptor;
-        return error.NotImplemented;
+    pub fn init(device: *vkDevice, descriptor: bind_group.BindGroup.Descriptor) !hal.BindGroup {
+        const allocator = device.adapter.gpu.allocator;
+        const layout_backend = descriptor.layout.backend orelse return error.InvalidBindGroupLayout;
+        const layout: *vkBindGroupLayout = @ptrCast(@alignCast(layout_backend.ptr));
+
+        var pool_sizes = std.ArrayList(vk.DescriptorPoolSize).empty;
+        defer pool_sizes.deinit(allocator);
+        for (layout.bindings) |layout_binding| {
+            try addPoolSize(&pool_sizes, allocator, layout_binding.descriptor_type, layout_binding.descriptor_count);
+        }
+
+        const pool_info = vk.DescriptorPoolCreateInfo{
+            .flags = .{ .free_descriptor_set_bit = true },
+            .max_sets = 1,
+            .pool_size_count = @intCast(pool_sizes.items.len),
+            .p_pool_sizes = if (pool_sizes.items.len == 0) null else pool_sizes.items.ptr,
+        };
+        const descriptor_pool = try device.device.createDescriptorPool(&pool_info, null);
+        errdefer device.device.destroyDescriptorPool(descriptor_pool, null);
+
+        const set_layouts = [_]vk.DescriptorSetLayout{layout.handle};
+        const alloc_info = vk.DescriptorSetAllocateInfo{
+            .descriptor_pool = descriptor_pool,
+            .descriptor_set_count = 1,
+            .p_set_layouts = &set_layouts,
+        };
+        var descriptor_sets: [1]vk.DescriptorSet = undefined;
+        try device.device.allocateDescriptorSets(&alloc_info, &descriptor_sets);
+
+        const buffer_infos = try allocator.alloc(vk.DescriptorBufferInfo, descriptor.entries.len);
+        defer allocator.free(buffer_infos);
+        const writes = try allocator.alloc(vk.WriteDescriptorSet, descriptor.entries.len);
+        defer allocator.free(writes);
+
+        for (descriptor.entries, 0..) |entry, i| {
+            const descriptor_type = try layout.descriptorTypeForBinding(entry.binding);
+            switch (entry.resource) {
+                .buffer => |target| {
+                    const vk_buffer: *vkBuffer = @ptrCast(@alignCast((target.backend orelse return error.InvalidBuffer).ptr));
+                    buffer_infos[i] = .{
+                        .buffer = vk_buffer.handle,
+                        .offset = 0,
+                        .range = vk_buffer.size,
+                    };
+                },
+                .bufferBinding => |binding| {
+                    const vk_buffer: *vkBuffer = @ptrCast(@alignCast((binding.buffer.backend orelse return error.InvalidBuffer).ptr));
+                    if (binding.offset > vk_buffer.size) return error.BindGroupBufferRangeOutOfBounds;
+                    buffer_infos[i] = .{
+                        .buffer = vk_buffer.handle,
+                        .offset = binding.offset,
+                        .range = binding.size orelse (vk_buffer.size - binding.offset),
+                    };
+                },
+                .sampler, .texture, .textureView => return error.NotImplemented,
+            }
+            writes[i] = .{
+                .dst_set = descriptor_sets[0],
+                .dst_binding = entry.binding,
+                .dst_array_element = 0,
+                .descriptor_count = 1,
+                .descriptor_type = descriptor_type,
+                .p_image_info = undefined,
+                .p_buffer_info = @as([*]const vk.DescriptorBufferInfo, @ptrCast(&buffer_infos[i])),
+                .p_texel_buffer_view = undefined,
+            };
+        }
+        device.device.updateDescriptorSets(writes, null);
+
+        const self = try allocator.create(vkBindGroup);
+        errdefer allocator.destroy(self);
+        self.* = .{
+            .device = device,
+            .layout = layout,
+            .descriptor_pool = descriptor_pool,
+            .descriptor_set = descriptor_sets[0],
+            .label = descriptor.label,
+        };
+        debug.setObjectName(device, .descriptor_pool, descriptor_pool, descriptor.label);
+        debug.setObjectName(device, .descriptor_set, descriptor_sets[0], descriptor.label);
+
+        return .{ .ptr = self, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan bind group", .{}).log();
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        if (typed.descriptor_pool != .null_handle) {
+            std.log.debug("destroying vulkan descriptor pool: handle=0x{x}", .{@intFromEnum(typed.descriptor_pool)});
+            typed.device.device.destroyDescriptorPool(typed.descriptor_pool, null);
+            typed.descriptor_pool = .null_handle;
+            typed.descriptor_set = .null_handle;
+        }
+        typed.device.adapter.gpu.allocator.destroy(typed);
+    }
+
+    fn addPoolSize(pool_sizes: *std.ArrayList(vk.DescriptorPoolSize), allocator: std.mem.Allocator, descriptor_type: vk.DescriptorType, count: u32) !void {
+        for (pool_sizes.items) |*pool_size| {
+            if (pool_size.type == descriptor_type) {
+                pool_size.descriptor_count += count;
+                return;
+            }
+        }
+        try pool_sizes.append(allocator, .{
+            .type = descriptor_type,
+            .descriptor_count = count,
+        });
     }
 };
 
@@ -364,6 +678,6 @@ pub const vkQuerySet = struct {
 
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
-        logz.info().fmt("msg", "destroying vulkan query set", .{}).log();
+        std.log.debug("destroying vulkan query set", .{});
     }
 };

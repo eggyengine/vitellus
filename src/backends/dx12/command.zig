@@ -6,8 +6,7 @@ const hal = @import("../hal.zig");
 const pipeline = @import("../../types/pipeline.zig");
 const texture = @import("../../types/texture.zig");
 
-
-pub const NoopCommandBuffer = struct {
+pub const DX_CommandBuffer = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.CommandBuffer.VTable{
@@ -15,19 +14,19 @@ pub const NoopCommandBuffer = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.CommandBuffer {
-        const value = try allocator.create(NoopCommandBuffer);
+        const value = try allocator.create(DX_CommandBuffer);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopCommandBuffer = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop command buffer", .{});
+        const typed: *DX_CommandBuffer = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 command buffer", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopCommandEncoder = struct {
+pub const DX_CommandEncoder = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.CommandEncoder.VTable{
@@ -47,21 +46,21 @@ pub const NoopCommandEncoder = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.CommandEncoder {
-        const value = try allocator.create(NoopCommandEncoder);
+        const value = try allocator.create(DX_CommandEncoder);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn beginRenderPass(ptr: *anyopaque, descriptor: command.RenderPassEncoder.Descriptor) anyerror!hal.RenderPassEncoder {
-        const typed: *NoopCommandEncoder = @ptrCast(@alignCast(ptr));
+        const typed: *DX_CommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopRenderPassEncoder.init(typed.allocator);
+        return DX_RenderPassEncoder.init(typed.allocator);
     }
 
     fn beginComputePass(ptr: *anyopaque, descriptor: ?command.ComputePassEncoder.Descriptor) anyerror!hal.ComputePassEncoder {
-        const typed: *NoopCommandEncoder = @ptrCast(@alignCast(ptr));
+        const typed: *DX_CommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopComputePassEncoder.init(typed.allocator);
+        return DX_ComputePassEncoder.init(typed.allocator);
     }
 
     fn copyBufferToBuffer(ptr: *anyopaque, source: hal.Buffer, destination: hal.Buffer, size: ?def.Size64) void {
@@ -147,9 +146,9 @@ pub const NoopCommandEncoder = struct {
     }
 
     fn finish(ptr: *anyopaque, descriptor: ?command.CommandBuffer.Descriptor) anyerror!hal.CommandBuffer {
-        const typed: *NoopCommandEncoder = @ptrCast(@alignCast(ptr));
+        const typed: *DX_CommandEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        const command_buffer = try NoopCommandBuffer.init(typed.allocator);
+        const command_buffer = try DX_CommandBuffer.init(typed.allocator);
         typed.allocator.destroy(typed);
         return command_buffer;
     }
@@ -169,7 +168,7 @@ pub const NoopCommandEncoder = struct {
     }
 };
 
-pub const NoopComputePassEncoder = struct {
+pub const DX_ComputePassEncoder = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.ComputePassEncoder.VTable{
@@ -185,7 +184,7 @@ pub const NoopComputePassEncoder = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.ComputePassEncoder {
-        const value = try allocator.create(NoopComputePassEncoder);
+        const value = try allocator.create(DX_ComputePassEncoder);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
@@ -209,7 +208,7 @@ pub const NoopComputePassEncoder = struct {
     }
 
     fn end(ptr: *anyopaque) void {
-        const typed: *NoopComputePassEncoder = @ptrCast(@alignCast(ptr));
+        const typed: *DX_ComputePassEncoder = @ptrCast(@alignCast(ptr));
         typed.allocator.destroy(typed);
     }
 
@@ -251,7 +250,7 @@ pub const NoopComputePassEncoder = struct {
     }
 };
 
-pub const NoopRenderPassEncoder = struct {
+pub const DX_RenderPassEncoder = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.RenderPassEncoder.VTable{
@@ -278,7 +277,7 @@ pub const NoopRenderPassEncoder = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.RenderPassEncoder {
-        const value = try allocator.create(NoopRenderPassEncoder);
+        const value = try allocator.create(DX_RenderPassEncoder);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
@@ -326,7 +325,7 @@ pub const NoopRenderPassEncoder = struct {
     }
 
     fn end(ptr: *anyopaque) void {
-        const typed: *NoopRenderPassEncoder = @ptrCast(@alignCast(ptr));
+        const typed: *DX_RenderPassEncoder = @ptrCast(@alignCast(ptr));
         typed.allocator.destroy(typed);
     }
 
@@ -425,7 +424,7 @@ pub const NoopRenderPassEncoder = struct {
     }
 };
 
-pub const NoopRenderBundle = struct {
+pub const DX_RenderBundle = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.RenderBundle.VTable{
@@ -433,19 +432,19 @@ pub const NoopRenderBundle = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.RenderBundle {
-        const value = try allocator.create(NoopRenderBundle);
+        const value = try allocator.create(DX_RenderBundle);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopRenderBundle = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop render bundle", .{});
+        const typed: *DX_RenderBundle = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 render bundle", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopRenderBundleEncoder = struct {
+pub const DX_RenderBundleEncoder = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.RenderBundleEncoder.VTable{
@@ -465,15 +464,15 @@ pub const NoopRenderBundleEncoder = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.RenderBundleEncoder {
-        const value = try allocator.create(NoopRenderBundleEncoder);
+        const value = try allocator.create(DX_RenderBundleEncoder);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn finish(ptr: *anyopaque, descriptor: ?command.RenderBundle.Descriptor) anyerror!hal.RenderBundle {
-        const typed: *NoopRenderBundleEncoder = @ptrCast(@alignCast(ptr));
+        const typed: *DX_RenderBundleEncoder = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        const bundle = try NoopRenderBundle.init(typed.allocator);
+        const bundle = try DX_RenderBundle.init(typed.allocator);
         typed.allocator.destroy(typed);
         return bundle;
     }

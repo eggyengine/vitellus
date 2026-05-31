@@ -3,7 +3,6 @@ const def = @import("def.zig");
 const candler = @import("candler");
 const hal = @import("../backends/hal.zig");
 
-const logz = @import("logz");
 
 pub const Texture = struct {
     backend: ?hal.Texture = null,
@@ -64,6 +63,10 @@ pub const Texture = struct {
             std.heap.page_allocator.destroy(self);
         }
 
+        pub fn deinit(self: *@This()) void {
+            self.destroy();
+        }
+
         pub const Descriptor = struct {
             label: ?[*:0]const u8 = null,
             format: ?Format = null,
@@ -111,11 +114,17 @@ pub const Texture = struct {
         @"3d",
     };
 
-    pub fn deinit(self: *Texture) void {
+    pub fn destroy(self: *Texture) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
+        self.present_context = null;
+        self.present_callback = null;
+    }
+
+    pub fn deinit(self: *Texture) void {
+        self.destroy();
     }
 
     pub fn createView(self: *Texture, descriptor: Texture.View.Descriptor) !*Texture.View {
@@ -459,10 +468,10 @@ pub const Surface = struct {
     };
 
     pub fn init(backend: hal.Surface, window: candler.WindowHandle, display: candler.DisplayHandle) Surface {
-        logz.info().fmt("msg", "initializing surface wrapper: window={s} display={s}", .{
+        std.log.debug("initializing surface wrapper: window={s} display={s}", .{
             @tagName(window.asRaw()),
             @tagName(display.asRaw()),
-        }).log();
+        });
         return .{
             .backend = backend,
             .window = window,
@@ -471,12 +480,17 @@ pub const Surface = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        logz.info().fmt("msg", "deinitializing surface wrapper", .{}).log();
+        std.log.debug("deinitializing surface wrapper", .{});
         self.backend.destroy();
+        self.configuration = null;
+    }
+
+    pub fn destroy(self: *@This()) void {
+        self.deinit();
     }
 
     pub fn getCapabilities(self: *const @This(), adapter: *const @import("gpu.zig").Adapter) Capabilities {
-        logz.info().fmt("msg", "getting surface capabilities", .{}).log();
+        std.log.debug("getting surface capabilities", .{});
         return self.backend.getCapabilities(adapter.backend);
     }
 
@@ -509,11 +523,11 @@ pub const Surface = struct {
     }
 
     pub fn configure(self: *@This(), device: *@import("gpu.zig").Device, configuration: Configuration) void {
-        logz.info().fmt("msg", "configuring surface: format={s} size={}x{}", .{
+        std.log.debug("configuring surface: format={s} size={}x{}", .{
             @tagName(configuration.format),
             configuration.width,
             configuration.height,
-        }).log();
+        });
         var resolved = configuration;
         resolved.device = device;
         self.backend.configure(device.backend, resolved);
@@ -521,7 +535,7 @@ pub const Surface = struct {
     }
 
     pub fn unconfigure(self: *@This()) void {
-        logz.info().fmt("msg", "unconfiguring surface", .{}).log();
+        std.log.debug("unconfiguring surface", .{});
         self.backend.unconfigure();
         self.configuration = null;
     }
@@ -531,7 +545,7 @@ pub const Surface = struct {
     }
 
     pub fn getCurrentTexture(self: *@This()) !CurrentSurfaceTexture {
-        logz.debug().fmt("msg", "getting current surface texture", .{}).log();
+        std.log.debug("getting current surface texture", .{});
         return try self.backend.getCurrentTexture();
     }
 };

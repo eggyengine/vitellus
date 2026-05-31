@@ -18,7 +18,6 @@ const command_backend = @import("command.zig");
 const pipeline_backend = @import("pipeline.zig");
 const resource_backend = @import("resource.zig");
 
-const logz = @import("logz");
 
 pub const vkDevice = struct {
     adapter: *adapter_backend.vkAdapter,
@@ -69,7 +68,7 @@ pub const vkDevice = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (typed.device_handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan logical device: handle=0x{x}", .{@intFromEnum(typed.device_handle)}).log();
+            std.log.debug("destroying vulkan logical device: handle=0x{x}", .{@intFromEnum(typed.device_handle)});
             _ = typed.device.deviceWaitIdle() catch {};
             typed.unconfigureSurfaces();
             typed.queue.cleanupCompleted(true);
@@ -92,7 +91,7 @@ pub const vkDevice = struct {
             .ptr = ptr,
             .unconfigure = unconfigure,
         }) catch |err| {
-            logz.err().fmt("msg", "failed to track configured vulkan surface: {s}", .{@errorName(err)}).log();
+            std.log.err("failed to track configured vulkan surface: {s}", .{@errorName(err)});
         };
     }
 
@@ -121,7 +120,7 @@ pub const vkDevice = struct {
             .ptr = ptr,
             .destroy = destroy_child,
         }) catch |err| {
-            logz.err().fmt("msg", "failed to track vulkan device child: {s}", .{@errorName(err)}).log();
+            std.log.err("failed to track vulkan device child: {s}", .{@errorName(err)});
         };
     }
 
@@ -148,7 +147,7 @@ pub const vkDevice = struct {
             if (existing == handle) return;
         }
         self.render_pipeline_handles.append(self.adapter.gpu.allocator, handle) catch |err| {
-            logz.err().fmt("msg", "failed to track vulkan render pipeline handle: {s}", .{@errorName(err)}).log();
+            std.log.err("failed to track vulkan render pipeline handle: {s}", .{@errorName(err)});
         };
     }
 
@@ -167,7 +166,7 @@ pub const vkDevice = struct {
         while (self.render_pipeline_handles.items.len > 0) {
             const handle = self.render_pipeline_handles.pop().?;
             if (handle == .null_handle) continue;
-            logz.info().fmt("msg", "destroying tracked vulkan render pipeline during device teardown: handle=0x{x}", .{@intFromEnum(handle)}).log();
+            std.log.debug("destroying tracked vulkan render pipeline during device teardown: handle=0x{x}", .{@intFromEnum(handle)});
             self.device.destroyPipeline(handle, null);
         }
     }
@@ -194,7 +193,7 @@ pub const vkDevice = struct {
 
     fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "creating vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len}).log();
+        std.log.debug("creating vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len});
         return try pipeline_backend.vkPipelineLayout.init(typed, descriptor);
     }
 
@@ -205,7 +204,7 @@ pub const vkDevice = struct {
 
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "creating vulkan shader module", .{}).log();
+        std.log.debug("creating vulkan shader module", .{});
         return try vkShaderModule.init(typed, .{
             .source = descriptor.source,
             .label = descriptor.label,
@@ -219,11 +218,11 @@ pub const vkDevice = struct {
 
     fn createRenderPipeline(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        logz.info().fmt("msg", "creating vulkan render pipeline: vertex_buffers={} has_fragment={} has_depth_stencil={}", .{
+        std.log.debug("creating vulkan render pipeline: vertex_buffers={} has_fragment={} has_depth_stencil={}", .{
             descriptor.vertex.buffers.len,
             descriptor.fragment != null,
             descriptor.depthStencil != null,
-        }).log();
+        });
         return try pipeline_backend.vkRenderPipeline.init(typed, descriptor);
     }
 
@@ -314,13 +313,13 @@ pub const vkQueue = struct {
 
     fn submit(ptr: *anyopaque, command_buffers: []const hal.CommandBuffer) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        logz.debug().fmt("msg", "submitting vulkan queue work: command_buffers={}", .{command_buffers.len}).log();
+        std.log.debug("submitting vulkan queue work: command_buffers={}", .{command_buffers.len});
         typed.cleanupCompleted(false);
         for (command_buffers) |command_buffer| {
             const vk_command_buffer: *command_backend.vkCommandBuffer = @ptrCast(@alignCast(command_buffer.ptr));
             if (vk_command_buffer.fence != .null_handle) {
                 typed.device.device.resetFences(@as([*]const vk.Fence, @ptrCast(&vk_command_buffer.fence))[0..1]) catch |err| {
-                    logz.err().fmt("msg", "failed to reset vulkan fence: {s}", .{@errorName(err)}).log();
+                    std.log.err("failed to reset vulkan fence: {s}", .{@errorName(err)});
                     continue;
                 };
             }
@@ -335,12 +334,12 @@ pub const vkQueue = struct {
                 .p_signal_semaphores = if (vk_command_buffer.signal_semaphore != .null_handle) @ptrCast(&vk_command_buffer.signal_semaphore) else null,
             };
             typed.device.device.queueSubmit(typed.handle, @as([*]const vk.SubmitInfo, @ptrCast(&submit_info))[0..1], vk_command_buffer.fence) catch |err| {
-                logz.err().fmt("msg", "failed to submit vulkan queue work: {s}", .{@errorName(err)}).log();
+                std.log.err("failed to submit vulkan queue work: {s}", .{@errorName(err)});
                 vk_command_buffer.deinit();
                 continue;
             };
             typed.pending_command_buffers.append(typed.device.adapter.gpu.allocator, vk_command_buffer) catch |err| {
-                logz.err().fmt("msg", "failed to track pending vulkan command buffer: {s}", .{@errorName(err)}).log();
+                std.log.err("failed to track pending vulkan command buffer: {s}", .{@errorName(err)});
                 _ = typed.device.device.queueWaitIdle(typed.handle) catch {};
                 vk_command_buffer.deinit();
             };
@@ -432,14 +431,14 @@ pub const vkQueue = struct {
             .usage = buffer.Buffer.Usage.COPY_SRC | buffer.Buffer.Usage.MAP_WRITE,
             .mappedAtCreation = false,
         }) catch |err| {
-            logz.err().fmt("msg", "failed to create vulkan staging buffer: {s}", .{@errorName(err)}).log();
+            std.log.err("failed to create vulkan staging buffer: {s}", .{@errorName(err)});
             return;
         };
         defer staging.destroy();
 
         const staging_buffer: *resource_backend.vkBuffer = @ptrCast(@alignCast(staging.ptr));
         const mapped = typed.device.device.mapMemory(staging_buffer.memory, 0, write_size, .{}) catch |err| {
-            logz.err().fmt("msg", "failed to map vulkan staging buffer: {s}", .{@errorName(err)}).log();
+            std.log.err("failed to map vulkan staging buffer: {s}", .{@errorName(err)});
             return;
         };
 
@@ -449,7 +448,7 @@ pub const vkQueue = struct {
         typed.device.device.unmapMemory(staging_buffer.memory);
 
         typed.copyBuffer(staging_buffer.handle, dst_buffer.handle, 0, buffer_offset, write_size) catch |err| {
-            logz.err().fmt("msg", "failed to copy vulkan staging buffer: {s}", .{@errorName(err)}).log();
+            std.log.err("failed to copy vulkan staging buffer: {s}", .{@errorName(err)});
         };
     }
 

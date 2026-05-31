@@ -4,8 +4,7 @@ const def = @import("../../types/def.zig");
 const hal = @import("../hal.zig");
 const resource = @import("resource.zig");
 
-
-pub const NoopPipelineLayout = struct {
+pub const DX_PipelineLayout = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.PipelineLayout.VTable{
@@ -13,19 +12,19 @@ pub const NoopPipelineLayout = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.PipelineLayout {
-        const value = try allocator.create(NoopPipelineLayout);
+        const value = try allocator.create(DX_PipelineLayout);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopPipelineLayout = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop pipeline layout", .{});
+        const typed: *DX_PipelineLayout = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 pipeline layout", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopComputePipeline = struct {
+pub const DX_ComputePipeline = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.ComputePipeline.VTable{
@@ -34,25 +33,25 @@ pub const NoopComputePipeline = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.ComputePipeline {
-        const value = try allocator.create(NoopComputePipeline);
+        const value = try allocator.create(DX_ComputePipeline);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopComputePipeline = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop compute pipeline", .{});
+        const typed: *DX_ComputePipeline = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 compute pipeline", .{});
         typed.allocator.destroy(typed);
     }
 
     fn getBindGroupLayout(ptr: *anyopaque, index: def.Index32) anyerror!hal.BindGroupLayout {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = index;
-        return resource.NoopBindGroupLayout.init(typed.allocator);
+        return resource.DX_BindGroupLayout.init(typed.allocator);
     }
 };
 
-pub const NoopRenderPipeline = struct {
+pub const DX_RenderPipeline = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.RenderPipeline.VTable{
@@ -61,20 +60,20 @@ pub const NoopRenderPipeline = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.RenderPipeline {
-        const value = try allocator.create(NoopRenderPipeline);
+        const value = try allocator.create(DX_RenderPipeline);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopRenderPipeline = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop render pipeline", .{});
+        const typed: *DX_RenderPipeline = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 render pipeline", .{});
         typed.allocator.destroy(typed);
     }
 
     fn getBindGroupLayout(ptr: *anyopaque, index: def.Index32) anyerror!hal.BindGroupLayout {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = index;
-        return resource.NoopBindGroupLayout.init(typed.allocator);
+        return resource.DX_BindGroupLayout.init(typed.allocator);
     }
 };

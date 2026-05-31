@@ -40,7 +40,6 @@ pub const utils = struct {
 pub const Range = utils.Range;
 
 pub const splat = if (build_options.enable_splat) @import("splat") else struct {};
-pub const logz = @import("logz");
 
 // re-export types
 pub const Instance = types.gpu.Instance;

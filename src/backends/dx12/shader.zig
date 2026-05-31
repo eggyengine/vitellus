@@ -3,8 +3,7 @@ const std = @import("std");
 const hal = @import("../hal.zig");
 const shader = @import("../../types/shader.zig");
 
-
-pub const NoopShaderModule = struct {
+pub const DX_ShaderModule = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.ShaderModule.VTable{
@@ -13,7 +12,7 @@ pub const NoopShaderModule = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.ShaderModule {
-        const module = try allocator.create(NoopShaderModule);
+        const module = try allocator.create(DX_ShaderModule);
         module.* = .{ .allocator = allocator };
         return .{
             .ptr = module,
@@ -22,8 +21,8 @@ pub const NoopShaderModule = struct {
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopShaderModule = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop shader module", .{});
+        const typed: *DX_ShaderModule = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 shader module", .{});
         typed.allocator.destroy(typed);
     }
 

@@ -5,8 +5,7 @@ const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 const device_backend = @import("device.zig");
 
-
-pub const NoopAdapter = struct {
+pub const DX_Adapter = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.Adapter.VTable{
@@ -17,13 +16,8 @@ pub const NoopAdapter = struct {
         .isSurfaceSupported = isSurfaceSupported,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !hal.Adapter {
-        const adapter = try allocator.create(NoopAdapter);
-        adapter.* = .{ .allocator = allocator };
-        return .{
-            .ptr = adapter,
-            .vtable = &vtable,
-        };
+    pub fn deinit(self: *@This()) void {
+        _ = self;
     }
 
     fn requestDevice(
@@ -35,19 +29,19 @@ pub const NoopAdapter = struct {
     }
 
     fn requestDeviceInternal(ptr: *anyopaque, options: gpu.Device.Descriptor) anyerror!struct { hal.Device, hal.Queue } {
-        const typed: *NoopAdapter = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Adapter = @ptrCast(@alignCast(ptr));
         _ = options;
-        std.log.debug("returning noop device", .{});
-        return try device_backend.NoopDevice.init(typed.allocator);
+        std.log.debug("returning dx12 device", .{});
+        return try device_backend.DX_Device.init(typed.allocator);
     }
 
     fn getInfo(ptr: *anyopaque) gpu.Adapter.Info {
         _ = ptr;
         return .{
             .vendor = "vitellus",
-            .architecture = "noop",
-            .device = "noop",
-            .description = "vitellus noop backend",
+            .architecture = "DX_",
+            .device = "DX_",
+            .description = "vitellus dx12 backend",
             .subgroupMinSize = 0,
             .subgroupMaxSize = 0,
             .isFallbackAdapter = true,

@@ -5,8 +5,7 @@ const def = @import("../../types/def.zig");
 const hal = @import("../hal.zig");
 const texture = @import("../../types/texture.zig");
 
-
-pub const NoopBuffer = struct {
+pub const DX_Buffer = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.Buffer.VTable{
@@ -17,14 +16,14 @@ pub const NoopBuffer = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.Buffer {
-        const value = try allocator.create(NoopBuffer);
+        const value = try allocator.create(DX_Buffer);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopBuffer = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop buffer", .{});
+        const typed: *DX_Buffer = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 buffer", .{});
         typed.allocator.destroy(typed);
     }
 
@@ -63,7 +62,7 @@ pub const NoopBuffer = struct {
     }
 };
 
-pub const NoopTexture = struct {
+pub const DX_Texture = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.Texture.VTable{
@@ -72,25 +71,25 @@ pub const NoopTexture = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.Texture {
-        const value = try allocator.create(NoopTexture);
+        const value = try allocator.create(DX_Texture);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopTexture = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop texture", .{});
+        const typed: *DX_Texture = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 texture", .{});
         typed.allocator.destroy(typed);
     }
 
     fn createView(ptr: *anyopaque, descriptor: texture.Texture.View.Descriptor) anyerror!hal.TextureView {
-        const typed: *NoopTexture = @ptrCast(@alignCast(ptr));
+        const typed: *DX_Texture = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return NoopTextureView.init(typed.allocator);
+        return DX_TextureView.init(typed.allocator);
     }
 };
 
-pub const NoopTextureView = struct {
+pub const DX_TextureView = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.TextureView.VTable{
@@ -98,19 +97,19 @@ pub const NoopTextureView = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.TextureView {
-        const value = try allocator.create(NoopTextureView);
+        const value = try allocator.create(DX_TextureView);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopTextureView = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop texture view", .{});
+        const typed: *DX_TextureView = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 texture view", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopSampler = struct {
+pub const DX_Sampler = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.Sampler.VTable{
@@ -118,19 +117,19 @@ pub const NoopSampler = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.Sampler {
-        const value = try allocator.create(NoopSampler);
+        const value = try allocator.create(DX_Sampler);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopSampler = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop sampler", .{});
+        const typed: *DX_Sampler = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 sampler", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopBindGroupLayout = struct {
+pub const DX_BindGroupLayout = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.BindGroupLayout.VTable{
@@ -138,19 +137,19 @@ pub const NoopBindGroupLayout = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.BindGroupLayout {
-        const value = try allocator.create(NoopBindGroupLayout);
+        const value = try allocator.create(DX_BindGroupLayout);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopBindGroupLayout = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop bind group layout", .{});
+        const typed: *DX_BindGroupLayout = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 bind group layout", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopBindGroup = struct {
+pub const DX_BindGroup = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.BindGroup.VTable{
@@ -158,19 +157,19 @@ pub const NoopBindGroup = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.BindGroup {
-        const value = try allocator.create(NoopBindGroup);
+        const value = try allocator.create(DX_BindGroup);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopBindGroup = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop bind group", .{});
+        const typed: *DX_BindGroup = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 bind group", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopQuerySet = struct {
+pub const DX_QuerySet = struct {
     allocator: std.mem.Allocator,
 
     pub const vtable = hal.QuerySet.VTable{
@@ -178,14 +177,14 @@ pub const NoopQuerySet = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.QuerySet {
-        const value = try allocator.create(NoopQuerySet);
+        const value = try allocator.create(DX_QuerySet);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopQuerySet = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop query set", .{});
+        const typed: *DX_QuerySet = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 query set", .{});
         typed.allocator.destroy(typed);
     }
 };

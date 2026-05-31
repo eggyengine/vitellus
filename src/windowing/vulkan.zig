@@ -4,7 +4,6 @@ const std = @import("std");
 const candler = @import("candler");
 const vk = @import("vulkan");
 
-const logz = @import("logz");
 
 pub const default_instance_extensions: []const [*:0]const u8 = &.{
     vk.extensions.khr_surface.name.ptr,
@@ -27,7 +26,7 @@ pub fn createSurface(
     const raw_display = display.asRaw();
     const window_tag = @tagName(window.asRaw());
     const display_tag = @tagName(raw_display);
-    logz.info().fmt("msg", "creating vulkan window surface: window={s} display={s}", .{ window_tag, display_tag }).log();
+    std.log.debug("creating vulkan window surface: window={s} display={s}", .{ window_tag, display_tag });
 
     return switch (window.asRaw()) {
         .ui_kit => |ui_kit| createIosSurface(instance, ui_kit, raw_display),
@@ -49,9 +48,9 @@ pub fn createSurface(
 }
 
 pub fn createHeadlessSurface(instance: vk.InstanceProxy) !vk.SurfaceKHR {
-    logz.info().fmt("msg", "creating vulkan headless surface", .{}).log();
+    std.log.debug("creating vulkan headless surface", .{});
     if (instance.wrapper.dispatch.vkCreateHeadlessSurfaceEXT == null) {
-        logz.info().fmt("msg", "vkCreateHeadlessSurfaceEXT is unavailable", .{}).log();
+        std.log.debug("vkCreateHeadlessSurfaceEXT is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.HeadlessSurfaceCreateInfoEXT{};
@@ -68,9 +67,9 @@ fn createAndroidSurface(
         else => return displayMismatch("android_ndk", display),
     }
 
-    logz.info().fmt("msg", "creating Android Vulkan surface", .{}).log();
+    std.log.debug("creating Android Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateAndroidSurfaceKHR == null) {
-        logz.info().fmt("msg", "vkCreateAndroidSurfaceKHR is unavailable", .{}).log();
+        std.log.debug("vkCreateAndroidSurfaceKHR is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.AndroidSurfaceCreateInfoKHR{
@@ -89,9 +88,9 @@ fn createIosSurface(
         else => return displayMismatch("ui_kit", display),
     }
 
-    logz.info().fmt("msg", "creating iOS Vulkan surface", .{}).log();
+    std.log.debug("creating iOS Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateIOSSurfaceMVK == null) {
-        logz.info().fmt("msg", "vkCreateIosSurfaceMVK is unavailable", .{}).log();
+        std.log.debug("vkCreateIosSurfaceMVK is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.IOSSurfaceCreateInfoMVK{
@@ -110,9 +109,9 @@ fn createMacOsSurface(
         else => return displayMismatch("app_kit", display),
     }
 
-    logz.info().fmt("msg", "creating macOS Vulkan surface", .{}).log();
+    std.log.debug("creating macOS Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateMacOSSurfaceMVK == null) {
-        logz.info().fmt("msg", "vkCreateMacOsSurfaceMVK is unavailable", .{}).log();
+        std.log.debug("vkCreateMacOsSurfaceMVK is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.MacOSSurfaceCreateInfoMVK{
@@ -131,9 +130,9 @@ fn createOhosSurface(
         else => return displayMismatch("ohos_ndk", display),
     }
 
-    logz.info().fmt("msg", "creating OHOS Vulkan surface", .{}).log();
+    std.log.debug("creating OHOS Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateSurfaceOHOS == null) {
-        logz.info().fmt("msg", "vkCreateSurfaceOHOS is unavailable", .{}).log();
+        std.log.debug("vkCreateSurfaceOHOS is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.SurfaceCreateInfoOHOS{
@@ -151,9 +150,9 @@ fn createWaylandSurface(
         .wayland => |wl| wl,
         else => return displayMismatch("wayland", display),
     };
-    logz.info().fmt("msg", "creating Wayland Vulkan surface", .{}).log();
+    std.log.debug("creating Wayland Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateWaylandSurfaceKHR == null) {
-        logz.info().fmt("msg", "vkCreateWaylandSurfaceKHR is unavailable", .{}).log();
+        std.log.debug("vkCreateWaylandSurfaceKHR is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.WaylandSurfaceCreateInfoKHR{
@@ -174,12 +173,12 @@ fn createWin32Surface(
     }
 
     const hinstance = window.hinstance orelse {
-        logz.info().fmt("msg", "win32 vulkan surface missing hinstance", .{}).log();
+        std.log.debug("win32 vulkan surface missing hinstance", .{});
         return error.DisplayHandleMismatch;
     };
-    logz.info().fmt("msg", "creating Win32 Vulkan surface", .{}).log();
+    std.log.debug("creating Win32 Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateWin32SurfaceKHR == null) {
-        logz.info().fmt("msg", "vkCreateWin32SurfaceKHR is unavailable", .{}).log();
+        std.log.debug("vkCreateWin32SurfaceKHR is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.Win32SurfaceCreateInfoKHR{
@@ -199,12 +198,12 @@ fn createXlibSurface(
         else => return displayMismatch("xlib", display),
     };
     const dpy = xlib_display.display orelse {
-        logz.info().fmt("msg", "xlib vulkan surface missing display pointer", .{}).log();
+        std.log.debug("xlib vulkan surface missing display pointer", .{});
         return error.DisplayHandleMismatch;
     };
-    logz.info().fmt("msg", "creating Xlib Vulkan surface", .{}).log();
+    std.log.debug("creating Xlib Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateXlibSurfaceKHR == null) {
-        logz.info().fmt("msg", "vkCreateXlibSurfaceKHR is unavailable", .{}).log();
+        std.log.debug("vkCreateXlibSurfaceKHR is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.XlibSurfaceCreateInfoKHR{
@@ -224,12 +223,12 @@ fn createXcbSurface(
         else => return displayMismatch("xcb", display),
     };
     const connection = xcb_display.connection orelse {
-        logz.info().fmt("msg", "xcb vulkan surface missing connection", .{}).log();
+        std.log.debug("xcb vulkan surface missing connection", .{});
         return error.DisplayHandleMismatch;
     };
-    logz.info().fmt("msg", "creating XCB Vulkan surface", .{}).log();
+    std.log.debug("creating XCB Vulkan surface", .{});
     if (instance.wrapper.dispatch.vkCreateXcbSurfaceKHR == null) {
-        logz.info().fmt("msg", "vkCreateXcbSurfaceKHR is unavailable", .{}).log();
+        std.log.debug("vkCreateXcbSurfaceKHR is unavailable", .{});
         return error.MissingVulkanSurfaceExtension;
     }
     const create_info = vk.XcbSurfaceCreateInfoKHR{
@@ -244,14 +243,14 @@ fn intToPtr(comptime Ptr: type, value: isize) Ptr {
 }
 
 fn unsupportedSurface(comptime window_tag: []const u8) error{UnsupportedSurface} {
-    logz.info().fmt("msg", "unsupported vulkan surface window handle: {s}", .{window_tag}).log();
+    std.log.debug("unsupported vulkan surface window handle: {s}", .{window_tag});
     return error.UnsupportedSurface;
 }
 
 fn displayMismatch(comptime window_tag: []const u8, display: candler.RawDisplayHandle) error{DisplayHandleMismatch} {
-    logz.info().fmt("msg", "vulkan surface display mismatch: window={s} display={s}", .{
+    std.log.debug("vulkan surface display mismatch: window={s} display={s}", .{
         window_tag,
         @tagName(display),
-    }).log();
+    });
     return error.DisplayHandleMismatch;
 }

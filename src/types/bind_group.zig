@@ -24,11 +24,15 @@ pub const BindGroup = struct {
         };
     }
 
-    pub fn deinit(self: *@This()) void {
+    pub fn destroy(self: *@This()) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub const Entry = struct {
@@ -82,11 +86,15 @@ pub const BindGroupLayout = struct {
         };
     }
 
-    pub fn deinit(self: *@This()) void {
+    pub fn destroy(self: *@This()) void {
         if (self.backend) |backend| {
             backend.destroy();
             self.backend = null;
         }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.destroy();
     }
 
     pub const ShaderStageFlags = def.ShaderStageFlags;
@@ -143,16 +151,15 @@ pub const BindGroupLayout = struct {
         };
 
         pub const Texture = struct {
-            sampleType: SampleType = .float,
+            sampleType: SampleType = .{ .float = .{ .filterable = true } },
             viewDimension: texture_mod.Texture.View.Dimension = .@"2d",
             multisampled: bool = false,
 
-            pub const SampleType = enum {
-                float,
-                unfilterable_float,
-                depth,
-                sint,
-                uint,
+            pub const SampleType = union(enum) {
+                float: struct { filterable: bool },
+                depth: void,
+                sint: void,
+                uint: void,
             };
         };
 

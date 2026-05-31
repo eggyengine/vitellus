@@ -1,14 +1,20 @@
-> [!INFO]
-> currently used as a placeholder in the case anyone implements wgsl shaders. remove when basic implementation completed. 
-
 # splat
 
 a shader translation layer written in zig for the needs of `vitellus`.
 
+currently backed by spirv-cross
+
+## backends
+
+- [spirv-cross](https://github.com/KhronosGroup/SPIRV-Cross)
+  - spirv ->
+    - msl
+    - hlsl
+
 ## add to project
 requires zig `0.16.0`
 
-vitellus already includes splat as a module as `vit.splat`, however to explicitly use splat:
+since `splat` is a submodule for `vitellus`, you are required to save the vitellus package (but not be required to download unnecessary dependencies). 
 
 to use this with the zig build system, import as so:
 ```bash
@@ -20,7 +26,6 @@ and then in `build.zig`:
 const vit = b.dependency("vitellus", .{
     .target = target,
     .optimize = optimize,
-    .splat = true,
 });
 
 exe.root_module.addImport("splat", vit.module("splat"));

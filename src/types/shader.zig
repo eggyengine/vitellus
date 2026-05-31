@@ -9,7 +9,6 @@ pub const ShaderModule = struct {
     pub const CompilationInfoError = error{NotImplemented};
 
     pub const ShaderSource = union(enum) {
-        wgsl: []const u8,
         spirv: []const u8,
     };
 

@@ -4,7 +4,6 @@ const vk = @import("vulkan");
 const vkDevice = @import("device.zig").vkDevice;
 const hal = @import("../hal.zig");
 const shader = @import("../../types/shader.zig");
-const logz = @import("logz");
 
 pub const vkShader = struct {
     source: shader.ShaderModule.ShaderSource,
@@ -21,20 +20,15 @@ pub const vkShaderModule = struct {
         .getCompilationInfo = getCompilationInfo,
     };
 
-    /// Initialising a Vulkan shader module consumes backend-ready SPIR-V bytecode.
-    /// WGSL translation is not implemented in this backend yet.
     pub fn init(device: *vkDevice, shader_data: vkShader) !hal.ShaderModule {
-        logz.info().fmt("msg", "creating vulkan shader module", .{}).log();
+        std.log.debug("creating vulkan shader module", .{});
 
+        // SPIRV is natively supported on vulkan, so no need for translation.
         const code = switch (shader_data.source) {
             .spirv => |bytes| bytes,
-            .wgsl => {
-                logz.err().fmt("msg", "vulkan shader module creation rejected: WGSL-to-SPIR-V translation is not implemented yet", .{}).log();
-                return error.NotImplemented;
-            },
         };
         if (code.len == 0 or code.len % @sizeOf(u32) != 0) {
-            logz.err().fmt("msg", "vulkan shader module creation rejected: SPIR-V bytecode length ({}) is not a non-zero multiple of 4", .{code.len}).log();
+            std.log.err("vulkan shader module creation rejected: SPIR-V bytecode length ({}) is not a non-zero multiple of 4", .{code.len});
             return error.InvalidShaderModule;
         }
 
@@ -58,7 +52,7 @@ pub const vkShaderModule = struct {
             .label = shader_data.label,
         };
 
-        logz.info().fmt("msg", "created vulkan shader module: handle=0x{x}", .{@intFromEnum(handle)}).log();
+        std.log.debug("created vulkan shader module: handle=0x{x}", .{@intFromEnum(handle)});
         return .{
             .ptr = module,
             .vtable = &vkShaderModule.vtable,
@@ -68,7 +62,7 @@ pub const vkShaderModule = struct {
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (typed.handle != .null_handle) {
-            logz.info().fmt("msg", "destroying vulkan shader module: handle=0x{x}", .{@intFromEnum(typed.handle)}).log();
+            std.log.debug("destroying vulkan shader module: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.device.destroyShaderModule(typed.handle, null);
             typed.handle = .null_handle;
         }

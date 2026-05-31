@@ -43,9 +43,8 @@ pub const NoopRenderPassEncoder = command.NoopRenderPassEncoder;
 pub const NoopRenderBundle = command.NoopRenderBundle;
 pub const NoopRenderBundleEncoder = command.NoopRenderBundleEncoder;
 
-const logz = @import("logz");
 
 pub fn init(descriptor: gpu.Instance.Descriptor) hal.Instance.FromPotentialBackendsError!hal.Instance {
-    logz.info().fmt("msg", "initializing noop backend", .{}).log();
+    std.log.info("initializing noop backend", .{});
     return NoopInstance.init(descriptor) catch error.NoBackendAvailable;
 }
