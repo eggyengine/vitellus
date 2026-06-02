@@ -30,7 +30,7 @@ pub const NoopComputePipeline = struct {
 
     pub const vtable = hal.ComputePipeline.VTable{
         .destroy = destroy,
-        .getBindGroupLayout = getBindGroupLayout,
+        .getDescriptorSetLayout = getDescriptorSetLayout,
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.ComputePipeline {
@@ -45,10 +45,10 @@ pub const NoopComputePipeline = struct {
         typed.allocator.destroy(typed);
     }
 
-    fn getBindGroupLayout(ptr: *anyopaque, index: def.Index32) anyerror!hal.BindGroupLayout {
+    fn getDescriptorSetLayout(ptr: *anyopaque, index: def.Index32) anyerror!hal.DescriptorSetLayout {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = index;
-        return resource.NoopBindGroupLayout.init(typed.allocator);
+        return resource.NoopDescriptorSetLayout.init(typed.allocator);
     }
 };
 
@@ -57,7 +57,7 @@ pub const NoopRenderPipeline = struct {
 
     pub const vtable = hal.RenderPipeline.VTable{
         .destroy = destroy,
-        .getBindGroupLayout = getBindGroupLayout,
+        .getDescriptorSetLayout = getDescriptorSetLayout,
     };
 
     pub fn init(allocator: std.mem.Allocator) !hal.RenderPipeline {
@@ -72,9 +72,9 @@ pub const NoopRenderPipeline = struct {
         typed.allocator.destroy(typed);
     }
 
-    fn getBindGroupLayout(ptr: *anyopaque, index: def.Index32) anyerror!hal.BindGroupLayout {
+    fn getDescriptorSetLayout(ptr: *anyopaque, index: def.Index32) anyerror!hal.DescriptorSetLayout {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         _ = index;
-        return resource.NoopBindGroupLayout.init(typed.allocator);
+        return resource.NoopDescriptorSetLayout.init(typed.allocator);
     }
 };

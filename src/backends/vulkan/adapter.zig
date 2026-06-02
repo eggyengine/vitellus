@@ -9,7 +9,6 @@ const surface_backend = @import("surface.zig");
 const device_backend = @import("device.zig");
 const debug = @import("debug.zig");
 
-
 pub const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name.ptr,
 };
@@ -220,7 +219,7 @@ pub const vkAdapter = struct {
 
         const device_features = vk.PhysicalDeviceFeatures{};
 
-        // TOOO: implement webgpu-specific features
+        // TODO: implement backend feature selection
         var vulkan_13_features = vk.PhysicalDeviceVulkan13Features{
             .synchronization_2 = .true,
             .dynamic_rendering = .true,

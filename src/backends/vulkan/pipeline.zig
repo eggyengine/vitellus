@@ -10,11 +10,10 @@ const resource = @import("resource.zig");
 const vkShaderModule = @import("shader.zig").vkShaderModule;
 const debug = @import("debug.zig");
 
-
 pub const vkPipelineLayout = struct {
     device: *vkDevice,
     handle: vk.PipelineLayout,
-    bind_group_layouts: []hal.BindGroupLayout,
+    descriptor_set_layouts: []hal.DescriptorSetLayout,
     set_layouts: []vk.DescriptorSetLayout,
     label: ?[*:0]const u8,
 
@@ -23,19 +22,19 @@ pub const vkPipelineLayout = struct {
     };
 
     pub fn init(device: *vkDevice, descriptor: pipeline.PipelineLayout.Descriptor) !hal.PipelineLayout {
-        std.log.debug("building vulkan pipeline layout: bind_group_layouts={}", .{descriptor.bindGroupLayouts.len});
+        std.log.debug("building vulkan pipeline layout: descriptor_set_layouts={}", .{descriptor.descriptorSetLayouts.len});
 
         const allocator = device.adapter.gpu.allocator;
-        const bind_group_layouts = try allocator.alloc(hal.BindGroupLayout, descriptor.bindGroupLayouts.len);
-        errdefer allocator.free(bind_group_layouts);
-        const set_layouts = try allocator.alloc(vk.DescriptorSetLayout, descriptor.bindGroupLayouts.len);
+        const descriptor_set_layouts = try allocator.alloc(hal.DescriptorSetLayout, descriptor.descriptorSetLayouts.len);
+        errdefer allocator.free(descriptor_set_layouts);
+        const set_layouts = try allocator.alloc(vk.DescriptorSetLayout, descriptor.descriptorSetLayouts.len);
         errdefer allocator.free(set_layouts);
 
-        for (descriptor.bindGroupLayouts, 0..) |maybe_layout, i| {
+        for (descriptor.descriptorSetLayouts, 0..) |maybe_layout, i| {
             const layout = maybe_layout orelse return error.AutoPipelineLayoutNotImplemented;
-            const layout_backend = layout.backend orelse return error.InvalidBindGroupLayout;
-            const vk_layout: *resource.vkBindGroupLayout = @ptrCast(@alignCast(layout_backend.ptr));
-            bind_group_layouts[i] = layout_backend;
+            const layout_backend = layout.backend orelse return error.InvalidDescriptorSetLayout;
+            const vk_layout: *resource.vkDescriptorSetLayout = @ptrCast(@alignCast(layout_backend.ptr));
+            descriptor_set_layouts[i] = layout_backend;
             set_layouts[i] = vk_layout.handle;
         }
 
@@ -51,7 +50,7 @@ pub const vkPipelineLayout = struct {
         layout.* = .{
             .device = device,
             .handle = handle,
-            .bind_group_layouts = bind_group_layouts,
+            .descriptor_set_layouts = descriptor_set_layouts,
             .set_layouts = set_layouts,
             .label = descriptor.label,
         };
@@ -72,7 +71,7 @@ pub const vkPipelineLayout = struct {
             typed.handle = .null_handle;
         }
         typed.device.adapter.gpu.allocator.free(typed.set_layouts);
-        typed.device.adapter.gpu.allocator.free(typed.bind_group_layouts);
+        typed.device.adapter.gpu.allocator.free(typed.descriptor_set_layouts);
         typed.device.adapter.gpu.allocator.destroy(typed);
     }
 };
@@ -80,7 +79,7 @@ pub const vkPipelineLayout = struct {
 pub const vkComputePipeline = struct {
     pub const vtable = hal.ComputePipeline.VTable{
         .destroy = destroy,
-        .getBindGroupLayout = getBindGroupLayout,
+        .getDescriptorSetLayout = getDescriptorSetLayout,
     };
 
     pub fn init(device: *vkDevice, descriptor: pipeline.ComputePipeline.Descriptor) !hal.ComputePipeline {
@@ -94,7 +93,7 @@ pub const vkComputePipeline = struct {
         std.log.debug("destroying vulkan compute pipeline", .{});
     }
 
-    fn getBindGroupLayout(ptr: *anyopaque, index: u32) anyerror!hal.BindGroupLayout {
+    fn getDescriptorSetLayout(ptr: *anyopaque, index: u32) anyerror!hal.DescriptorSetLayout {
         _ = ptr;
         _ = index;
         return error.NotImplemented;
@@ -111,7 +110,7 @@ pub const vkRenderPipeline = struct {
 
     pub const vtable = hal.RenderPipeline.VTable{
         .destroy = destroy,
-        .getBindGroupLayout = getBindGroupLayout,
+        .getDescriptorSetLayout = getDescriptorSetLayout,
     };
 
     pub fn init(device: *vkDevice, descriptor: pipeline.RenderPipeline.Descriptor) !hal.RenderPipeline {
@@ -317,10 +316,10 @@ pub const vkRenderPipeline = struct {
         typed.device.adapter.gpu.allocator.destroy(typed);
     }
 
-    fn getBindGroupLayout(ptr: *anyopaque, index: u32) anyerror!hal.BindGroupLayout {
+    fn getDescriptorSetLayout(ptr: *anyopaque, index: u32) anyerror!hal.DescriptorSetLayout {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        if (index >= typed.layout.bind_group_layouts.len) return error.BindGroupLayoutIndexOutOfBounds;
-        return typed.layout.bind_group_layouts[index];
+        if (index >= typed.layout.descriptor_set_layouts.len) return error.DescriptorSetLayoutIndexOutOfBounds;
+        return typed.layout.descriptor_set_layouts[index];
     }
 };
 
@@ -370,7 +369,7 @@ fn resolvePipelineLayout(device: *vkDevice, layout: ?*const pipeline.PipelineLay
     return .{
         try vkPipelineLayout.init(device, .{
             .label = label,
-            .bindGroupLayouts = &.{},
+            .descriptorSetLayouts = &.{},
         }),
         true,
     };

@@ -29,8 +29,8 @@ pub const vkBuffer = resource.vkBuffer;
 pub const vkTexture = resource.vkTexture;
 pub const vkTextureView = resource.vkTextureView;
 pub const vkSampler = resource.vkSampler;
-pub const vkBindGroupLayout = resource.vkBindGroupLayout;
-pub const vkBindGroup = resource.vkBindGroup;
+pub const vkDescriptorSetLayout = resource.vkDescriptorSetLayout;
+pub const vkDescriptorSet = resource.vkDescriptorSet;
 pub const vkQuerySet = resource.vkQuerySet;
 
 pub const vkShader = shader.vkShader;

@@ -3,7 +3,6 @@ const std = @import("std");
 const candler = @import("candler");
 const win = @import("windowing.zig");
 
-
 pub const Sdl3Window = struct {
     window: sdl.video.Window,
     metal_view: ?sdl.MetalView = null,
@@ -127,11 +126,6 @@ pub const Sdl3Window = struct {
         if (props.kmsdrm_drm_fd) |fd| {
             std.log.debug("resolved SDL3 DRM display handle", .{});
             return borrowedDisplayHandle(candler.DrmDisplayHandle.new(@as(i32, @intCast(fd))).intoRaw());
-        }
-
-        if (props.emscripten_canvas_id != null) {
-            std.log.debug("resolved SDL3 wasm display handle", .{});
-            return borrowedDisplayHandle(candler.WasmBindgenDisplay.new().intoRaw());
         }
 
         std.log.debug("SDL3 display handle not supported by available properties", .{});

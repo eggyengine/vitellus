@@ -3,7 +3,6 @@ const def = @import("def.zig");
 const candler = @import("candler");
 const hal = @import("../backends/hal.zig");
 
-
 pub const Texture = struct {
     backend: ?hal.Texture = null,
     present_context: ?*anyopaque = null,
@@ -60,7 +59,6 @@ pub const Texture = struct {
                 backend.destroy();
                 self.backend = null;
             }
-            std.heap.page_allocator.destroy(self);
         }
 
         pub fn deinit(self: *@This()) void {
@@ -127,13 +125,10 @@ pub const Texture = struct {
         self.destroy();
     }
 
-    pub fn createView(self: *Texture, descriptor: Texture.View.Descriptor) !*Texture.View {
-        const view = try std.heap.page_allocator.create(Texture.View);
-        errdefer std.heap.page_allocator.destroy(view);
-        view.* = .{
+    pub fn createView(self: *Texture, descriptor: Texture.View.Descriptor) !Texture.View {
+        return .{
             .backend = if (self.backend) |backend| try backend.createView(descriptor) else null,
         };
-        return view;
     }
 
     pub fn present(self: *Texture) void {

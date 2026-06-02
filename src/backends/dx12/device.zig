@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const bind_group = @import("../../types/bind_group.zig");
+const descriptor_set = @import("../../types/descriptor_set.zig");
 const buffer = @import("../../types/buffer.zig");
 const command = @import("../../types/command.zig");
 const def = @import("../../types/def.zig");
@@ -24,9 +24,9 @@ pub const DX_Device = struct {
         .createBuffer = createBuffer,
         .createTexture = createTexture,
         .createSampler = createSampler,
-        .createBindGroupLayout = createBindGroupLayout,
+        .createDescriptorSetLayout = createDescriptorSetLayout,
         .createPipelineLayout = createPipelineLayout,
-        .createBindGroup = createBindGroup,
+        .createDescriptorSet = createDescriptorSet,
         .createShaderModule = createShaderModule,
         .createComputePipeline = createComputePipeline,
         .createRenderPipeline = createRenderPipeline,
@@ -79,10 +79,10 @@ pub const DX_Device = struct {
         return resource.DX_Sampler.init(typed.allocator);
     }
 
-    fn createBindGroupLayout(ptr: *anyopaque, descriptor: bind_group.BindGroupLayout.Descriptor) anyerror!hal.BindGroupLayout {
+    fn createDescriptorSetLayout(ptr: *anyopaque, descriptor: descriptor_set.DescriptorSetLayout.Descriptor) anyerror!hal.DescriptorSetLayout {
         const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.DX_BindGroupLayout.init(typed.allocator);
+        return resource.DX_DescriptorSetLayout.init(typed.allocator);
     }
 
     fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
@@ -91,10 +91,10 @@ pub const DX_Device = struct {
         return pipeline_backend.DX_PipelineLayout.init(typed.allocator);
     }
 
-    fn createBindGroup(ptr: *anyopaque, descriptor: bind_group.BindGroup.Descriptor) anyerror!hal.BindGroup {
+    fn createDescriptorSet(ptr: *anyopaque, descriptor: descriptor_set.DescriptorSet.Descriptor) anyerror!hal.DescriptorSet {
         const typed: *DX_Device = @ptrCast(@alignCast(ptr));
         _ = descriptor;
-        return resource.DX_BindGroup.init(typed.allocator);
+        return resource.DX_DescriptorSet.init(typed.allocator);
     }
 
     fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
@@ -226,7 +226,7 @@ pub const DX_Queue = struct {
         data: def.AllowSharedBufferSource,
         data_layout: texture.TexelCopyBufferLayout,
         size: texture.Texture.Extent3D,
-    ) void {
+    ) anyerror!void {
         _ = ptr;
         _ = destination;
         _ = data;

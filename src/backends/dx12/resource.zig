@@ -129,42 +129,42 @@ pub const DX_Sampler = struct {
     }
 };
 
-pub const DX_BindGroupLayout = struct {
+pub const DX_DescriptorSetLayout = struct {
     allocator: std.mem.Allocator,
 
-    pub const vtable = hal.BindGroupLayout.VTable{
+    pub const vtable = hal.DescriptorSetLayout.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !hal.BindGroupLayout {
-        const value = try allocator.create(DX_BindGroupLayout);
+    pub fn init(allocator: std.mem.Allocator) !hal.DescriptorSetLayout {
+        const value = try allocator.create(DX_DescriptorSetLayout);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *DX_BindGroupLayout = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying dx12 bind group layout", .{});
+        const typed: *DX_DescriptorSetLayout = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 descriptor set layout", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const DX_BindGroup = struct {
+pub const DX_DescriptorSet = struct {
     allocator: std.mem.Allocator,
 
-    pub const vtable = hal.BindGroup.VTable{
+    pub const vtable = hal.DescriptorSet.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !hal.BindGroup {
-        const value = try allocator.create(DX_BindGroup);
+    pub fn init(allocator: std.mem.Allocator) !hal.DescriptorSet {
+        const value = try allocator.create(DX_DescriptorSet);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *DX_BindGroup = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying dx12 bind group", .{});
+        const typed: *DX_DescriptorSet = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying dx12 descriptor set", .{});
         typed.allocator.destroy(typed);
     }
 };

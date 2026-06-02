@@ -5,7 +5,7 @@ const features = @import("features.zig");
 const buffer = @import("buffer.zig");
 const texture = @import("texture.zig");
 const sampler = @import("sampler.zig");
-const bind_group = @import("bind_group.zig");
+const descriptor_set = @import("descriptor_set.zig");
 const command = @import("command.zig");
 const def = @import("def.zig");
 const pipeline = @import("pipeline.zig");
@@ -43,7 +43,6 @@ pub const Instance = struct {
     pub const Descriptor = struct {
         allocator: std.mem.Allocator,
         flags: Flags = .{},
-        wgslLanguageFeatures: []const []const u8 = &.{},
     };
 
     pub fn enumerateAdapters(self: *@This(), options: ?Adapter.RequestOptions) ![]Adapter {
@@ -123,13 +122,6 @@ pub const Instance = struct {
                 }
             },
 
-            // wasm uses `navigator.gpu` api
-            .emscripten, .wasi => {
-                if (comptime available.browser_webgpu and flags.browser_webgpu) {
-                    std.log.err("browser webgpu backend is not implemented", .{});
-                }
-            },
-
             else => {},
         }
 
@@ -201,7 +193,7 @@ pub const Instance = struct {
             window.displayHandle();
     }
 
-    pub fn getPreferredCanvasFormat() texture.Texture.Format {
+    pub fn getPreferredSurfaceFormat() texture.Texture.Format {
         return .bgra8unorm;
     }
 
@@ -292,7 +284,7 @@ pub const Adapter = struct {
         maxTextureDimension2D: def.IntegerCoordinate = 0,
         maxTextureDimension3D: def.IntegerCoordinate = 0,
         maxTextureArrayLayers: def.IntegerCoordinate = 0,
-        maxBindGroups: def.Size32 = 0,
+        maxDescriptorSets: def.Size32 = 0,
     };
 
     pub const ShaderModel = enum {
@@ -518,47 +510,47 @@ pub const Device = struct {
         };
     }
 
-    pub fn createSampler(self: *@This(), descriptor: ?sampler.Sampler.Descriptor) sampler.Sampler {
+    pub fn createSampler(self: *@This(), descriptor: ?sampler.Sampler.Descriptor) !sampler.Sampler {
         std.log.debug("creating sampler: descriptor={}", .{descriptor != null});
         const resolved = descriptor orelse sampler.Sampler.Descriptor{};
         const backend = self.backend.createSampler(resolved) catch |err| {
             std.log.err("backend sampler creation failed: {s}", .{@errorName(err)});
-            return sampler.Sampler.init(resolved);
+            return err;
         };
         var result = sampler.Sampler.init(resolved);
         result.backend = backend;
         return result;
     }
 
-    pub fn createBindGroupLayout(self: *@This(), descriptor: BindGroupLayout.Descriptor) BindGroupLayout {
-        std.log.debug("creating bind group layout", .{});
-        const backend = self.backend.createBindGroupLayout(descriptor) catch |err| {
-            std.log.err("backend bind group layout creation failed: {s}", .{@errorName(err)});
-            return BindGroupLayout.init(descriptor);
+    pub fn createDescriptorSetLayout(self: *@This(), descriptor: DescriptorSetLayout.Descriptor) !DescriptorSetLayout {
+        std.log.debug("creating descriptor set layout", .{});
+        const backend = self.backend.createDescriptorSetLayout(descriptor) catch |err| {
+            std.log.err("backend descriptor set layout creation failed: {s}", .{@errorName(err)});
+            return err;
         };
-        var layout = BindGroupLayout.init(descriptor);
+        var layout = DescriptorSetLayout.init(descriptor);
         layout.backend = backend;
         return layout;
     }
 
-    pub fn createPipelineLayout(self: *@This(), descriptor: PipelineLayout.Descriptor) PipelineLayout {
+    pub fn createPipelineLayout(self: *@This(), descriptor: PipelineLayout.Descriptor) !PipelineLayout {
         std.log.debug("creating pipeline layout", .{});
         const backend = self.backend.createPipelineLayout(descriptor) catch |err| {
             std.log.err("backend pipeline layout creation failed: {s}", .{@errorName(err)});
-            @panic("failed to create pipeline layout");
+            return err;
         };
         var layout = PipelineLayout.init(descriptor);
         layout.backend = backend;
         return layout;
     }
 
-    pub fn createBindGroup(self: *@This(), descriptor: BindGroup.Descriptor) BindGroup {
-        std.log.debug("creating bind group", .{});
-        const backend = self.backend.createBindGroup(descriptor) catch |err| {
-            std.log.err("backend bind group creation failed: {s}", .{@errorName(err)});
-            return BindGroup.init(descriptor);
+    pub fn createDescriptorSet(self: *@This(), descriptor: DescriptorSet.Descriptor) !DescriptorSet {
+        std.log.debug("creating descriptor set", .{});
+        const backend = self.backend.createDescriptorSet(descriptor) catch |err| {
+            std.log.err("backend descriptor set creation failed: {s}", .{@errorName(err)});
+            return err;
         };
-        var group = BindGroup.init(descriptor);
+        var group = DescriptorSet.init(descriptor);
         group.backend = backend;
         return group;
     }
@@ -568,7 +560,7 @@ pub const Device = struct {
 
         const backend = self.backend.createShaderModule(descriptor) catch |err| {
             std.log.err("backend shader module creation failed: {s}", .{@errorName(err)});
-            @panic("failed to create shader module");
+            return err;
         };
         return .{
             .backend = backend,
@@ -582,11 +574,11 @@ pub const Device = struct {
         return .{ .backend = backend };
     }
 
-    pub fn createRenderPipeline(self: *@This(), descriptor: RenderPipeline.Descriptor) RenderPipeline {
+    pub fn createRenderPipeline(self: *@This(), descriptor: RenderPipeline.Descriptor) !RenderPipeline {
         std.log.debug("creating render pipeline", .{});
         const backend = self.backend.createRenderPipeline(descriptor) catch |err| {
             std.log.err("backend render pipeline creation failed: {s}", .{@errorName(err)});
-            @panic("failed to create render pipeline");
+            return err;
         };
         return .{
             .backend = backend,
@@ -643,11 +635,11 @@ pub const Device = struct {
         return io.async(createRenderPipelineAsyncInternal, .{ self, io, descriptor });
     }
 
-    pub fn createCommandEncoder(self: *@This(), descriptor: ?CommandEncoder.Descriptor) CommandEncoder {
+    pub fn createCommandEncoder(self: *@This(), descriptor: ?CommandEncoder.Descriptor) !CommandEncoder {
         std.log.debug("creating command encoder: descriptor={}", .{descriptor != null});
         const backend = self.backend.createCommandEncoder(descriptor) catch |err| {
             std.log.err("backend command encoder creation failed: {s}", .{@errorName(err)});
-            return .{ .label = if (descriptor) |d| d.label else null };
+            return err;
         };
         return .{ .backend = backend, .label = if (descriptor) |d| d.label else null };
     }
@@ -658,15 +650,11 @@ pub const Device = struct {
         return .{ .backend = backend, .label = descriptor.label };
     }
 
-    pub fn createQuerySet(self: *@This(), descriptor: QuerySet.Descriptor) QuerySet {
+    pub fn createQuerySet(self: *@This(), descriptor: QuerySet.Descriptor) !QuerySet {
         std.log.debug("creating query set: type={s} count={}", .{ @tagName(descriptor.type), descriptor.count });
         const backend = self.backend.createQuerySet(descriptor) catch |err| {
             std.log.err("backend query set creation failed: {s}", .{@errorName(err)});
-            return .{
-                .label = descriptor.label,
-                .type = descriptor.type,
-                .count = descriptor.count,
-            };
+            return err;
         };
         return .{
             .backend = backend,
@@ -747,9 +735,9 @@ pub const Queue = struct {
         data: def.AllowSharedBufferSource,
         dataLayout: texture.TexelCopyBufferLayout,
         size: texture.Texture.Extent3D,
-    ) void {
+    ) !void {
         std.log.debug("writing texture", .{});
-        self.backend.writeTexture(destination, data, dataLayout, size);
+        try self.backend.writeTexture(destination, data, dataLayout, size);
     }
 
     fn onSubmittedWorkDoneInternal(self: *@This(), io: std.Io) OnSubmittedWorkDoneError!void {
@@ -764,11 +752,11 @@ pub const Queue = struct {
     }
 };
 
-pub const BindGroupLayout = bind_group.BindGroupLayout;
+pub const DescriptorSetLayout = descriptor_set.DescriptorSetLayout;
 
 pub const PipelineLayout = pipeline.PipelineLayout;
 
-pub const BindGroup = bind_group.BindGroup;
+pub const DescriptorSet = descriptor_set.DescriptorSet;
 
 pub const PipelineError = pipeline.PipelineError;
 

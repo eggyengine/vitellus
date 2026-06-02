@@ -26,8 +26,8 @@ pub const NoopBuffer = resource.NoopBuffer;
 pub const NoopTexture = resource.NoopTexture;
 pub const NoopTextureView = resource.NoopTextureView;
 pub const NoopSampler = resource.NoopSampler;
-pub const NoopBindGroupLayout = resource.NoopBindGroupLayout;
-pub const NoopBindGroup = resource.NoopBindGroup;
+pub const NoopDescriptorSetLayout = resource.NoopDescriptorSetLayout;
+pub const NoopDescriptorSet = resource.NoopDescriptorSet;
 pub const NoopQuerySet = resource.NoopQuerySet;
 
 pub const NoopShaderModule = shader.NoopShaderModule;

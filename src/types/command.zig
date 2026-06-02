@@ -1,5 +1,5 @@
 const std = @import("std");
-const bind_group = @import("bind_group.zig");
+const descriptor_set = @import("descriptor_set.zig");
 const buffer = @import("buffer.zig");
 const def = @import("def.zig");
 const pipeline = @import("pipeline.zig");
@@ -136,29 +136,29 @@ pub const CommandEncoder = struct {
 };
 
 pub const BindingCommands = struct {
-    pub fn setBindGroup(
+    pub fn setDescriptorSet(
         encoder: anytype,
         index: def.Index32,
-        group: ?*bind_group.BindGroup,
+        group: ?*descriptor_set.DescriptorSet,
         dynamicOffsets: []const def.BufferDynamicOffset,
     ) void {
         if (encoder.backend) |back| {
             const group_backend = if (group) |target_group| target_group.backend else null;
-            back.setBindGroup(index, group_backend, dynamicOffsets);
+            back.setDescriptorSet(index, group_backend, dynamicOffsets);
         }
     }
 
-    pub fn setBindGroupFromData(
+    pub fn setDescriptorSetFromData(
         encoder: anytype,
         index: def.Index32,
-        group: ?*bind_group.BindGroup,
+        group: ?*descriptor_set.DescriptorSet,
         dynamicOffsetsData: []const u32,
         dynamicOffsetsDataStart: def.Size64,
         dynamicOffsetsDataLength: def.Size32,
     ) void {
         if (encoder.backend) |back| {
             const group_backend = if (group) |target_group| target_group.backend else null;
-            back.setBindGroupFromData(index, group_backend, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
+            back.setDescriptorSetFromData(index, group_backend, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
         }
     }
 };
@@ -204,19 +204,19 @@ pub const ComputePassEncoder = struct {
         }
     }
 
-    pub fn setBindGroup(self: *@This(), index: def.Index32, group: ?*bind_group.BindGroup, dynamicOffsets: []const def.BufferDynamicOffset) void {
-        BindingCommands.setBindGroup(self, index, group, dynamicOffsets);
+    pub fn setDescriptorSet(self: *@This(), index: def.Index32, group: ?*descriptor_set.DescriptorSet, dynamicOffsets: []const def.BufferDynamicOffset) void {
+        BindingCommands.setDescriptorSet(self, index, group, dynamicOffsets);
     }
 
-    pub fn setBindGroupFromData(
+    pub fn setDescriptorSetFromData(
         self: *@This(),
         index: def.Index32,
-        group: ?*bind_group.BindGroup,
+        group: ?*descriptor_set.DescriptorSet,
         dynamicOffsetsData: []const u32,
         dynamicOffsetsDataStart: def.Size64,
         dynamicOffsetsDataLength: def.Size32,
     ) void {
-        BindingCommands.setBindGroupFromData(self, index, group, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
+        BindingCommands.setDescriptorSetFromData(self, index, group, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
@@ -376,19 +376,19 @@ pub const RenderPassEncoder = struct {
         };
     }
 
-    pub fn setBindGroup(self: *@This(), index: def.Index32, group: ?*bind_group.BindGroup, dynamicOffsets: []const def.BufferDynamicOffset) void {
-        BindingCommands.setBindGroup(self, index, group, dynamicOffsets);
+    pub fn setDescriptorSet(self: *@This(), index: def.Index32, group: ?*descriptor_set.DescriptorSet, dynamicOffsets: []const def.BufferDynamicOffset) void {
+        BindingCommands.setDescriptorSet(self, index, group, dynamicOffsets);
     }
 
-    pub fn setBindGroupFromData(
+    pub fn setDescriptorSetFromData(
         self: *@This(),
         index: def.Index32,
-        group: ?*bind_group.BindGroup,
+        group: ?*descriptor_set.DescriptorSet,
         dynamicOffsetsData: []const u32,
         dynamicOffsetsDataStart: def.Size64,
         dynamicOffsetsDataLength: def.Size32,
     ) void {
-        BindingCommands.setBindGroupFromData(self, index, group, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
+        BindingCommands.setDescriptorSetFromData(self, index, group, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {
@@ -497,19 +497,19 @@ pub const RenderBundleEncoder = struct {
         };
     }
 
-    pub fn setBindGroup(self: *@This(), index: def.Index32, group: ?*bind_group.BindGroup, dynamicOffsets: []const def.BufferDynamicOffset) void {
-        BindingCommands.setBindGroup(self, index, group, dynamicOffsets);
+    pub fn setDescriptorSet(self: *@This(), index: def.Index32, group: ?*descriptor_set.DescriptorSet, dynamicOffsets: []const def.BufferDynamicOffset) void {
+        BindingCommands.setDescriptorSet(self, index, group, dynamicOffsets);
     }
 
-    pub fn setBindGroupFromData(
+    pub fn setDescriptorSetFromData(
         self: *@This(),
         index: def.Index32,
-        group: ?*bind_group.BindGroup,
+        group: ?*descriptor_set.DescriptorSet,
         dynamicOffsetsData: []const u32,
         dynamicOffsetsDataStart: def.Size64,
         dynamicOffsetsDataLength: def.Size32,
     ) void {
-        BindingCommands.setBindGroupFromData(self, index, group, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
+        BindingCommands.setDescriptorSetFromData(self, index, group, dynamicOffsetsData, dynamicOffsetsDataStart, dynamicOffsetsDataLength);
     }
 
     pub fn pushDebugGroup(self: *@This(), groupLabel: []const u8) void {

@@ -10,8 +10,7 @@ pub fn build(b: *std.Build) void {
     const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
     const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
     const enable_metal = b.option(bool, "metal", "Enable the Metal backend") orelse true;
-    const enable_browser_webgpu = b.option(bool, "browser_webgpu", "Enable the browser WebGPU backend") orelse true;
-    const enable_opengl = b.option(bool, "opengl", "Enable the OpenGL/WebGL backend") orelse false;
+    const enable_opengl = b.option(bool, "opengl", "Enable the OpenGL backend") orelse false;
     const enable_noop = b.option(bool, "noop", "Enable the noop backend") orelse default_noop;
 
     const mod = b.addModule("vitellus", .{
@@ -26,7 +25,6 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "enable_backend_vulkan", enable_vulkan);
     options.addOption(bool, "enable_backend_dx12", enable_dx12);
     options.addOption(bool, "enable_backend_metal", enable_metal);
-    options.addOption(bool, "enable_backend_browser_webgpu", enable_browser_webgpu);
     options.addOption(bool, "enable_backend_opengl", enable_opengl);
     options.addOption(bool, "enable_backend_noop", enable_noop);
     mod.addOptions("build_options", options);

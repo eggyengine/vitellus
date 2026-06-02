@@ -4,7 +4,6 @@ const std = @import("std");
 const candler = @import("candler");
 const vk = @import("vulkan");
 
-
 pub const default_instance_extensions: []const [*:0]const u8 = &.{
     vk.extensions.khr_surface.name.ptr,
     vk.extensions.khr_android_surface.name.ptr,
@@ -39,11 +38,8 @@ pub fn createSurface(
         .drm => unsupportedSurface("drm"),
         .gbm => unsupportedSurface("gbm"),
         .win32 => |win32| createWin32Surface(instance, win32, raw_display),
-        .win_rt => unsupportedSurface("win_rt"),
-        .wasm_bindgen_canvas => unsupportedSurface("wasm_bindgen_canvas"),
-        .wasm_bindgen_offscreen_canvas => unsupportedSurface("wasm_bindgen_offscreen_canvas"),
         .android_ndk => |android| createAndroidSurface(instance, android, raw_display),
-        .haiku => unsupportedSurface("haiku"),
+        else => unsupportedSurface("platform"),
     };
 }
 

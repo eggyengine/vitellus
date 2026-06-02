@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 const candler = @import("candler");
 const build_options = @import("build_options");
 
-const bind_group = @import("../types/bind_group.zig");
+const descriptor_set = @import("../types/descriptor_set.zig");
 const buffer = @import("../types/buffer.zig");
 const command = @import("../types/command.zig");
 const def = @import("../types/def.zig");
@@ -29,16 +29,14 @@ pub const Backends = packed struct(u32) {
     noop: bool = false,
     /// Vulkan (specifically Vulkan 1.4)
     vulkan: bool = false,
-    /// OpenGL/WebGL
+    /// OpenGL
     opengl: bool = false,
     /// Metal (supported on Apple devices)
     metal: bool = false,
     /// DirectX12
     dx12: bool = false,
-    /// Browser webgpu (navigator.gpu)
-    browser_webgpu: bool = false,
 
-    _: u26 = 0,
+    _: u27 = 0,
 
     /// No operation backend
     ///
@@ -46,19 +44,17 @@ pub const Backends = packed struct(u32) {
     pub const NOOP: u32 = 0x01;
     /// Vulkan (specifically Vulkan 1.4)
     pub const VULKAN: u32 = 0x02;
-    /// OpenGL/WebGL
+    /// OpenGL
     pub const OPENGL: u32 = 0x04;
     /// Metal (supported on Apple devices)
     pub const METAL: u32 = 0x08;
     /// DirectX12
     pub const DX12: u32 = 0x10;
-    /// Browser webgpu (navigator.gpu)
-    pub const BROWSER_WEBGPU: u32 = 0x20;
 
     pub const GL: u32 = OPENGL;
     pub const DIRECTX12: u32 = DX12;
 
-    pub const PRIMARY: u32 = VULKAN | METAL | DX12 | BROWSER_WEBGPU;
+    pub const PRIMARY: u32 = VULKAN | METAL | DX12;
     pub const SECONDARY: u32 = OPENGL;
 
     pub fn fromFlags(flags: u32) Backends {
@@ -76,7 +72,6 @@ pub const Backends = packed struct(u32) {
             .opengl = true,
             .metal = true,
             .dx12 = true,
-            .browser_webgpu = true,
         };
     }
 
@@ -87,7 +82,6 @@ pub const Backends = packed struct(u32) {
             .opengl = build_options.enable_backend_opengl,
             .metal = build_options.enable_backend_metal,
             .dx12 = build_options.enable_backend_dx12,
-            .browser_webgpu = build_options.enable_backend_browser_webgpu,
         };
     }
 };
@@ -226,18 +220,18 @@ pub const Device = struct {
             *anyopaque,
             sampler.Sampler.Descriptor,
         ) anyerror!Sampler,
-        createBindGroupLayout: *const fn (
+        createDescriptorSetLayout: *const fn (
             *anyopaque,
-            bind_group.BindGroupLayout.Descriptor,
-        ) anyerror!BindGroupLayout,
+            descriptor_set.DescriptorSetLayout.Descriptor,
+        ) anyerror!DescriptorSetLayout,
         createPipelineLayout: *const fn (
             *anyopaque,
             pipeline.PipelineLayout.Descriptor,
         ) anyerror!PipelineLayout,
-        createBindGroup: *const fn (
+        createDescriptorSet: *const fn (
             *anyopaque,
-            bind_group.BindGroup.Descriptor,
-        ) anyerror!BindGroup,
+            descriptor_set.DescriptorSet.Descriptor,
+        ) anyerror!DescriptorSet,
         createShaderModule: *const fn (
             *anyopaque,
             shader.ShaderModule.Descriptor,
@@ -304,11 +298,11 @@ pub const Device = struct {
         return self.vtable.createSampler(self.ptr, descriptor);
     }
 
-    pub fn createBindGroupLayout(
+    pub fn createDescriptorSetLayout(
         self: Device,
-        descriptor: bind_group.BindGroupLayout.Descriptor,
-    ) anyerror!BindGroupLayout {
-        return self.vtable.createBindGroupLayout(self.ptr, descriptor);
+        descriptor: descriptor_set.DescriptorSetLayout.Descriptor,
+    ) anyerror!DescriptorSetLayout {
+        return self.vtable.createDescriptorSetLayout(self.ptr, descriptor);
     }
 
     pub fn createPipelineLayout(
@@ -318,11 +312,11 @@ pub const Device = struct {
         return self.vtable.createPipelineLayout(self.ptr, descriptor);
     }
 
-    pub fn createBindGroup(
+    pub fn createDescriptorSet(
         self: Device,
-        descriptor: bind_group.BindGroup.Descriptor,
-    ) anyerror!BindGroup {
-        return self.vtable.createBindGroup(self.ptr, descriptor);
+        descriptor: descriptor_set.DescriptorSet.Descriptor,
+    ) anyerror!DescriptorSet {
+        return self.vtable.createDescriptorSet(self.ptr, descriptor);
     }
 
     pub fn createShaderModule(
@@ -421,7 +415,7 @@ pub const Queue = struct {
             def.AllowSharedBufferSource,
             texture.TexelCopyBufferLayout,
             texture.Texture.Extent3D,
-        ) void,
+        ) anyerror!void,
         onSubmittedWorkDone: *const fn (*anyopaque, std.Io) std.Io.Future(anyerror!void),
     };
 
@@ -446,7 +440,7 @@ pub const Queue = struct {
         data: def.AllowSharedBufferSource,
         data_layout: texture.TexelCopyBufferLayout,
         size: texture.Texture.Extent3D,
-    ) void {
+    ) anyerror!void {
         return self.vtable.writeTexture(self.ptr, destination, data, data_layout, size);
     }
 
@@ -545,7 +539,7 @@ pub const Sampler = struct {
     }
 };
 
-pub const BindGroupLayout = struct {
+pub const DescriptorSetLayout = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
@@ -553,7 +547,7 @@ pub const BindGroupLayout = struct {
         destroy: *const fn (*anyopaque) void,
     };
 
-    pub fn destroy(self: BindGroupLayout) void {
+    pub fn destroy(self: DescriptorSetLayout) void {
         return self.vtable.destroy(self.ptr);
     }
 };
@@ -571,7 +565,7 @@ pub const PipelineLayout = struct {
     }
 };
 
-pub const BindGroup = struct {
+pub const DescriptorSet = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
@@ -579,7 +573,7 @@ pub const BindGroup = struct {
         destroy: *const fn (*anyopaque) void,
     };
 
-    pub fn destroy(self: BindGroup) void {
+    pub fn destroy(self: DescriptorSet) void {
         return self.vtable.destroy(self.ptr);
     }
 };
@@ -611,21 +605,21 @@ pub const ComputePipeline = struct {
 
     pub const VTable = struct {
         destroy: *const fn (*anyopaque) void,
-        getBindGroupLayout: *const fn (
+        getDescriptorSetLayout: *const fn (
             *anyopaque,
             def.Index32,
-        ) anyerror!BindGroupLayout,
+        ) anyerror!DescriptorSetLayout,
     };
 
     pub fn destroy(self: ComputePipeline) void {
         return self.vtable.destroy(self.ptr);
     }
 
-    pub fn getBindGroupLayout(
+    pub fn getDescriptorSetLayout(
         self: ComputePipeline,
         index: def.Index32,
-    ) anyerror!BindGroupLayout {
-        return self.vtable.getBindGroupLayout(self.ptr, index);
+    ) anyerror!DescriptorSetLayout {
+        return self.vtable.getDescriptorSetLayout(self.ptr, index);
     }
 };
 
@@ -635,21 +629,21 @@ pub const RenderPipeline = struct {
 
     pub const VTable = struct {
         destroy: *const fn (*anyopaque) void,
-        getBindGroupLayout: *const fn (
+        getDescriptorSetLayout: *const fn (
             *anyopaque,
             def.Index32,
-        ) anyerror!BindGroupLayout,
+        ) anyerror!DescriptorSetLayout,
     };
 
     pub fn destroy(self: RenderPipeline) void {
         return self.vtable.destroy(self.ptr);
     }
 
-    pub fn getBindGroupLayout(
+    pub fn getDescriptorSetLayout(
         self: RenderPipeline,
         index: def.Index32,
-    ) anyerror!BindGroupLayout {
-        return self.vtable.getBindGroupLayout(self.ptr, index);
+    ) anyerror!DescriptorSetLayout {
+        return self.vtable.getDescriptorSetLayout(self.ptr, index);
     }
 };
 
@@ -817,8 +811,8 @@ pub const ComputePassEncoder = struct {
         dispatchWorkgroups: *const fn (*anyopaque, def.Size32, def.Size32, def.Size32) void,
         dispatchWorkgroupsIndirect: *const fn (*anyopaque, Buffer, def.Size64) void,
         end: *const fn (*anyopaque) void,
-        setBindGroup: *const fn (*anyopaque, def.Index32, ?BindGroup, []const def.BufferDynamicOffset) void,
-        setBindGroupFromData: *const fn (*anyopaque, def.Index32, ?BindGroup, []const u32, def.Size64, def.Size32) void,
+        setDescriptorSet: *const fn (*anyopaque, def.Index32, ?DescriptorSet, []const def.BufferDynamicOffset) void,
+        setDescriptorSetFromData: *const fn (*anyopaque, def.Index32, ?DescriptorSet, []const u32, def.Size64, def.Size32) void,
         pushDebugGroup: *const fn (*anyopaque, []const u8) void,
         popDebugGroup: *const fn (*anyopaque) void,
         insertDebugMarker: *const fn (*anyopaque, []const u8) void,
@@ -845,24 +839,24 @@ pub const ComputePassEncoder = struct {
         return self.vtable.end(self.ptr);
     }
 
-    pub fn setBindGroup(
+    pub fn setDescriptorSet(
         self: ComputePassEncoder,
         index: def.Index32,
-        group: ?BindGroup,
+        group: ?DescriptorSet,
         dynamic_offsets: []const def.BufferDynamicOffset,
     ) void {
-        return self.vtable.setBindGroup(self.ptr, index, group, dynamic_offsets);
+        return self.vtable.setDescriptorSet(self.ptr, index, group, dynamic_offsets);
     }
 
-    pub fn setBindGroupFromData(
+    pub fn setDescriptorSetFromData(
         self: ComputePassEncoder,
         index: def.Index32,
-        group: ?BindGroup,
+        group: ?DescriptorSet,
         dynamic_offsets_data: []const u32,
         dynamic_offsets_data_start: def.Size64,
         dynamic_offsets_data_length: def.Size32,
     ) void {
-        return self.vtable.setBindGroupFromData(
+        return self.vtable.setDescriptorSetFromData(
             self.ptr,
             index,
             group,
@@ -911,8 +905,8 @@ pub const RenderPassEncoder = struct {
         drawIndexed: *const fn (*anyopaque, def.Size32, def.Size32, def.Size32, def.SignedOffset32, def.Size32) void,
         drawIndirect: *const fn (*anyopaque, Buffer, def.Size64) void,
         drawIndexedIndirect: *const fn (*anyopaque, Buffer, def.Size64) void,
-        setBindGroup: *const fn (*anyopaque, def.Index32, ?BindGroup, []const def.BufferDynamicOffset) void,
-        setBindGroupFromData: *const fn (*anyopaque, def.Index32, ?BindGroup, []const u32, def.Size64, def.Size32) void,
+        setDescriptorSet: *const fn (*anyopaque, def.Index32, ?DescriptorSet, []const def.BufferDynamicOffset) void,
+        setDescriptorSetFromData: *const fn (*anyopaque, def.Index32, ?DescriptorSet, []const u32, def.Size64, def.Size32) void,
         pushDebugGroup: *const fn (*anyopaque, []const u8) void,
         popDebugGroup: *const fn (*anyopaque) void,
         insertDebugMarker: *const fn (*anyopaque, []const u8) void,
@@ -1005,24 +999,24 @@ pub const RenderPassEncoder = struct {
         return self.vtable.drawIndexedIndirect(self.ptr, indirect_buffer, indirect_offset);
     }
 
-    pub fn setBindGroup(
+    pub fn setDescriptorSet(
         self: RenderPassEncoder,
         index: def.Index32,
-        group: ?BindGroup,
+        group: ?DescriptorSet,
         dynamic_offsets: []const def.BufferDynamicOffset,
     ) void {
-        return self.vtable.setBindGroup(self.ptr, index, group, dynamic_offsets);
+        return self.vtable.setDescriptorSet(self.ptr, index, group, dynamic_offsets);
     }
 
-    pub fn setBindGroupFromData(
+    pub fn setDescriptorSetFromData(
         self: RenderPassEncoder,
         index: def.Index32,
-        group: ?BindGroup,
+        group: ?DescriptorSet,
         dynamic_offsets_data: []const u32,
         dynamic_offsets_data_start: def.Size64,
         dynamic_offsets_data_length: def.Size32,
     ) void {
-        return self.vtable.setBindGroupFromData(
+        return self.vtable.setDescriptorSetFromData(
             self.ptr,
             index,
             group,
@@ -1074,8 +1068,8 @@ pub const RenderBundleEncoder = struct {
         drawIndexed: *const fn (*anyopaque, def.Size32, def.Size32, def.Size32, def.SignedOffset32, def.Size32) void,
         drawIndirect: *const fn (*anyopaque, Buffer, def.Size64) void,
         drawIndexedIndirect: *const fn (*anyopaque, Buffer, def.Size64) void,
-        setBindGroup: *const fn (*anyopaque, def.Index32, ?BindGroup, []const def.BufferDynamicOffset) void,
-        setBindGroupFromData: *const fn (*anyopaque, def.Index32, ?BindGroup, []const u32, def.Size64, def.Size32) void,
+        setDescriptorSet: *const fn (*anyopaque, def.Index32, ?DescriptorSet, []const def.BufferDynamicOffset) void,
+        setDescriptorSetFromData: *const fn (*anyopaque, def.Index32, ?DescriptorSet, []const u32, def.Size64, def.Size32) void,
         pushDebugGroup: *const fn (*anyopaque, []const u8) void,
         popDebugGroup: *const fn (*anyopaque) void,
         insertDebugMarker: *const fn (*anyopaque, []const u8) void,
@@ -1137,24 +1131,24 @@ pub const RenderBundleEncoder = struct {
         return self.vtable.drawIndexedIndirect(self.ptr, indirect_buffer, indirect_offset);
     }
 
-    pub fn setBindGroup(
+    pub fn setDescriptorSet(
         self: RenderBundleEncoder,
         index: def.Index32,
-        group: ?BindGroup,
+        group: ?DescriptorSet,
         dynamic_offsets: []const def.BufferDynamicOffset,
     ) void {
-        return self.vtable.setBindGroup(self.ptr, index, group, dynamic_offsets);
+        return self.vtable.setDescriptorSet(self.ptr, index, group, dynamic_offsets);
     }
 
-    pub fn setBindGroupFromData(
+    pub fn setDescriptorSetFromData(
         self: RenderBundleEncoder,
         index: def.Index32,
-        group: ?BindGroup,
+        group: ?DescriptorSet,
         dynamic_offsets_data: []const u32,
         dynamic_offsets_data_start: def.Size64,
         dynamic_offsets_data_length: def.Size32,
     ) void {
-        return self.vtable.setBindGroupFromData(
+        return self.vtable.setDescriptorSetFromData(
             self.ptr,
             index,
             group,

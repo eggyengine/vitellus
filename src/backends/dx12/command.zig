@@ -176,8 +176,8 @@ pub const DX_ComputePassEncoder = struct {
         .dispatchWorkgroups = dispatchWorkgroups,
         .dispatchWorkgroupsIndirect = dispatchWorkgroupsIndirect,
         .end = end,
-        .setBindGroup = setBindGroup,
-        .setBindGroupFromData = setBindGroupFromData,
+        .setDescriptorSet = setDescriptorSet,
+        .setDescriptorSetFromData = setDescriptorSetFromData,
         .pushDebugGroup = pushDebugGroup,
         .popDebugGroup = popDebugGroup,
         .insertDebugMarker = insertDebugMarker,
@@ -212,17 +212,17 @@ pub const DX_ComputePassEncoder = struct {
         typed.allocator.destroy(typed);
     }
 
-    fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
+    fn setDescriptorSet(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets: []const def.BufferDynamicOffset) void {
         _ = ptr;
         _ = index;
         _ = group;
         _ = dynamic_offsets;
     }
 
-    fn setBindGroupFromData(
+    fn setDescriptorSetFromData(
         ptr: *anyopaque,
         index: def.Index32,
-        group: ?hal.BindGroup,
+        group: ?hal.DescriptorSet,
         dynamic_offsets_data: []const u32,
         dynamic_offsets_data_start: def.Size64,
         dynamic_offsets_data_length: def.Size32,
@@ -269,8 +269,8 @@ pub const DX_RenderPassEncoder = struct {
         .drawIndexed = drawIndexed,
         .drawIndirect = drawIndirect,
         .drawIndexedIndirect = drawIndexedIndirect,
-        .setBindGroup = setBindGroup,
-        .setBindGroupFromData = setBindGroupFromData,
+        .setDescriptorSet = setDescriptorSet,
+        .setDescriptorSetFromData = setDescriptorSetFromData,
         .pushDebugGroup = pushDebugGroup,
         .popDebugGroup = popDebugGroup,
         .insertDebugMarker = insertDebugMarker,
@@ -386,17 +386,17 @@ pub const DX_RenderPassEncoder = struct {
         _ = indirect_offset;
     }
 
-    fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
+    fn setDescriptorSet(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets: []const def.BufferDynamicOffset) void {
         _ = ptr;
         _ = index;
         _ = group;
         _ = dynamic_offsets;
     }
 
-    fn setBindGroupFromData(
+    fn setDescriptorSetFromData(
         ptr: *anyopaque,
         index: def.Index32,
-        group: ?hal.BindGroup,
+        group: ?hal.DescriptorSet,
         dynamic_offsets_data: []const u32,
         dynamic_offsets_data_start: def.Size64,
         dynamic_offsets_data_length: def.Size32,
@@ -456,8 +456,8 @@ pub const DX_RenderBundleEncoder = struct {
         .drawIndexed = drawIndexed,
         .drawIndirect = drawIndirect,
         .drawIndexedIndirect = drawIndexedIndirect,
-        .setBindGroup = setBindGroup,
-        .setBindGroupFromData = setBindGroupFromData,
+        .setDescriptorSet = setDescriptorSet,
+        .setDescriptorSetFromData = setDescriptorSetFromData,
         .pushDebugGroup = pushDebugGroup,
         .popDebugGroup = popDebugGroup,
         .insertDebugMarker = insertDebugMarker,
@@ -534,17 +534,17 @@ pub const DX_RenderBundleEncoder = struct {
         _ = indirect_offset;
     }
 
-    fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
+    fn setDescriptorSet(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets: []const def.BufferDynamicOffset) void {
         _ = ptr;
         _ = index;
         _ = group;
         _ = dynamic_offsets;
     }
 
-    fn setBindGroupFromData(
+    fn setDescriptorSetFromData(
         ptr: *anyopaque,
         index: def.Index32,
-        group: ?hal.BindGroup,
+        group: ?hal.DescriptorSet,
         dynamic_offsets_data: []const u32,
         dynamic_offsets_data_start: def.Size64,
         dynamic_offsets_data_length: def.Size32,

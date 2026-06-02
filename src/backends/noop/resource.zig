@@ -130,42 +130,42 @@ pub const NoopSampler = struct {
     }
 };
 
-pub const NoopBindGroupLayout = struct {
+pub const NoopDescriptorSetLayout = struct {
     allocator: std.mem.Allocator,
 
-    pub const vtable = hal.BindGroupLayout.VTable{
+    pub const vtable = hal.DescriptorSetLayout.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !hal.BindGroupLayout {
-        const value = try allocator.create(NoopBindGroupLayout);
+    pub fn init(allocator: std.mem.Allocator) !hal.DescriptorSetLayout {
+        const value = try allocator.create(NoopDescriptorSetLayout);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopBindGroupLayout = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop bind group layout", .{});
+        const typed: *NoopDescriptorSetLayout = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying noop descriptor set layout", .{});
         typed.allocator.destroy(typed);
     }
 };
 
-pub const NoopBindGroup = struct {
+pub const NoopDescriptorSet = struct {
     allocator: std.mem.Allocator,
 
-    pub const vtable = hal.BindGroup.VTable{
+    pub const vtable = hal.DescriptorSet.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !hal.BindGroup {
-        const value = try allocator.create(NoopBindGroup);
+    pub fn init(allocator: std.mem.Allocator) !hal.DescriptorSet {
+        const value = try allocator.create(NoopDescriptorSet);
         value.* = .{ .allocator = allocator };
         return .{ .ptr = value, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *NoopBindGroup = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying noop bind group", .{});
+        const typed: *NoopDescriptorSet = @ptrCast(@alignCast(ptr));
+        std.log.debug("destroying noop descriptor set", .{});
         typed.allocator.destroy(typed);
     }
 };

@@ -10,7 +10,7 @@ const screen_height = 480;
 
 const Tex = struct {
     texture: vit.Texture,
-    view: *vit.Texture.View,
+    view: vit.Texture.View,
     sampler: vit.Sampler,
 
     fn deinit(self: *@This()) void {
@@ -23,6 +23,7 @@ const Tex = struct {
 const Vertex = struct {
     position: [2]f32,
     color: [3]f32,
+    texCoord: [2]f32,
 
     fn desc() vit.VertexBufferLayout {
         return vit.VertexBufferLayout{
@@ -39,6 +40,11 @@ const Vertex = struct {
                     .offset = @offsetOf(Vertex, "color"),
                     .shaderLocation = 1,
                 },
+                vit.VertexAttribute{
+                    .format = vit.VertexFormat.float32x2,
+                    .offset = @offsetOf(Vertex, "texCoord"),
+                    .shaderLocation = 2,
+                },
             },
         };
     }
@@ -49,24 +55,28 @@ const VERTICES = [_]Vertex{
     .{
         .position = .{ -0.5, 0.5 },
         .color = .{ 1.0, 0.0, 0.0 },
+        .texCoord = .{ 0.0, 0.0 },
     },
 
     // bottom-left
     .{
         .position = .{ -0.5, -0.5 },
         .color = .{ 0.0, 1.0, 0.0 },
+        .texCoord = .{ 0.0, 1.0 },
     },
 
     // bottom-right
     .{
         .position = .{ 0.5, -0.5 },
         .color = .{ 0.0, 0.0, 1.0 },
+        .texCoord = .{ 1.0, 1.0 },
     },
 
     // top-right
     .{
         .position = .{ 0.5, 0.5 },
         .color = .{ 1.0, 1.0, 0.0 },
+        .texCoord = .{ 1.0, 0.0 },
     },
 };
 
@@ -103,9 +113,9 @@ const Camera = struct {
     }
 };
 
-const camera_bind_group_layout_entry = vit.BindGroupLayout.Entry{
+const camera_descriptor_set_layout_entry = vit.DescriptorSetLayout.Entry{
     .binding = 0,
-    .visibility = vit.BindGroupLayout.ShaderStage.VERTEX,
+    .visibility = vit.DescriptorSetLayout.ShaderStage.VERTEX,
     .buffer = .{
         .type = .uniform,
         .hasDynamicOffset = false,
@@ -113,13 +123,14 @@ const camera_bind_group_layout_entry = vit.BindGroupLayout.Entry{
     },
 };
 
-const texture_layout_entry = vit.BindGroupLayout.Entry{
+const texture_layout_entry = vit.DescriptorSetLayout.Entry{
     .binding = 1,
-    .visibility = vit.BindGroupLayout.ShaderStage.FRAGMENT,
-    .texture = .{
+    .visibility = vit.DescriptorSetLayout.ShaderStage.FRAGMENT,
+    .combinedImageSampler = .{
         .sampleType = .{ .float = .{ .filterable = true } },
         .viewDimension = .@"2d",
         .multisampled = false,
+        .samplerType = .filtering,
     },
 };
 
@@ -164,7 +175,7 @@ pub fn main(init: std.process.Init) !void {
                 },
                 .window_resized => |res| {
                     if (res.width > 0 and res.height > 0) {
-                        const max = 2048; // max supported dim is 2048 for webgl
+                        const max = 2048; // temporary sample resize cap
                         state.config.width = @intCast(@min(res.width, max));
                         state.config.height = @intCast(@min(res.height, max));
                         state.surface.configure(&state.device, state.config);
@@ -188,8 +199,8 @@ pub const State = struct {
 
     render_pipeline: vit.RenderPipeline,
     render_pipeline_layout: vit.PipelineLayout,
-    camera_bind_group_layout: vit.BindGroupLayout,
-    bind_group: vit.BindGroup,
+    camera_descriptor_set_layout: vit.DescriptorSetLayout,
+    descriptor_set: vit.DescriptorSet,
     uniform_buffer: vit.Buffer,
     vertex_buffer: vit.Buffer,
     index_buffer: vit.Buffer,
@@ -202,10 +213,10 @@ pub const State = struct {
         self.index_buffer.deinit();
         self.vertex_buffer.deinit();
         self.uniform_buffer.deinit();
-        self.bind_group.deinit();
+        self.descriptor_set.deinit();
         self.render_pipeline.deinit();
         self.render_pipeline_layout.deinit();
-        self.camera_bind_group_layout.deinit();
+        self.camera_descriptor_set_layout.deinit();
 
         self.surface.deinit();
         self.device.destroy();
@@ -279,8 +290,8 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         .isSurfaceConfigured = true,
         .render_pipeline = undefined,
         .render_pipeline_layout = undefined,
-        .camera_bind_group_layout = undefined,
-        .bind_group = undefined,
+        .camera_descriptor_set_layout = undefined,
+        .descriptor_set = undefined,
         .uniform_buffer = undefined,
         .vertex_buffer = undefined,
         .index_buffer = undefined,
@@ -289,8 +300,21 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     };
 
     try create_images(&state, init);
+    errdefer state.tex.deinit();
+
     try create_camera_resources(&state);
+    errdefer {
+        state.descriptor_set.deinit();
+        state.uniform_buffer.deinit();
+        state.camera_descriptor_set_layout.deinit();
+    }
+
     try create_render_pipeline(&state);
+    errdefer {
+        state.render_pipeline.deinit();
+        state.render_pipeline_layout.deinit();
+    }
+
     try create_buffers(&state);
 
     return state;
@@ -314,8 +338,9 @@ fn create_images(state: *State, init: std.process.Init) !void {
         .format = .rgba8unorm_srgb,
         .usage = vit.Texture.Usage.TEXTURE_BINDING | vit.Texture.Usage.COPY_DST,
     });
+    errdefer texture.deinit();
 
-    state.queue.writeTexture(
+    try state.queue.writeTexture(
         .{
             .texture = &texture,
         },
@@ -327,12 +352,15 @@ fn create_images(state: *State, init: std.process.Init) !void {
         size,
     );
 
-    const texture_view = try texture.createView(.{ .label = "bird texture view" });
-    const sampler = state.device.createSampler(.{
+    var texture_view = try texture.createView(.{ .label = "bird texture view" });
+    errdefer texture_view.destroy();
+
+    const sampler = try state.device.createSampler(.{
         .label = "bird sampler",
         .magFilter = .linear,
         .minFilter = .linear,
     });
+    errdefer sampler.deinit();
 
     state.tex.texture = texture;
     state.tex.view = texture_view;
@@ -340,10 +368,11 @@ fn create_images(state: *State, init: std.process.Init) !void {
 }
 
 fn create_camera_resources(state: *State) !void {
-    state.camera_bind_group_layout = state.device.createBindGroupLayout(.{
-        .label = "camera bind group layout",
-        .entries = &.{ &camera_bind_group_layout_entry, &texture_layout_entry },
+    state.camera_descriptor_set_layout = try state.device.createDescriptorSetLayout(.{
+        .label = "camera descriptor set layout",
+        .entries = &.{ &camera_descriptor_set_layout_entry, &texture_layout_entry },
     });
+    errdefer state.camera_descriptor_set_layout.deinit();
 
     var uniform_buffer = try state.device.createBuffer(.{
         .label = "Camera Uniform Buffer",
@@ -352,20 +381,25 @@ fn create_camera_resources(state: *State) !void {
         .mappedAtCreation = false,
     });
 
+    errdefer uniform_buffer.deinit();
+
     const initial_ubo = state.camera.uniforms(state.config.width, state.config.height);
     const initial_bytes = std.mem.asBytes(&initial_ubo);
     state.queue.writeBuffer(&uniform_buffer, 0, initial_bytes[0..], 0, null);
     state.uniform_buffer = uniform_buffer;
 
-    state.bind_group = state.device.createBindGroup(.{
-        .label = "camera bind group",
-        .layout = &state.camera_bind_group_layout,
+    state.descriptor_set = try state.device.createDescriptorSet(.{
+        .label = "camera descriptor set",
+        .layout = &state.camera_descriptor_set_layout,
         .entries = &.{ .{
             .binding = 0,
             .resource = .{ .bufferBinding = .{ .buffer = &state.uniform_buffer } },
         }, .{
             .binding = 1,
-            .resource = .{ .textureView = state.tex.view },
+            .resource = .{ .combinedImageSampler = .{
+                .view = &state.tex.view,
+                .sampler = &state.tex.sampler,
+            } },
         } },
     });
 }
@@ -383,12 +417,13 @@ fn create_render_pipeline(state: *State) !void {
     });
     defer fragment_shader.deinit();
 
-    state.render_pipeline_layout = state.device.createPipelineLayout(.{
+    state.render_pipeline_layout = try state.device.createPipelineLayout(.{
         .label = "render pipeline layout",
-        .bindGroupLayouts = &.{&state.camera_bind_group_layout},
+        .descriptorSetLayouts = &.{&state.camera_descriptor_set_layout},
     });
+    errdefer state.render_pipeline_layout.deinit();
 
-    const render_pipeline = state.device.createRenderPipeline(.{
+    const render_pipeline = try state.device.createRenderPipeline(.{
         .label = "render pipeline",
         .layout = &state.render_pipeline_layout,
         .vertex = .{
@@ -434,6 +469,8 @@ fn create_buffers(state: *State) !void {
         .mappedAtCreation = false,
     });
 
+    errdefer vertex_buffer.deinit();
+
     state.queue.writeBuffer(&vertex_buffer, 0, std.mem.sliceAsBytes(VERTICES[0..]), 0, null);
 
     state.vertex_buffer = vertex_buffer;
@@ -469,10 +506,10 @@ fn render_the_pipeline(state: *State, dt: f32) !void {
         .lost => return error.DeviceLost,
     };
 
-    const view = try output.createView(.{});
+    var view = try output.createView(.{});
     defer view.destroy();
 
-    var encoder = state.device.createCommandEncoder(.{
+    var encoder = try state.device.createCommandEncoder(.{
         .label = "render encoder",
     });
 
@@ -481,7 +518,7 @@ fn render_the_pipeline(state: *State, dt: f32) !void {
             .label = "Render Pass",
             .colorAttachments = &.{
                 .{
-                    .view = .{ .texture_view = view },
+                    .view = .{ .texture_view = &view },
                     .resolveTarget = null,
                     .depthSlice = null,
                     .clearValue = .{ .dict = .{
@@ -502,7 +539,7 @@ fn render_the_pipeline(state: *State, dt: f32) !void {
         defer render_pass.end();
 
         render_pass.setPipeline(&state.render_pipeline);
-        render_pass.setBindGroup(0, &state.bind_group, &.{});
+        render_pass.setDescriptorSet(0, &state.descriptor_set, &.{});
         render_pass.setVertexBuffer(0, &state.vertex_buffer, 0, null);
         render_pass.setIndexBuffer(&state.index_buffer, .uint16, 0, null);
         render_pass.drawIndexed(.exclusive(0, INDICES.len), .exclusive(0, 1), 0);

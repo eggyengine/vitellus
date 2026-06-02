@@ -4,19 +4,19 @@ const buffer_mod = @import("buffer.zig");
 const sampler_mod = @import("sampler.zig");
 const texture_mod = @import("texture.zig");
 
-pub const BindGroup = struct {
-    backend: ?hal.BindGroup = null,
+pub const DescriptorSet = struct {
+    backend: ?hal.DescriptorSet = null,
     label: ?[*:0]const u8,
-    layout: *const BindGroupLayout,
+    layout: *const DescriptorSetLayout,
     entries: []const Entry,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
-        layout: *const BindGroupLayout,
+        layout: *const DescriptorSetLayout,
         entries: []const Entry,
     };
 
-    pub fn init(descriptor: Descriptor) BindGroup {
+    pub fn init(descriptor: Descriptor) DescriptorSet {
         return .{
             .label = descriptor.label,
             .layout = descriptor.layout,
@@ -43,10 +43,15 @@ pub const BindGroup = struct {
 
     pub const BindingResource = union(enum) {
         sampler: *sampler_mod.Sampler,
-        texture: *texture_mod.Texture,
         textureView: *texture_mod.Texture.View,
         buffer: *buffer_mod.Buffer,
         bufferBinding: BufferBinding,
+        combinedImageSampler: CombinedImageSamplerBinding,
+    };
+
+    pub const CombinedImageSamplerBinding = struct {
+        view: *texture_mod.Texture.View,
+        sampler: *sampler_mod.Sampler,
     };
 
     pub const BufferBinding = struct {
@@ -56,8 +61,8 @@ pub const BindGroup = struct {
     };
 };
 
-pub const BindGroupLayout = struct {
-    backend: ?hal.BindGroupLayout = null,
+pub const DescriptorSetLayout = struct {
+    backend: ?hal.DescriptorSetLayout = null,
     label: ?[*:0]const u8,
     entryMap: []const *const Entry,
     dynamicOffsetCount: def.Size32Out,
@@ -68,7 +73,7 @@ pub const BindGroupLayout = struct {
         entries: []const *const Entry,
     };
 
-    pub fn init(descriptor: Descriptor) BindGroupLayout {
+    pub fn init(descriptor: Descriptor) DescriptorSetLayout {
         var dynamic_offset_count: def.Size32Out = 0;
         for (descriptor.entries) |entry| {
             if (entry.*.buffer) |buffer| {
@@ -127,6 +132,7 @@ pub const BindGroupLayout = struct {
         sampler: ?Sampler = null,
         texture: ?Texture = null,
         storageTexture: ?StorageTexture = null,
+        combinedImageSampler: ?CombinedImageSampler = null,
 
         pub const Buffer = struct {
             type: Type = .uniform,
@@ -173,6 +179,13 @@ pub const BindGroupLayout = struct {
                 read_only,
                 read_write,
             };
+        };
+
+        pub const CombinedImageSampler = struct {
+            sampleType: Texture.SampleType = .{ .float = .{ .filterable = true } },
+            viewDimension: texture_mod.Texture.View.Dimension = .@"2d",
+            multisampled: bool = false,
+            samplerType: Sampler.Type = .filtering,
         };
     };
 };

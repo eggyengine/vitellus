@@ -1,4 +1,4 @@
-//! vitellus - a webgpu-inspired graphics api
+//! vitellus - a native-first rendering hardware interface
 //!
 //! start off at `vit.Instance`.
 
@@ -11,7 +11,7 @@ pub const types = struct {
     pub const buffer = @import("types/buffer.zig");
     pub const texture = @import("types/texture.zig");
     pub const sampler = @import("types/sampler.zig");
-    pub const bind_group = @import("types/bind_group.zig");
+    pub const descriptor_set = @import("types/descriptor_set.zig");
     pub const pipeline = @import("types/pipeline.zig");
     pub const shader = @import("types/shader.zig");
     pub const command = @import("types/command.zig");
@@ -55,8 +55,8 @@ pub const TexelCopyBufferLayout = types.texture.TexelCopyBufferLayout;
 pub const TexelCopyBufferInfo = types.texture.TexelCopyBufferInfo;
 pub const TexelCopyTextureInfo = types.texture.TexelCopyTextureInfo;
 pub const Sampler = types.sampler.Sampler;
-pub const BindGroupLayout = types.bind_group.BindGroupLayout;
-pub const BindGroup = types.bind_group.BindGroup;
+pub const DescriptorSetLayout = types.descriptor_set.DescriptorSetLayout;
+pub const DescriptorSet = types.descriptor_set.DescriptorSet;
 pub const PipelineLayout = types.pipeline.PipelineLayout;
 pub const PipelineError = types.pipeline.PipelineError;
 pub const ComputePipeline = types.pipeline.ComputePipeline;
@@ -96,7 +96,6 @@ pub const SupportedFeatures = types.features.SupportedFeatures;
 pub const SupportedLimits = types.features.SupportedLimits;
 pub const SupportedLimitName = types.features.SupportedLimitName;
 pub const SupportedLimitNumber = types.features.SupportedLimitNumber;
-pub const WGSLLanguageFeatures = types.features.WGSLLanguageFeatures;
 
 pub const BufferDynamicOffset = types.def.BufferDynamicOffset;
 pub const StencilValue = types.def.StencilValue;

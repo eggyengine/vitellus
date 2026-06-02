@@ -1,14 +1,8 @@
 # vitellus
 
-vitellus is WebGPU-inspired graphics api written in zig, supporting web and native platforms, and uses the similar concepts as WebGPU.  
+vitellus is a native-first rendering hardware interface written in Zig for building game engines and renderers on modern graphics APIs.
 
-Shaders are parsed with SPIR-V and compiled with the [splat](splat) project (spirv-cross packaged for zig)
-
-### why not just use sysgpu
-
-albeit [sysgpu](https://code.hexops.org/hexops/mach) is a great project (and hexops' mach project), sysgpu locks you into their own custom version mach-zig version and their ecosystem. vitellus allows you to use any zig version (you always get the most stable version). 
-
-if you do want to use wgsl, you should use sysgpu instead. otherwise if you want write shaders in slang and have more control over your hardware, use vitellus. ~~also, we have a c api~~
+Shaders are parsed with SPIR-V and compiled with the [splat](splat) project (spirv-cross packaged for zig).
 
 ## add to project
 requires zig `0.16.0`
@@ -38,7 +32,6 @@ const vit = b.dependency("vitellus", .{
     // .vulkan = true,
     // .dx12 = true,
     // .metal = true,
-    // .browser_webgpu = true,
     // .opengl = false,
     // .noop = false,
 });

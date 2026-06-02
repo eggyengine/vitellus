@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const bind_group = @import("../../types/bind_group.zig");
+const descriptor_set = @import("../../types/descriptor_set.zig");
 const buffer = @import("../../types/buffer.zig");
 const def = @import("../../types/def.zig");
 const gpu = @import("../../types/gpu.zig");
@@ -20,6 +20,8 @@ pub const vkBuffer = struct {
     mapped_ptr: ?[*]u8 = null,
     mapped_offset: def.Size64 = 0,
     mapped_size: def.Size64 = 0,
+
+    is_staging: bool = false,
 
     pub const vtable = hal.Buffer.VTable{
         .destroy = destroy,
@@ -100,9 +102,12 @@ pub const vkBuffer = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.device.device.deviceWaitIdle() catch |err| {
+            std.log.err("{s}", .{@errorName(err)});
+        };
         typed.unmapInternal();
         if (typed.handle != .null_handle) {
-            std.log.debug("destroying vulkan buffer: handle=0x{x}", .{@intFromEnum(typed.handle)});
+            if (!typed.is_staging) std.log.debug("destroying vulkan buffer: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.device.destroyBuffer(typed.handle, null);
             typed.handle = .null_handle;
         }
@@ -262,6 +267,10 @@ pub const vkTexture = struct {
     handle: vk.Image,
     format: vk.Format,
     extent: vk.Extent3D,
+    dimension: texture.Texture.Dimension,
+    mip_level_count: u32,
+    array_layers: u32,
+    layout: vk.ImageLayout = .undefined,
     owns_image: bool = false,
     label: ?[*:0]const u8 = null,
     present_surface: ?*anyopaque = null,
@@ -314,6 +323,10 @@ pub const vkTexture = struct {
             .handle = handle,
             .format = format,
             .extent = extent,
+            .dimension = descriptor.dimension,
+            .mip_level_count = descriptor.mipLevelCount,
+            .array_layers = array_layers,
+            .layout = .undefined,
             .owns_image = true,
         };
 
@@ -333,15 +346,22 @@ pub const vkTexture = struct {
                 .height = extent.height,
                 .depth = 1,
             },
+            .dimension = .@"2d",
+            .mip_level_count = 1,
+            .array_layers = 1,
+            .layout = .present_src_khr,
             .owns_image = false,
         };
     }
 
     pub fn createDefaultView(self: *@This()) !vkTextureView {
-        return vkTextureView.init(self.device, self.handle, self.format, .{ .color_bit = true }, self.label);
+        return self.createViewFromDescriptor(.{});
     }
 
     pub fn deinit(self: *@This()) void {
+        self.device.device.deviceWaitIdle() catch |err| {
+            std.log.err("{s}", .{@errorName(err)});
+        };
         if (self.owns_image and self.handle != .null_handle) {
             std.log.debug("destroying vulkan image: handle=0x{x}", .{@intFromEnum(self.handle)});
             self.device.device.destroyImage(self.handle, null);
@@ -355,27 +375,145 @@ pub const vkTexture = struct {
     }
 
     fn destroy(ptr: *anyopaque) void {
-        const typed: *@This() = @ptrCast(@alignCast(ptr));
-        typed.deinit();
-        typed.device.adapter.gpu.allocator.destroy(typed);
+        const self: *@This() = @ptrCast(@alignCast(ptr));
+        self.deinit();
+        self.device.adapter.gpu.allocator.destroy(self);
     }
 
     fn createView(ptr: *anyopaque, descriptor: texture.Texture.View.Descriptor) anyerror!hal.TextureView {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
         const view = try typed.device.adapter.gpu.allocator.create(vkTextureView);
         errdefer typed.device.adapter.gpu.allocator.destroy(view);
         if (typed.present_image_view) |present_image_view| {
+            if (!isDefaultViewDescriptor(descriptor)) return error.InvalidSwapchainViewDescriptor;
             view.* = present_image_view.*;
             view.owns_view = false;
         } else {
-            view.* = try typed.createDefaultView();
+            view.* = try typed.createViewFromDescriptor(descriptor);
         }
         view.present_surface = typed.present_surface;
         view.present_image_index = typed.present_image_index;
         return .{ .ptr = view, .vtable = &vkTextureView.vtable };
     }
+
+    fn createViewFromDescriptor(self: *@This(), descriptor: texture.Texture.View.Descriptor) !vkTextureView {
+        const format = if (descriptor.format) |format|
+            utils.formatToVk(format) orelse return error.UnsupportedTextureFormat
+        else
+            self.format;
+
+        const view_dimension = descriptor.dimension orelse defaultViewDimension(self.dimension, self.array_layers);
+        const base_mip_level = descriptor.baseMipLevel;
+        if (base_mip_level >= self.mip_level_count) return error.TextureViewMipRangeOutOfBounds;
+        const level_count = descriptor.mipLevelCount orelse (self.mip_level_count - base_mip_level);
+        if (level_count == 0 or level_count > self.mip_level_count - base_mip_level) return error.TextureViewMipRangeOutOfBounds;
+
+        const base_array_layer = descriptor.baseArrayLayer;
+        if (base_array_layer >= self.array_layers) return error.TextureViewArrayRangeOutOfBounds;
+        const layer_count = descriptor.arrayLayerCount orelse defaultViewLayerCount(view_dimension, self.array_layers - base_array_layer);
+        if (layer_count == 0 or layer_count > self.array_layers - base_array_layer) return error.TextureViewArrayRangeOutOfBounds;
+        try validateViewDimension(self.dimension, view_dimension, layer_count);
+
+        return vkTextureView.init(self.device, .{
+            .image = self.handle,
+            .view_type = viewDimensionToVk(view_dimension),
+            .format = format,
+            .aspect_mask = aspectMaskForView(descriptor.aspect, format),
+            .base_mip_level = base_mip_level,
+            .level_count = level_count,
+            .base_array_layer = base_array_layer,
+            .layer_count = layer_count,
+            .components = try componentMappingFromSwizzle(descriptor.swizzle),
+            .label = descriptor.label orelse self.label,
+        });
+    }
 };
+
+fn isDefaultViewDescriptor(descriptor: texture.Texture.View.Descriptor) bool {
+    return descriptor.format == null and
+        descriptor.dimension == null and
+        descriptor.usage == 0 and
+        descriptor.aspect == .all and
+        descriptor.baseMipLevel == 0 and
+        descriptor.mipLevelCount == null and
+        descriptor.baseArrayLayer == 0 and
+        descriptor.arrayLayerCount == null and
+        std.mem.eql(u8, descriptor.swizzle, "rgba");
+}
+
+fn defaultViewDimension(dimension: texture.Texture.Dimension, array_layers: u32) texture.Texture.View.Dimension {
+    return switch (dimension) {
+        .@"1d" => .@"1d",
+        .@"2d" => if (array_layers > 1) .@"2d-array" else .@"2d",
+        .@"3d" => .@"3d",
+    };
+}
+
+fn defaultViewLayerCount(view_dimension: texture.Texture.View.Dimension, available_layers: u32) u32 {
+    return switch (view_dimension) {
+        .@"1d", .@"2d", .@"3d" => 1,
+        .cube => 6,
+        .@"2d-array", .@"cube-array" => available_layers,
+    };
+}
+
+fn validateViewDimension(texture_dimension: texture.Texture.Dimension, view_dimension: texture.Texture.View.Dimension, layer_count: u32) !void {
+    switch (view_dimension) {
+        .@"1d" => if (texture_dimension != .@"1d" or layer_count != 1) return error.InvalidTextureViewDimension,
+        .@"2d" => if (texture_dimension != .@"2d" or layer_count != 1) return error.InvalidTextureViewDimension,
+        .@"2d-array" => if (texture_dimension != .@"2d") return error.InvalidTextureViewDimension,
+        .cube => if (texture_dimension != .@"2d" or layer_count != 6) return error.InvalidTextureViewDimension,
+        .@"cube-array" => if (texture_dimension != .@"2d" or layer_count < 6 or layer_count % 6 != 0) return error.InvalidTextureViewDimension,
+        .@"3d" => if (texture_dimension != .@"3d" or layer_count != 1) return error.InvalidTextureViewDimension,
+    }
+}
+
+fn viewDimensionToVk(dimension: texture.Texture.View.Dimension) vk.ImageViewType {
+    return switch (dimension) {
+        .@"1d" => .@"1d",
+        .@"2d" => .@"2d",
+        .@"2d-array" => .@"2d_array",
+        .cube => .cube,
+        .@"cube-array" => .cube_array,
+        .@"3d" => .@"3d",
+    };
+}
+
+fn aspectMaskForView(aspect: texture.Texture.Aspect, format: vk.Format) vk.ImageAspectFlags {
+    return switch (aspect) {
+        .depth_only => .{ .depth_bit = true },
+        .stencil_only => .{ .stencil_bit = true },
+        .all => switch (format) {
+            .s8_uint => .{ .stencil_bit = true },
+            .d16_unorm, .d32_sfloat => .{ .depth_bit = true },
+            .d16_unorm_s8_uint, .d24_unorm_s8_uint, .d32_sfloat_s8_uint => .{ .depth_bit = true, .stencil_bit = true },
+            else => .{ .color_bit = true },
+        },
+    };
+}
+
+fn componentMappingFromSwizzle(swizzle: []const u8) !vk.ComponentMapping {
+    if (swizzle.len != 4) return error.InvalidTextureViewSwizzle;
+    return .{
+        .r = try componentSwizzleFromByte(swizzle[0]),
+        .g = try componentSwizzleFromByte(swizzle[1]),
+        .b = try componentSwizzleFromByte(swizzle[2]),
+        .a = try componentSwizzleFromByte(swizzle[3]),
+    };
+}
+
+fn componentSwizzleFromByte(byte: u8) !vk.ComponentSwizzle {
+    return switch (byte) {
+        'r' => .r,
+        'g' => .g,
+        'b' => .b,
+        'a' => .a,
+        '0' => .zero,
+        '1' => .one,
+        'i' => .identity,
+        else => error.InvalidTextureViewSwizzle,
+    };
+}
 
 pub const vkTextureView = struct {
     device: *vkDevice,
@@ -387,42 +525,53 @@ pub const vkTextureView = struct {
     present_surface: ?*anyopaque = null,
     present_image_index: u32 = 0,
 
+    pub const Descriptor = struct {
+        image: vk.Image,
+        view_type: vk.ImageViewType,
+        format: vk.Format,
+        aspect_mask: vk.ImageAspectFlags,
+        base_mip_level: u32,
+        level_count: u32,
+        base_array_layer: u32,
+        layer_count: u32,
+        components: vk.ComponentMapping,
+        label: ?[*:0]const u8 = null,
+    };
+
     pub const vtable = hal.TextureView.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(device: *vkDevice, image: vk.Image, format: vk.Format, aspect_mask: vk.ImageAspectFlags, label: ?[*:0]const u8) !@This() {
+    pub fn init(device: *vkDevice, descriptor: Descriptor) !@This() {
         const create_info = vk.ImageViewCreateInfo{
-            .image = image,
-            .view_type = .@"2d",
-            .format = format,
-            .components = .{
-                .r = .identity,
-                .g = .identity,
-                .b = .identity,
-                .a = .identity,
-            },
+            .image = descriptor.image,
+            .view_type = descriptor.view_type,
+            .format = descriptor.format,
+            .components = descriptor.components,
             .subresource_range = .{
-                .aspect_mask = aspect_mask,
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
+                .aspect_mask = descriptor.aspect_mask,
+                .base_mip_level = descriptor.base_mip_level,
+                .level_count = descriptor.level_count,
+                .base_array_layer = descriptor.base_array_layer,
+                .layer_count = descriptor.layer_count,
             },
         };
         const handle = try device.device.createImageView(&create_info, null);
         errdefer device.device.destroyImageView(handle, null);
-        debug.setObjectName(device, .image_view, handle, label);
+        debug.setObjectName(device, .image_view, handle, descriptor.label);
         return .{
             .device = device,
             .handle = handle,
-            .image = image,
-            .format = format,
-            .label = label,
+            .image = descriptor.image,
+            .format = descriptor.format,
+            .label = descriptor.label,
         };
     }
 
     pub fn deinit(self: *@This()) void {
+        self.device.device.deviceWaitIdle() catch |err| {
+            std.log.err("{s}", .{@errorName(err)});
+        };
         if (self.handle != .null_handle) {
             if (self.owns_view) {
                 std.log.debug("destroying vulkan texture view: handle=0x{x}", .{@intFromEnum(self.handle)});
@@ -439,34 +588,105 @@ pub const vkTextureView = struct {
     }
 };
 
+fn addressModeToVk(address_mode: sampler.Sampler.AddressMode) vk.SamplerAddressMode {
+    return switch (address_mode) {
+        .clamp_to_edge => .clamp_to_edge,
+        .mirror_repeat => .mirrored_repeat,
+        .repeat => .repeat,
+    };
+}
+
+fn filterModeToVk(filter_mode: sampler.Sampler.FilterMode) vk.Filter {
+    return switch (filter_mode) {
+        .nearest => .nearest,
+        .linear => .linear,
+    };
+}
+
+fn mipmapFilterModeToVk(filter_mode: sampler.Sampler.MipmapFilterMode) vk.SamplerMipmapMode {
+    return switch (filter_mode) {
+        .nearest => .nearest,
+        .linear => .linear,
+    };
+}
+
+fn compareFunctionToVk(compare: sampler.Sampler.CompareFunction) vk.CompareOp {
+    return switch (compare) {
+        .never => .never,
+        .less => .less,
+        .equal => .equal,
+        .less_equal => .less_or_equal,
+        .greater => .greater,
+        .not_equal => .not_equal,
+        .greater_equal => .greater_or_equal,
+        .always => .always,
+    };
+}
+
 pub const vkSampler = struct {
+    device: *vkDevice,
+    handle: vk.Sampler,
+
     pub const vtable = hal.Sampler.VTable{
         .destroy = destroy,
     };
 
     pub fn init(device: *vkDevice, descriptor: sampler.Sampler.Descriptor) !hal.Sampler {
-        _ = device;
-        _ = descriptor;
-        return error.NotImplemented;
+        const sampler_create = vk.SamplerCreateInfo{
+            .mag_filter = filterModeToVk(descriptor.magFilter),
+            .min_filter = filterModeToVk(descriptor.minFilter),
+            .mipmap_mode = mipmapFilterModeToVk(descriptor.mipmapFilter),
+            .address_mode_u = addressModeToVk(descriptor.addressModeU),
+            .address_mode_v = addressModeToVk(descriptor.addressModeV),
+            .address_mode_w = addressModeToVk(descriptor.addressModeW),
+            .mip_lod_bias = 0,
+            .anisotropy_enable = if (descriptor.maxAnisotropy > 1) .true else .false,
+            .max_anisotropy = @floatFromInt(@max(descriptor.maxAnisotropy, 1)),
+            .compare_enable = if (descriptor.compare != null) .true else .false,
+            .compare_op = if (descriptor.compare) |compare| compareFunctionToVk(compare) else .always,
+            .min_lod = descriptor.lodMinClamp,
+            .max_lod = descriptor.lodMaxClamp,
+            .border_color = .float_transparent_black,
+            .unnormalized_coordinates = .false,
+        };
+
+        const handle = try device.device.createSampler(&sampler_create, null);
+        errdefer device.device.destroySampler(handle, null);
+        debug.setObjectName(device, .sampler, handle, descriptor.label);
+
+        const self = try device.adapter.gpu.allocator.create(vkSampler);
+        self.* = .{
+            .device = device,
+            .handle = handle,
+        };
+        return .{ .ptr = self, .vtable = &vtable };
     }
 
     fn destroy(ptr: *anyopaque) void {
-        _ = ptr;
-        std.log.debug("destroying vulkan sampler", .{});
+        const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.device.device.deviceWaitIdle() catch |err| {
+            std.log.err("{s}", .{@errorName(err)});
+        };
+        if (typed.handle != .null_handle) {
+            std.log.debug("destroying vulkan sampler: handle=0x{x}", .{@intFromEnum(typed.handle)});
+            typed.device.device.destroySampler(typed.handle, null);
+            typed.handle = .null_handle;
+        }
+        typed.device.adapter.gpu.allocator.destroy(typed);
     }
 };
 
-pub const vkBindGroupLayout = struct {
+pub const vkDescriptorSetLayout = struct {
     device: *vkDevice,
     handle: vk.DescriptorSetLayout,
     bindings: []vk.DescriptorSetLayoutBinding,
     label: ?[*:0]const u8,
 
-    pub const vtable = hal.BindGroupLayout.VTable{
+    pub const vtable = hal.DescriptorSetLayout.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(device: *vkDevice, descriptor: bind_group.BindGroupLayout.Descriptor) !hal.BindGroupLayout {
+    pub fn init(device: *vkDevice, descriptor: descriptor_set.DescriptorSetLayout.Descriptor) !hal.DescriptorSetLayout {
         const allocator = device.adapter.gpu.allocator;
         const bindings = try allocator.alloc(vk.DescriptorSetLayoutBinding, descriptor.entries.len);
         errdefer allocator.free(bindings);
@@ -488,7 +708,7 @@ pub const vkBindGroupLayout = struct {
         const handle = try device.device.createDescriptorSetLayout(&create_info, null);
         errdefer device.device.destroyDescriptorSetLayout(handle, null);
 
-        const self = try allocator.create(vkBindGroupLayout);
+        const self = try allocator.create(vkDescriptorSetLayout);
         errdefer allocator.destroy(self);
         self.* = .{
             .device = device,
@@ -507,7 +727,7 @@ pub const vkBindGroupLayout = struct {
             std.log.err("{s}", .{@errorName(err)});
         };
         if (typed.handle != .null_handle) {
-            std.log.debug("destroying vulkan bind group layout: handle=0x{x}", .{@intFromEnum(typed.handle)});
+            std.log.debug("destroying vulkan descriptor set layout: handle=0x{x}", .{@intFromEnum(typed.handle)});
             typed.device.device.destroyDescriptorSetLayout(typed.handle, null);
             typed.handle = .null_handle;
         }
@@ -515,7 +735,7 @@ pub const vkBindGroupLayout = struct {
         typed.device.adapter.gpu.allocator.destroy(typed);
     }
 
-    fn descriptorTypeForLayoutEntry(entry: bind_group.BindGroupLayout.Entry) !vk.DescriptorType {
+    fn descriptorTypeForLayoutEntry(entry: descriptor_set.DescriptorSetLayout.Entry) !vk.DescriptorType {
         if (entry.buffer) |buffer_binding| {
             return switch (buffer_binding.type) {
                 .uniform => if (buffer_binding.hasDynamicOffset) .uniform_buffer_dynamic else .uniform_buffer,
@@ -525,11 +745,12 @@ pub const vkBindGroupLayout = struct {
         if (entry.sampler != null) return .sampler;
         if (entry.texture != null) return .sampled_image;
         if (entry.storageTexture != null) return .storage_image;
-        return error.InvalidBindGroupLayoutEntry;
+        if (entry.combinedImageSampler != null) return .combined_image_sampler;
+        return error.InvalidDescriptorSetLayoutEntry;
     }
 
-    fn shaderStageFlagsToVulkan(flags: bind_group.BindGroupLayout.ShaderStageFlags) vk.ShaderStageFlags {
-        const stages = bind_group.BindGroupLayout.ShaderStage.fromFlags(flags);
+    fn shaderStageFlagsToVulkan(flags: descriptor_set.DescriptorSetLayout.ShaderStageFlags) vk.ShaderStageFlags {
+        const stages = descriptor_set.DescriptorSetLayout.ShaderStage.fromFlags(flags);
         return .{
             .vertex_bit = stages.vertex,
             .fragment_bit = stages.fragment,
@@ -541,25 +762,50 @@ pub const vkBindGroupLayout = struct {
         for (self.bindings) |layout_binding| {
             if (layout_binding.binding == binding) return layout_binding.descriptor_type;
         }
-        return error.MissingBindGroupLayoutBinding;
+        return error.MissingDescriptorSetLayoutBinding;
     }
 };
 
-pub const vkBindGroup = struct {
+fn isBufferDescriptor(descriptor_type: vk.DescriptorType) bool {
+    return switch (descriptor_type) {
+        .uniform_buffer, .uniform_buffer_dynamic, .storage_buffer, .storage_buffer_dynamic => true,
+        else => false,
+    };
+}
+
+fn isImageDescriptor(descriptor_type: vk.DescriptorType) bool {
+    return switch (descriptor_type) {
+        .sampled_image, .storage_image => true,
+        else => false,
+    };
+}
+
+fn isCombinedImageSamplerDescriptor(descriptor_type: vk.DescriptorType) bool {
+    return descriptor_type == .combined_image_sampler;
+}
+
+fn imageLayoutForDescriptorType(descriptor_type: vk.DescriptorType) vk.ImageLayout {
+    return switch (descriptor_type) {
+        .storage_image => .general,
+        else => .shader_read_only_optimal,
+    };
+}
+
+pub const vkDescriptorSet = struct {
     device: *vkDevice,
-    layout: *vkBindGroupLayout,
+    layout: *vkDescriptorSetLayout,
     descriptor_pool: vk.DescriptorPool,
     descriptor_set: vk.DescriptorSet,
     label: ?[*:0]const u8,
 
-    pub const vtable = hal.BindGroup.VTable{
+    pub const vtable = hal.DescriptorSet.VTable{
         .destroy = destroy,
     };
 
-    pub fn init(device: *vkDevice, descriptor: bind_group.BindGroup.Descriptor) !hal.BindGroup {
+    pub fn init(device: *vkDevice, descriptor: descriptor_set.DescriptorSet.Descriptor) !hal.DescriptorSet {
         const allocator = device.adapter.gpu.allocator;
-        const layout_backend = descriptor.layout.backend orelse return error.InvalidBindGroupLayout;
-        const layout: *vkBindGroupLayout = @ptrCast(@alignCast(layout_backend.ptr));
+        const layout_backend = descriptor.layout.backend orelse return error.InvalidDescriptorSetLayout;
+        const layout: *vkDescriptorSetLayout = @ptrCast(@alignCast(layout_backend.ptr));
 
         var pool_sizes = std.ArrayList(vk.DescriptorPoolSize).empty;
         defer pool_sizes.deinit(allocator);
@@ -587,30 +833,71 @@ pub const vkBindGroup = struct {
 
         const buffer_infos = try allocator.alloc(vk.DescriptorBufferInfo, descriptor.entries.len);
         defer allocator.free(buffer_infos);
+        const image_infos = try allocator.alloc(vk.DescriptorImageInfo, descriptor.entries.len);
+        defer allocator.free(image_infos);
         const writes = try allocator.alloc(vk.WriteDescriptorSet, descriptor.entries.len);
         defer allocator.free(writes);
 
         for (descriptor.entries, 0..) |entry, i| {
             const descriptor_type = try layout.descriptorTypeForBinding(entry.binding);
+            var buffer_info: ?*const vk.DescriptorBufferInfo = null;
+            var image_info: ?*const vk.DescriptorImageInfo = null;
+
             switch (entry.resource) {
                 .buffer => |target| {
+                    if (!isBufferDescriptor(descriptor_type)) return error.InvalidDescriptorSetBufferBinding;
                     const vk_buffer: *vkBuffer = @ptrCast(@alignCast((target.backend orelse return error.InvalidBuffer).ptr));
                     buffer_infos[i] = .{
                         .buffer = vk_buffer.handle,
                         .offset = 0,
                         .range = vk_buffer.size,
                     };
+                    buffer_info = &buffer_infos[i];
                 },
                 .bufferBinding => |binding| {
+                    if (!isBufferDescriptor(descriptor_type)) return error.InvalidDescriptorSetBufferBinding;
                     const vk_buffer: *vkBuffer = @ptrCast(@alignCast((binding.buffer.backend orelse return error.InvalidBuffer).ptr));
-                    if (binding.offset > vk_buffer.size) return error.BindGroupBufferRangeOutOfBounds;
+                    if (binding.offset > vk_buffer.size) return error.DescriptorSetBufferRangeOutOfBounds;
+                    const range = binding.size orelse (vk_buffer.size - binding.offset);
+                    if (range > vk_buffer.size - binding.offset) return error.DescriptorSetBufferRangeOutOfBounds;
                     buffer_infos[i] = .{
                         .buffer = vk_buffer.handle,
                         .offset = binding.offset,
-                        .range = binding.size orelse (vk_buffer.size - binding.offset),
+                        .range = range,
                     };
+                    buffer_info = &buffer_infos[i];
                 },
-                .sampler, .texture, .textureView => return error.NotImplemented,
+                .sampler => |s| {
+                    if (descriptor_type != .sampler) return error.InvalidDescriptorSetSamplerBinding;
+                    const vk_sampler: *vkSampler = @ptrCast(@alignCast((s.backend orelse return error.InvalidSampler).ptr));
+                    image_infos[i] = .{
+                        .sampler = vk_sampler.handle,
+                        .image_view = .null_handle,
+                        .image_layout = .undefined,
+                    };
+                    image_info = &image_infos[i];
+                },
+                .textureView => |view| {
+                    if (!isImageDescriptor(descriptor_type)) return error.InvalidDescriptorSetTextureBinding;
+                    const vk_view: *vkTextureView = @ptrCast(@alignCast((view.backend orelse return error.InvalidTextureView).ptr));
+                    image_infos[i] = .{
+                        .sampler = .null_handle,
+                        .image_view = vk_view.handle,
+                        .image_layout = imageLayoutForDescriptorType(descriptor_type),
+                    };
+                    image_info = &image_infos[i];
+                },
+                .combinedImageSampler => |binding| {
+                    if (!isCombinedImageSamplerDescriptor(descriptor_type)) return error.InvalidDescriptorSetCombinedImageSamplerBinding;
+                    const vk_view: *vkTextureView = @ptrCast(@alignCast((binding.view.backend orelse return error.InvalidTextureView).ptr));
+                    const vk_sampler: *vkSampler = @ptrCast(@alignCast((binding.sampler.backend orelse return error.InvalidSampler).ptr));
+                    image_infos[i] = .{
+                        .sampler = vk_sampler.handle,
+                        .image_view = vk_view.handle,
+                        .image_layout = .shader_read_only_optimal,
+                    };
+                    image_info = &image_infos[i];
+                },
             }
             writes[i] = .{
                 .dst_set = descriptor_sets[0],
@@ -618,14 +905,14 @@ pub const vkBindGroup = struct {
                 .dst_array_element = 0,
                 .descriptor_count = 1,
                 .descriptor_type = descriptor_type,
-                .p_image_info = undefined,
-                .p_buffer_info = @as([*]const vk.DescriptorBufferInfo, @ptrCast(&buffer_infos[i])),
+                .p_image_info = if (image_info) |info| @as([*]const vk.DescriptorImageInfo, @ptrCast(info)) else undefined,
+                .p_buffer_info = if (buffer_info) |info| @as([*]const vk.DescriptorBufferInfo, @ptrCast(info)) else undefined,
                 .p_texel_buffer_view = undefined,
             };
         }
         device.device.updateDescriptorSets(writes, null);
 
-        const self = try allocator.create(vkBindGroup);
+        const self = try allocator.create(vkDescriptorSet);
         errdefer allocator.destroy(self);
         self.* = .{
             .device = device,
@@ -642,6 +929,9 @@ pub const vkBindGroup = struct {
 
     fn destroy(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
+        typed.device.device.deviceWaitIdle() catch |err| {
+            std.log.err("{s}", .{@errorName(err)});
+        };
         if (typed.descriptor_pool != .null_handle) {
             std.log.debug("destroying vulkan descriptor pool: handle=0x{x}", .{@intFromEnum(typed.descriptor_pool)});
             typed.device.device.destroyDescriptorPool(typed.descriptor_pool, null);
@@ -679,5 +969,8 @@ pub const vkQuerySet = struct {
     fn destroy(ptr: *anyopaque) void {
         _ = ptr;
         std.log.debug("destroying vulkan query set", .{});
+        // typed.device.device.deviceWaitIdle() catch |err| {
+        //     std.log.err("{s}", .{@errorName(err)});
+        // };
     }
 };

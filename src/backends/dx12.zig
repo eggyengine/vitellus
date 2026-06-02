@@ -26,8 +26,8 @@ pub const DX_Buffer = resource.DX_Buffer;
 pub const DX_Texture = resource.DX_Texture;
 pub const DX_TextureView = resource.DX_TextureView;
 pub const DX_Sampler = resource.DX_Sampler;
-pub const DX_BindGroupLayout = resource.DX_BindGroupLayout;
-pub const DX_BindGroup = resource.DX_BindGroup;
+pub const DX_DescriptorSetLayout = resource.DX_DescriptorSetLayout;
+pub const DX_DescriptorSet = resource.DX_DescriptorSet;
 pub const DX_QuerySet = resource.DX_QuerySet;
 
 pub const DX_ShaderModule = shader.DX_ShaderModule;

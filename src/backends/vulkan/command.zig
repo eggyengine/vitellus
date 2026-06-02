@@ -1,7 +1,7 @@
 const std = @import("std");
 const vk = @import("vulkan");
 
-const bind_group = @import("../../types/bind_group.zig");
+const descriptor_set = @import("../../types/descriptor_set.zig");
 const buffer = @import("../../types/buffer.zig");
 const command = @import("../../types/command.zig");
 const def = @import("../../types/def.zig");
@@ -13,7 +13,6 @@ const pipeline_backend = @import("pipeline.zig");
 const resource = @import("resource.zig");
 const surface_backend = @import("surface.zig");
 const debug = @import("debug.zig");
-
 
 fn indexFormatToVulkan(format: pipeline.IndexFormat) vk.IndexType {
     return switch (format) {
@@ -37,6 +36,9 @@ pub const vkCommandBuffer = struct {
 
     pub fn deinit(self: *@This()) void {
         std.log.debug("destroying vulkan command buffer", .{});
+        self.device.device.deviceWaitIdle() catch |err| {
+            std.log.err("{s}", .{@errorName(err)});
+        };
         if (self.command_pool != .null_handle) {
             self.device.device.destroyCommandPool(self.command_pool, null);
             self.command_pool = .null_handle;
@@ -116,11 +118,14 @@ pub const vkCommandEncoder = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (descriptor.colorAttachments.len == 0 or descriptor.colorAttachments[0] == null) return error.MissingColorAttachment;
         const attachment = descriptor.colorAttachments[0].?;
+        var owned_view: ?texture.Texture.View = null;
+        errdefer if (owned_view) |*view| view.destroy();
+
         const view_backend = switch (attachment.view) {
             .texture_view => |view| view.backend orelse return error.MissingBackendTextureView,
             .texture => |tex| blk: {
-                const view = try tex.createView(.{});
-                break :blk view.backend orelse return error.MissingBackendTextureView;
+                owned_view = try tex.createView(.{});
+                break :blk owned_view.?.backend orelse return error.MissingBackendTextureView;
             },
         };
         const vk_view: *resource.vkTextureView = @ptrCast(@alignCast(view_backend.ptr));
@@ -177,7 +182,9 @@ pub const vkCommandEncoder = struct {
             .encoder = typed,
             .image = vk_view.image,
             .extent = adjusted.render_area.extent,
+            .owned_view = owned_view,
         };
+        owned_view = null;
         return .{ .ptr = pass, .vtable = &vkRenderPassEncoder.vtable };
     }
 
@@ -328,8 +335,8 @@ pub const vkComputePassEncoder = struct {
         .dispatchWorkgroups = dispatchWorkgroups,
         .dispatchWorkgroupsIndirect = dispatchWorkgroupsIndirect,
         .end = end,
-        .setBindGroup = setBindGroup,
-        .setBindGroupFromData = setBindGroupFromData,
+        .setDescriptorSet = setDescriptorSet,
+        .setDescriptorSetFromData = setDescriptorSetFromData,
         .pushDebugGroup = pushDebugGroup,
         .popDebugGroup = popDebugGroup,
         .insertDebugMarker = insertDebugMarker,
@@ -352,13 +359,13 @@ pub const vkComputePassEncoder = struct {
     fn end(ptr: *anyopaque) void {
         _ = ptr;
     }
-    fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
+    fn setDescriptorSet(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets: []const def.BufferDynamicOffset) void {
         _ = ptr;
         _ = index;
         _ = group;
         _ = dynamic_offsets;
     }
-    fn setBindGroupFromData(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets_data: []const u32, dynamic_offsets_data_start: def.Size64, dynamic_offsets_data_length: def.Size32) void {
+    fn setDescriptorSetFromData(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets_data: []const u32, dynamic_offsets_data_start: def.Size64, dynamic_offsets_data_length: def.Size32) void {
         _ = ptr;
         _ = index;
         _ = group;
@@ -384,6 +391,7 @@ pub const vkRenderPassEncoder = struct {
     image: vk.Image,
     extent: vk.Extent2D,
     pipeline_layout: vk.PipelineLayout = .null_handle,
+    owned_view: ?texture.Texture.View = null,
 
     pub const vtable = hal.RenderPassEncoder.VTable{
         .setViewport = setViewport,
@@ -401,8 +409,8 @@ pub const vkRenderPassEncoder = struct {
         .drawIndexed = drawIndexed,
         .drawIndirect = drawIndirect,
         .drawIndexedIndirect = drawIndexedIndirect,
-        .setBindGroup = setBindGroup,
-        .setBindGroupFromData = setBindGroupFromData,
+        .setDescriptorSet = setDescriptorSet,
+        .setDescriptorSetFromData = setDescriptorSetFromData,
         .pushDebugGroup = pushDebugGroup,
         .popDebugGroup = popDebugGroup,
         .insertDebugMarker = insertDebugMarker,
@@ -441,6 +449,7 @@ pub const vkRenderPassEncoder = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         typed.encoder.device.device.cmdEndRendering(typed.encoder.command_buffer);
         transitionImageLayout(typed.encoder.device, typed.encoder.command_buffer, typed.image, .color_attachment_optimal, .present_src_khr, .{ .color_attachment_write_bit = true }, .{}, .{ .color_attachment_output_bit = true }, .{ .bottom_of_pipe_bit = true });
+        if (typed.owned_view) |*view| view.destroy();
         typed.encoder.device.adapter.gpu.allocator.destroy(typed);
     }
     fn setPipeline(ptr: *anyopaque, target: hal.RenderPipeline) void {
@@ -498,31 +507,31 @@ pub const vkRenderPassEncoder = struct {
         _ = indirect_buffer;
         _ = indirect_offset;
     }
-    fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
+    fn setDescriptorSet(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets: []const def.BufferDynamicOffset) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         const target = group orelse return;
         if (typed.pipeline_layout == .null_handle) {
-            std.log.err("cannot bind vulkan bind group before a render pipeline is bound", .{});
+            std.log.err("cannot bind vulkan descriptor set before a render pipeline is bound", .{});
             return;
         }
-        const vk_group: *resource.vkBindGroup = @ptrCast(@alignCast(target.ptr));
-        var descriptor_set = vk_group.descriptor_set;
+        const vk_group: *resource.vkDescriptorSet = @ptrCast(@alignCast(target.ptr));
+        var descriptor_set_handle = vk_group.descriptor_set;
         typed.encoder.device.device.cmdBindDescriptorSets(
             typed.encoder.command_buffer,
             .graphics,
             typed.pipeline_layout,
             index,
-            @as([*]const vk.DescriptorSet, @ptrCast(&descriptor_set))[0..1],
+            @as([*]const vk.DescriptorSet, @ptrCast(&descriptor_set_handle))[0..1],
             if (dynamic_offsets.len == 0) null else dynamic_offsets,
         );
     }
-    fn setBindGroupFromData(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets_data: []const u32, dynamic_offsets_data_start: def.Size64, dynamic_offsets_data_length: def.Size32) void {
+    fn setDescriptorSetFromData(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets_data: []const u32, dynamic_offsets_data_start: def.Size64, dynamic_offsets_data_length: def.Size32) void {
         const offsets_end = dynamic_offsets_data_start + dynamic_offsets_data_length;
         if (dynamic_offsets_data_start > dynamic_offsets_data.len or offsets_end > dynamic_offsets_data.len) {
-            std.log.err("bind group dynamic offsets range is out of bounds: start={} length={} available={}", .{ dynamic_offsets_data_start, dynamic_offsets_data_length, dynamic_offsets_data.len });
+            std.log.err("descriptor set dynamic offsets range is out of bounds: start={} length={} available={}", .{ dynamic_offsets_data_start, dynamic_offsets_data_length, dynamic_offsets_data.len });
             return;
         }
-        setBindGroup(ptr, index, group, dynamic_offsets_data[dynamic_offsets_data_start..offsets_end]);
+        setDescriptorSet(ptr, index, group, dynamic_offsets_data[dynamic_offsets_data_start..offsets_end]);
     }
     fn pushDebugGroup(ptr: *anyopaque, group_label: []const u8) void {
         _ = ptr;
@@ -546,7 +555,7 @@ pub const vkRenderBundle = struct {
 };
 
 pub const vkRenderBundleEncoder = struct {
-    pub const vtable = hal.RenderBundleEncoder.VTable{ .finish = finish, .setPipeline = setPipeline, .setIndexBuffer = setIndexBuffer, .setVertexBuffer = setVertexBuffer, .draw = draw, .drawIndexed = drawIndexed, .drawIndirect = drawIndirect, .drawIndexedIndirect = drawIndexedIndirect, .setBindGroup = setBindGroup, .setBindGroupFromData = setBindGroupFromData, .pushDebugGroup = pushDebugGroup, .popDebugGroup = popDebugGroup, .insertDebugMarker = insertDebugMarker };
+    pub const vtable = hal.RenderBundleEncoder.VTable{ .finish = finish, .setPipeline = setPipeline, .setIndexBuffer = setIndexBuffer, .setVertexBuffer = setVertexBuffer, .draw = draw, .drawIndexed = drawIndexed, .drawIndirect = drawIndirect, .drawIndexedIndirect = drawIndexedIndirect, .setDescriptorSet = setDescriptorSet, .setDescriptorSetFromData = setDescriptorSetFromData, .pushDebugGroup = pushDebugGroup, .popDebugGroup = popDebugGroup, .insertDebugMarker = insertDebugMarker };
     pub fn init(device: *vkDevice, descriptor: command.RenderBundleEncoder.Descriptor) !hal.RenderBundleEncoder {
         _ = device;
         _ = descriptor;
@@ -600,13 +609,13 @@ pub const vkRenderBundleEncoder = struct {
         _ = indirect_buffer;
         _ = indirect_offset;
     }
-    fn setBindGroup(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets: []const def.BufferDynamicOffset) void {
+    fn setDescriptorSet(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets: []const def.BufferDynamicOffset) void {
         _ = ptr;
         _ = index;
         _ = group;
         _ = dynamic_offsets;
     }
-    fn setBindGroupFromData(ptr: *anyopaque, index: def.Index32, group: ?hal.BindGroup, dynamic_offsets_data: []const u32, dynamic_offsets_data_start: def.Size64, dynamic_offsets_data_length: def.Size32) void {
+    fn setDescriptorSetFromData(ptr: *anyopaque, index: def.Index32, group: ?hal.DescriptorSet, dynamic_offsets_data: []const u32, dynamic_offsets_data_start: def.Size64, dynamic_offsets_data_length: def.Size32) void {
         _ = ptr;
         _ = index;
         _ = group;

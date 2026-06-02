@@ -2,18 +2,14 @@ pub const SupportedFeatures = struct {
     entries: []const FeatureName = &.{},
 };
 
-pub const WGSLLanguageFeatures = struct {
-    entries: []const []const u8 = &.{},
-};
-
 pub const SupportedLimits = struct {
     maxTextureDimension1D: u32 = 0,
     maxTextureDimension2D: u32 = 0,
     maxTextureDimension3D: u32 = 0,
     maxTextureArrayLayers: u32 = 0,
-    maxBindGroups: u32 = 0,
-    maxBindGroupsPlusVertexBuffers: u32 = 0,
-    maxBindingsPerBindGroup: u32 = 0,
+    maxDescriptorSets: u32 = 0,
+    maxDescriptorSetsPlusVertexBuffers: u32 = 0,
+    maxBindingsPerDescriptorSet: u32 = 0,
     maxDynamicUniformBuffersPerPipelineLayout: u32 = 0,
     maxDynamicStorageBuffersPerPipelineLayout: u32 = 0,
     maxSampledTexturesPerShaderStage: u32 = 0,
@@ -49,9 +45,9 @@ pub const SupportedLimitName = enum {
     maxTextureDimension2D,
     maxTextureDimension3D,
     maxTextureArrayLayers,
-    maxBindGroups,
-    maxBindGroupsPlusVertexBuffers,
-    maxBindingsPerBindGroup,
+    maxDescriptorSets,
+    maxDescriptorSetsPlusVertexBuffers,
+    maxBindingsPerDescriptorSet,
     maxDynamicUniformBuffersPerPipelineLayout,
     maxDynamicStorageBuffersPerPipelineLayout,
     maxSampledTexturesPerShaderStage,

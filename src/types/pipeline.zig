@@ -1,4 +1,4 @@
-const bind_group = @import("bind_group.zig");
+const descriptor_set = @import("descriptor_set.zig");
 const def = @import("def.zig");
 const hal = @import("../backends/hal.zig");
 const shader = @import("shader.zig");
@@ -7,18 +7,18 @@ const texture = @import("texture.zig");
 
 pub const PipelineLayout = struct {
     label: ?[*:0]const u8,
-    bindGroupLayouts: []const ?*const bind_group.BindGroupLayout,
+    descriptorSetLayouts: []const ?*const descriptor_set.DescriptorSetLayout,
     backend: ?hal.PipelineLayout = null,
 
     pub const Descriptor = struct {
         label: ?[*:0]const u8 = null,
-        bindGroupLayouts: []const ?*const bind_group.BindGroupLayout,
+        descriptorSetLayouts: []const ?*const descriptor_set.DescriptorSetLayout,
     };
 
     pub fn init(descriptor: Descriptor) PipelineLayout {
         return .{
             .label = descriptor.label,
-            .bindGroupLayouts = descriptor.bindGroupLayouts,
+            .descriptorSetLayouts = descriptor.descriptorSetLayouts,
         };
     }
 
@@ -66,8 +66,8 @@ pub const ComputePipeline = struct {
         compute: ProgrammableStage,
     };
 
-    pub fn getBindGroupLayout(self: *@This(), index: u32) bind_group.BindGroupLayout {
-        if (self.backend) |backend| if (backend.getBindGroupLayout(index)) |layout_backend| {
+    pub fn getDescriptorSetLayout(self: *@This(), index: u32) descriptor_set.DescriptorSetLayout {
+        if (self.backend) |backend| if (backend.getDescriptorSetLayout(index)) |layout_backend| {
             return .{
                 .backend = layout_backend,
                 .label = null,
@@ -111,8 +111,8 @@ pub const RenderPipeline = struct {
         fragment: ?FragmentState = null,
     };
 
-    pub fn getBindGroupLayout(self: *@This(), index: u32) bind_group.BindGroupLayout {
-        if (self.backend) |backend| if (backend.getBindGroupLayout(index)) |layout_backend| {
+    pub fn getDescriptorSetLayout(self: *@This(), index: u32) descriptor_set.DescriptorSetLayout {
+        if (self.backend) |backend| if (backend.getDescriptorSetLayout(index)) |layout_backend| {
             return .{
                 .backend = layout_backend,
                 .label = null,
