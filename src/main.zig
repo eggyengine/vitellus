@@ -21,7 +21,7 @@ const Tex = struct {
 };
 
 const Vertex = struct {
-    position: [2]f32,
+    position: [3]f32,
     color: [3]f32,
     texCoord: [2]f32,
 
@@ -31,7 +31,7 @@ const Vertex = struct {
             .stepMode = .vertex,
             .attributes = &.{
                 vit.VertexAttribute{
-                    .format = vit.VertexFormat.float32x2,
+                    .format = vit.VertexFormat.float32x3,
                     .offset = @offsetOf(Vertex, "position"),
                     .shaderLocation = 0,
                 },
@@ -51,63 +51,131 @@ const Vertex = struct {
 };
 
 const VERTICES = [_]Vertex{
-    // top-left
-    .{
-        .position = .{ -0.5, 0.5 },
-        .color = .{ 1.0, 0.0, 0.0 },
-        .texCoord = .{ 0.0, 0.0 },
-    },
+    // Front face
+    .{ .position = .{ -0.5, -0.5, 0.5 }, .color = .{ 1.0, 0.0, 0.0 }, .texCoord = .{ 0.0, 1.0 } },
+    .{ .position = .{ 0.5, -0.5, 0.5 }, .color = .{ 1.0, 0.0, 0.0 }, .texCoord = .{ 1.0, 1.0 } },
+    .{ .position = .{ 0.5, 0.5, 0.5 }, .color = .{ 1.0, 0.0, 0.0 }, .texCoord = .{ 1.0, 0.0 } },
+    .{ .position = .{ -0.5, 0.5, 0.5 }, .color = .{ 1.0, 0.0, 0.0 }, .texCoord = .{ 0.0, 0.0 } },
 
-    // bottom-left
-    .{
-        .position = .{ -0.5, -0.5 },
-        .color = .{ 0.0, 1.0, 0.0 },
-        .texCoord = .{ 0.0, 1.0 },
-    },
+    // Back face
+    .{ .position = .{ 0.5, -0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 }, .texCoord = .{ 0.0, 1.0 } },
+    .{ .position = .{ -0.5, -0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 }, .texCoord = .{ 1.0, 1.0 } },
+    .{ .position = .{ -0.5, 0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 }, .texCoord = .{ 1.0, 0.0 } },
+    .{ .position = .{ 0.5, 0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 }, .texCoord = .{ 0.0, 0.0 } },
 
-    // bottom-right
-    .{
-        .position = .{ 0.5, -0.5 },
-        .color = .{ 0.0, 0.0, 1.0 },
-        .texCoord = .{ 1.0, 1.0 },
-    },
+    // Top face
+    .{ .position = .{ -0.5, 0.5, 0.5 }, .color = .{ 0.0, 0.0, 1.0 }, .texCoord = .{ 0.0, 1.0 } },
+    .{ .position = .{ 0.5, 0.5, 0.5 }, .color = .{ 0.0, 0.0, 1.0 }, .texCoord = .{ 1.0, 1.0 } },
+    .{ .position = .{ 0.5, 0.5, -0.5 }, .color = .{ 0.0, 0.0, 1.0 }, .texCoord = .{ 1.0, 0.0 } },
+    .{ .position = .{ -0.5, 0.5, -0.5 }, .color = .{ 0.0, 0.0, 1.0 }, .texCoord = .{ 0.0, 0.0 } },
 
-    // top-right
-    .{
-        .position = .{ 0.5, 0.5 },
-        .color = .{ 1.0, 1.0, 0.0 },
-        .texCoord = .{ 1.0, 0.0 },
-    },
+    // Bottom face
+    .{ .position = .{ -0.5, -0.5, -0.5 }, .color = .{ 1.0, 1.0, 0.0 }, .texCoord = .{ 0.0, 1.0 } },
+    .{ .position = .{ 0.5, -0.5, -0.5 }, .color = .{ 1.0, 1.0, 0.0 }, .texCoord = .{ 1.0, 1.0 } },
+    .{ .position = .{ 0.5, -0.5, 0.5 }, .color = .{ 1.0, 1.0, 0.0 }, .texCoord = .{ 1.0, 0.0 } },
+    .{ .position = .{ -0.5, -0.5, 0.5 }, .color = .{ 1.0, 1.0, 0.0 }, .texCoord = .{ 0.0, 0.0 } },
+
+    // Right face
+    .{ .position = .{ 0.5, -0.5, 0.5 }, .color = .{ 1.0, 0.0, 1.0 }, .texCoord = .{ 0.0, 1.0 } },
+    .{ .position = .{ 0.5, -0.5, -0.5 }, .color = .{ 1.0, 0.0, 1.0 }, .texCoord = .{ 1.0, 1.0 } },
+    .{ .position = .{ 0.5, 0.5, -0.5 }, .color = .{ 1.0, 0.0, 1.0 }, .texCoord = .{ 1.0, 0.0 } },
+    .{ .position = .{ 0.5, 0.5, 0.5 }, .color = .{ 1.0, 0.0, 1.0 }, .texCoord = .{ 0.0, 0.0 } },
+
+    // Left face
+    .{ .position = .{ -0.5, -0.5, -0.5 }, .color = .{ 0.0, 1.0, 1.0 }, .texCoord = .{ 0.0, 1.0 } },
+    .{ .position = .{ -0.5, -0.5, 0.5 }, .color = .{ 0.0, 1.0, 1.0 }, .texCoord = .{ 1.0, 1.0 } },
+    .{ .position = .{ -0.5, 0.5, 0.5 }, .color = .{ 0.0, 1.0, 1.0 }, .texCoord = .{ 1.0, 0.0 } },
+    .{ .position = .{ -0.5, 0.5, -0.5 }, .color = .{ 0.0, 1.0, 1.0 }, .texCoord = .{ 0.0, 0.0 } },
 };
 
 const INDICES = [_]u16{
-    0, 1, 2,
-    0, 2, 3,
+    // Front
+    0,  1,  2,  0,  2,  3,
+    // Back
+    4,  5,  6,  4,  6,  7,
+    // Top
+    8,  9,  10, 8,  10, 11,
+    // Bottom
+    12, 13, 14, 12, 14, 15,
+    // Right
+    16, 17, 18, 16, 18, 19,
+    // Left
+    20, 21, 22, 20, 22, 23,
 };
 
 const UniformBufferObject = struct { model: emath.Mat4, view: emath.Mat4, proj: emath.Mat4 };
 
+const Transform = struct {
+    position: emath.Vec3 = .{ .x = 0.0, .y = 0.0, .z = 0.0 },
+    rotation: emath.Quat = emath.Quat.identity(),
+
+    fn toMatrix(self: @This()) emath.Mat4 {
+        const rot = self.rotation.toMatrix();
+        const trans = emath.translation4x4(f32, self.position.x, self.position.y, self.position.z);
+        return emath.multiply4x4(f32, trans, rot);
+    }
+
+    fn toViewMatrix(self: @This()) emath.Mat4 {
+        const inv_rot = self.rotation.conjugate().toMatrix();
+        const inv_trans = emath.translation4x4(f32, -self.position.x, -self.position.y, -self.position.z);
+        return emath.multiply4x4(f32, inv_rot, inv_trans);
+    }
+};
+
+const InputState = struct {
+    forward: bool = false,
+    backward: bool = false,
+    left: bool = false,
+    right: bool = false,
+    up: bool = false,
+    down: bool = false,
+    sprint: bool = false,
+    mouse_look: bool = false,
+};
+
 const Camera = struct {
-    eye: emath.Vec3 = .{ .x = 0.0, .y = 0.0, .z = 2.0 },
-    target: emath.Vec3 = .{ .x = 0.0, .y = 0.0, .z = 0.0 },
-    up: emath.Vec3 = emath.Vec3.up,
+    transform: Transform = .{ .position = .{ .x = 0.0, .y = 0.0, .z = 2.0 } },
     fov_y: f32 = std.math.pi / 4.0,
     near: f32 = 0.1,
     far: f32 = 10.0,
-    model_rotation: f32 = 0.0,
+    yaw: f32 = 0.0,
+    pitch: f32 = 0.0,
+    move_speed: f32 = 2.5,
+    sprint_multiplier: f32 = 3.0,
+    mouse_sensitivity: f32 = 0.0025,
 
-    fn update(self: *@This(), dt: f32) void {
-        self.model_rotation += dt;
-        if (self.model_rotation > std.math.tau) {
-            self.model_rotation -= std.math.tau;
+    fn update(self: *@This(), input: InputState, dt: f32) void {
+        var direction = emath.Vec3.zero;
+
+        if (input.forward) direction = direction.add(emath.Vec3.forward);
+        if (input.backward) direction = direction.add(emath.Vec3.back);
+        if (input.left) direction = direction.add(emath.Vec3.left);
+        if (input.right) direction = direction.add(emath.Vec3.right);
+        if (input.up) direction = direction.add(emath.Vec3.up);
+        if (input.down) direction = direction.add(emath.Vec3.down);
+
+        if (direction.lengthSquared() > 0.0) {
+            const speed = self.move_speed * if (input.sprint) self.sprint_multiplier else 1.0;
+            const delta = self.transform.rotation.rotateVector(direction.normalize()).scale(speed * dt);
+            self.transform.position = self.transform.position.add(delta);
         }
     }
 
-    fn uniforms(self: @This(), width: u32, height: u32) UniformBufferObject {
+    fn look(self: *@This(), x_rel: f32, y_rel: f32) void {
+        self.yaw -= x_rel * self.mouse_sensitivity;
+        self.pitch -= y_rel * self.mouse_sensitivity;
+        self.pitch = std.math.clamp(self.pitch, -std.math.pi / 2.0 + 0.01, std.math.pi / 2.0 - 0.01);
+
+        const yaw_rotation = emath.Quat.fromAxisAngle(emath.Vec3.up, self.yaw);
+        const pitch_rotation = emath.Quat.fromAxisAngle(emath.Vec3.right, self.pitch);
+        self.transform.rotation = yaw_rotation.mul(pitch_rotation).normalize();
+    }
+
+    fn uniforms(self: @This(), model_transform: Transform, width: u32, height: u32) UniformBufferObject {
         const aspect = if (height == 0) 1.0 else @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height));
         return .{
-            .model = emath.rotationZ4x4(f32, self.model_rotation),
-            .view = emath.lookAt(self.eye, self.target, self.up),
+            .model = model_transform.toMatrix(),
+            .view = self.transform.toViewMatrix(),
             .proj = emath.perspective(self.fov_y, aspect, self.near, self.far),
         };
     }
@@ -134,6 +202,19 @@ const texture_layout_entry = vit.DescriptorSetLayout.Entry{
     },
 };
 
+fn setCameraKey(input: *InputState, scan: sdl3.Scancode, is_down: bool) void {
+    switch (scan) {
+        .w => input.forward = is_down,
+        .s => input.backward = is_down,
+        .a => input.left = is_down,
+        .d => input.right = is_down,
+        .space, .e => input.up = is_down,
+        .q => input.down = is_down,
+        .left_shift, .right_shift => input.sprint = is_down,
+        else => {},
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     defer sdl3.shutdown();
 
@@ -155,6 +236,7 @@ pub fn main(init: std.process.Init) !void {
     var state = try initPipeline(wrapper, init);
     defer state.deinit();
 
+    var input_state = InputState{};
     var quit = false;
     while (!quit) {
 
@@ -171,6 +253,30 @@ pub fn main(init: std.process.Init) !void {
                         if (scan == .escape) {
                             quit = true;
                         }
+
+                        setCameraKey(&input_state, scan, true);
+                    }
+                },
+                .key_up => |key| {
+                    if (key.scancode) |scan| {
+                        setCameraKey(&input_state, scan, false);
+                    }
+                },
+                .mouse_button_down => |button| {
+                    if (button.button == .right) {
+                        input_state.mouse_look = true;
+                        try sdl3.mouse.setWindowRelativeMode(window, true);
+                    }
+                },
+                .mouse_button_up => |button| {
+                    if (button.button == .right) {
+                        input_state.mouse_look = false;
+                        try sdl3.mouse.setWindowRelativeMode(window, false);
+                    }
+                },
+                .mouse_motion => |motion| {
+                    if (input_state.mouse_look) {
+                        state.camera.look(motion.x_rel, motion.y_rel);
                     }
                 },
                 .window_resized => |res| {
@@ -179,13 +285,15 @@ pub fn main(init: std.process.Init) !void {
                         state.config.width = @intCast(@min(res.width, max));
                         state.config.height = @intCast(@min(res.height, max));
                         state.surface.configure(&state.device, state.config);
+                        state.depth_buffer_tex.deinit();
+                        try create_depth_buffer(&state);
                         state.isSurfaceConfigured = true;
                     }
                 },
                 else => {},
             };
 
-        try render_the_pipeline(&state, dt);
+        try render_the_pipeline(&state, input_state, dt);
     }
 }
 
@@ -205,10 +313,13 @@ pub const State = struct {
     vertex_buffer: vit.Buffer,
     index_buffer: vit.Buffer,
     camera: Camera,
+    model_transform: Transform,
 
+    depth_buffer_tex: Tex = undefined,
     tex: Tex,
 
     fn deinit(self: *@This()) void {
+        self.depth_buffer_tex.deinit();
         self.tex.deinit();
         self.index_buffer.deinit();
         self.vertex_buffer.deinit();
@@ -223,9 +334,9 @@ pub const State = struct {
         self.instance.deinit();
     }
 
-    fn updateCamera(self: *@This(), dt: f32) void {
-        self.camera.update(dt);
-        const ubo = self.camera.uniforms(self.config.width, self.config.height);
+    fn updateCamera(self: *@This(), input: InputState, dt: f32) void {
+        self.camera.update(input, dt);
+        const ubo = self.camera.uniforms(self.model_transform, self.config.width, self.config.height);
         const bytes = std.mem.asBytes(&ubo);
         self.queue.writeBuffer(&self.uniform_buffer, 0, bytes[0..], 0, null);
     }
@@ -296,6 +407,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         .vertex_buffer = undefined,
         .index_buffer = undefined,
         .camera = .{},
+        .model_transform = .{},
         .tex = undefined,
     };
 
@@ -309,6 +421,8 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
         state.camera_descriptor_set_layout.deinit();
     }
 
+    try create_depth_buffer(&state);
+
     try create_render_pipeline(&state);
     errdefer {
         state.render_pipeline.deinit();
@@ -318,6 +432,32 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     try create_buffers(&state);
 
     return state;
+}
+
+fn create_depth_buffer(state: *State) !void {
+    const size = vit.Extent3D{
+        .width = state.config.width,
+        .height = state.config.height,
+    };
+    const desc = vit.Texture.Descriptor{
+        .label = "depth buffer texture",
+        .size = size,
+        .format = .depth32float,
+        .usage = vit.Texture.Usage.RENDER_ATTACHMENT | vit.Texture.Usage.TEXTURE_BINDING,
+    };
+    var texture = try state.device.createTexture(desc);
+
+    const view = try texture.createView(.{});
+    const sampler = try state.device.createSampler(vit.Sampler.Descriptor{
+        .label = "depth buffer sampler",
+        .compare = .less_equal,
+        .minFilter = .linear,
+        .magFilter = .linear,
+        .lodMaxClamp = 100.0,
+    });
+
+    state.depth_buffer_tex = .{ .sampler = sampler, .view = view, .texture = texture };
+    return;
 }
 
 fn create_images(state: *State, init: std.process.Init) !void {
@@ -383,7 +523,7 @@ fn create_camera_resources(state: *State) !void {
 
     errdefer uniform_buffer.deinit();
 
-    const initial_ubo = state.camera.uniforms(state.config.width, state.config.height);
+    const initial_ubo = state.camera.uniforms(state.model_transform, state.config.width, state.config.height);
     const initial_bytes = std.mem.asBytes(&initial_ubo);
     state.queue.writeBuffer(&uniform_buffer, 0, initial_bytes[0..], 0, null);
     state.uniform_buffer = uniform_buffer;
@@ -449,7 +589,11 @@ fn create_render_pipeline(state: *State) !void {
             .cullMode = .none,
             .unclippedDepth = false,
         },
-        .depthStencil = null,
+        .depthStencil = .{
+            .format = .depth32float,
+            .depthWriteEnabled = true,
+            .depthCompare = .less_equal,
+        },
         .multisample = .{
             .count = 1,
             .mask = 0xFFFFFFFF,
@@ -488,12 +632,12 @@ fn create_buffers(state: *State) !void {
     return;
 }
 
-fn render_the_pipeline(state: *State, dt: f32) !void {
+fn render_the_pipeline(state: *State, input: InputState, dt: f32) !void {
     if (!state.isSurfaceConfigured) {
         return;
     }
 
-    state.updateCamera(dt);
+    state.updateCamera(input, dt);
 
     var output = switch (try state.surface.getCurrentTexture()) {
         .success => |texture| texture,
@@ -518,7 +662,7 @@ fn render_the_pipeline(state: *State, dt: f32) !void {
             .label = "Render Pass",
             .colorAttachments = &.{
                 .{
-                    .view = .{ .texture_view = &view },
+                    .view = &view,
                     .resolveTarget = null,
                     .depthSlice = null,
                     .clearValue = .{ .dict = .{
@@ -527,11 +671,14 @@ fn render_the_pipeline(state: *State, dt: f32) !void {
                         .b = 0.3,
                         .a = 1.0,
                     } },
-                    .loadOp = .clear,
+                    .loadOp = .{ .clear = 0.0 },
                     .storeOp = .store,
                 },
             },
-            .depthStencilAttachment = null,
+            .depthStencilAttachment = .{ .view = &state.depth_buffer_tex.view, .depthOperations = .{
+                .loadOp = .{ .clear = 1.0 },
+                .storeOp = .store,
+            } },
             .occlusionQuerySet = null,
             .timestampWrites = null,
             .multiviewMask = null,

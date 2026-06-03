@@ -114,6 +114,7 @@ pub const Color = types.def.Color;
 pub const ColorDict = types.def.ColorDict;
 pub const Origin2D = types.def.Origin2D;
 pub const Origin3D = types.def.Origin3D;
+pub const Extent3D = types.texture.Texture.Extent3D;
 
 // --- tests ---
 test {}

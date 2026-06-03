@@ -225,14 +225,29 @@ fn imageCreateFlagsFromDescriptor(descriptor: texture.Texture.Descriptor) vk.Ima
     };
 }
 
-fn imageUsageFromTextureUsage(flags: texture.Texture.UsageFlags) vk.ImageUsageFlags {
-    const usage = texture.Texture.Usage.fromFlags(flags);
+fn isDepthStencilFormat(format: texture.Texture.Format) bool {
+    return switch (format) {
+        .stencil8,
+        .depth16unorm,
+        .depth24plus,
+        .depth24plus_stencil8,
+        .depth32float,
+        .depth32float_stencil8,
+        => true,
+        else => false,
+    };
+}
+
+fn imageUsageFromTextureDescriptor(descriptor: texture.Texture.Descriptor) vk.ImageUsageFlags {
+    const usage = texture.Texture.Usage.fromFlags(descriptor.usage);
+    const is_depth_stencil = isDepthStencilFormat(descriptor.format);
     return .{
         .transfer_src_bit = usage.copy_src,
         .transfer_dst_bit = usage.copy_dst,
         .sampled_bit = usage.texture_binding,
         .storage_bit = usage.storage_binding,
-        .color_attachment_bit = usage.render_attachment,
+        .color_attachment_bit = usage.render_attachment and !is_depth_stencil,
+        .depth_stencil_attachment_bit = usage.render_attachment and is_depth_stencil,
         .transient_attachment_bit = usage.transient_attachment,
     };
 }
@@ -296,7 +311,7 @@ pub const vkTexture = struct {
             .array_layers = array_layers,
             .samples = sampleCountToVk(descriptor.sampleCount),
             .tiling = .optimal,
-            .usage = imageUsageFromTextureUsage(descriptor.usage),
+            .usage = imageUsageFromTextureDescriptor(descriptor),
             .sharing_mode = .exclusive,
             .initial_layout = .undefined,
         };

@@ -118,16 +118,7 @@ pub const vkCommandEncoder = struct {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         if (descriptor.colorAttachments.len == 0 or descriptor.colorAttachments[0] == null) return error.MissingColorAttachment;
         const attachment = descriptor.colorAttachments[0].?;
-        var owned_view: ?texture.Texture.View = null;
-        errdefer if (owned_view) |*view| view.destroy();
-
-        const view_backend = switch (attachment.view) {
-            .texture_view => |view| view.backend orelse return error.MissingBackendTextureView,
-            .texture => |tex| blk: {
-                owned_view = try tex.createView(.{});
-                break :blk owned_view.?.backend orelse return error.MissingBackendTextureView;
-            },
-        };
+        const view_backend = attachment.view.backend orelse return error.MissingBackendTextureView;
         const vk_view: *resource.vkTextureView = @ptrCast(@alignCast(view_backend.ptr));
 
         if (vk_view.present_surface) |surface_ptr| {
@@ -147,6 +138,7 @@ pub const vkCommandEncoder = struct {
             .{ .color_attachment_write_bit = true },
             .{ .color_attachment_output_bit = true },
             .{ .color_attachment_output_bit = true },
+            .{ .color_bit = true },
         );
 
         const clear: def.Color = attachment.clearValue orelse .{ .dict = .{ .r = 0.0, .g = 0.0, .b = 1.0, .a = 1.0 } };
@@ -163,12 +155,49 @@ pub const vkCommandEncoder = struct {
             .store_op = if (attachment.storeOp == .store) .store else .dont_care,
             .clear_value = color,
         };
+
+        var depth_attachment: vk.RenderingAttachmentInfo = undefined;
+        var depth_image: vk.Image = .null_handle;
+        if (descriptor.depthStencilAttachment) |depth| {
+            const depth_view_backend = depth.view.backend orelse return error.MissingBackendTextureView;
+            const depth_vk_view: *resource.vkTextureView = @ptrCast(@alignCast(depth_view_backend.ptr));
+            depth_image = depth_vk_view.image;
+
+            transitionImageLayout(
+                typed.device,
+                typed.command_buffer,
+                depth_vk_view.image,
+                .undefined,
+                .depth_attachment_optimal,
+                .{},
+                .{ .depth_stencil_attachment_write_bit = true },
+                .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
+                .{ .early_fragment_tests_bit = true, .late_fragment_tests_bit = true },
+                .{ .depth_bit = true },
+            );
+
+            const depth_clear = if (depth.depthOperations) |ops| switch (ops.loadOp) {
+                .clear => |value| value,
+                .load => depth.depthClearValue orelse 1.0,
+            } else depth.depthClearValue orelse 1.0;
+            depth_attachment = .{
+                .image_view = depth_vk_view.handle,
+                .image_layout = .depth_attachment_optimal,
+                .resolve_mode = .{},
+                .resolve_image_layout = .undefined,
+                .load_op = if (depth.depthOperations) |ops| if (ops.loadOp == .clear) .clear else .load else .load,
+                .store_op = if (depth.depthOperations) |ops| if (ops.storeOp == .store) .store else .dont_care else .dont_care,
+                .clear_value = .{ .depth_stencil = .{ .depth = depth_clear, .stencil = 0 } },
+            };
+        }
+
         const rendering_info = vk.RenderingInfo{
             .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = vk_view.device.adapter.gpu.instance.getPhysicalDeviceProperties(vk_view.device.adapter.pdev).limits.max_framebuffer_width, .height = 1 } },
             .layer_count = 1,
             .view_mask = 0,
             .color_attachment_count = 1,
             .p_color_attachments = @ptrCast(&rendering_attachment),
+            .p_depth_attachment = if (descriptor.depthStencilAttachment != null) &depth_attachment else null,
         };
         var adjusted = rendering_info;
         if (vk_view.present_surface) |surface_ptr| {
@@ -182,9 +211,9 @@ pub const vkCommandEncoder = struct {
             .encoder = typed,
             .image = vk_view.image,
             .extent = adjusted.render_area.extent,
-            .owned_view = owned_view,
+            .depth_image = depth_image,
+            .owned_view = null,
         };
-        owned_view = null;
         return .{ .ptr = pass, .vtable = &vkRenderPassEncoder.vtable };
     }
 
@@ -309,7 +338,7 @@ pub const vkCommandEncoder = struct {
     }
 };
 
-fn transitionImageLayout(device: *vkDevice, command_buffer: vk.CommandBuffer, image: vk.Image, old_layout: vk.ImageLayout, new_layout: vk.ImageLayout, src_access_mask: vk.AccessFlags2, dst_access_mask: vk.AccessFlags2, src_stage_mask: vk.PipelineStageFlags2, dst_stage_mask: vk.PipelineStageFlags2) void {
+fn transitionImageLayout(device: *vkDevice, command_buffer: vk.CommandBuffer, image: vk.Image, old_layout: vk.ImageLayout, new_layout: vk.ImageLayout, src_access_mask: vk.AccessFlags2, dst_access_mask: vk.AccessFlags2, src_stage_mask: vk.PipelineStageFlags2, dst_stage_mask: vk.PipelineStageFlags2, aspect_mask: vk.ImageAspectFlags) void {
     const barrier = vk.ImageMemoryBarrier2{
         .src_stage_mask = src_stage_mask,
         .src_access_mask = src_access_mask,
@@ -320,7 +349,7 @@ fn transitionImageLayout(device: *vkDevice, command_buffer: vk.CommandBuffer, im
         .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
         .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
         .image = image,
-        .subresource_range = .{ .aspect_mask = .{ .color_bit = true }, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
+        .subresource_range = .{ .aspect_mask = aspect_mask, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 },
     };
     const dependency = vk.DependencyInfo{
         .image_memory_barrier_count = 1,
@@ -389,6 +418,7 @@ pub const vkComputePassEncoder = struct {
 pub const vkRenderPassEncoder = struct {
     encoder: *vkCommandEncoder,
     image: vk.Image,
+    depth_image: vk.Image = .null_handle,
     extent: vk.Extent2D,
     pipeline_layout: vk.PipelineLayout = .null_handle,
     owned_view: ?texture.Texture.View = null,
@@ -448,7 +478,7 @@ pub const vkRenderPassEncoder = struct {
     fn end(ptr: *anyopaque) void {
         const typed: *@This() = @ptrCast(@alignCast(ptr));
         typed.encoder.device.device.cmdEndRendering(typed.encoder.command_buffer);
-        transitionImageLayout(typed.encoder.device, typed.encoder.command_buffer, typed.image, .color_attachment_optimal, .present_src_khr, .{ .color_attachment_write_bit = true }, .{}, .{ .color_attachment_output_bit = true }, .{ .bottom_of_pipe_bit = true });
+        transitionImageLayout(typed.encoder.device, typed.encoder.command_buffer, typed.image, .color_attachment_optimal, .present_src_khr, .{ .color_attachment_write_bit = true }, .{}, .{ .color_attachment_output_bit = true }, .{ .bottom_of_pipe_bit = true }, .{ .color_bit = true });
         if (typed.owned_view) |*view| view.destroy();
         typed.encoder.device.adapter.gpu.allocator.destroy(typed);
     }

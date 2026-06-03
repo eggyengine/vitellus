@@ -252,35 +252,30 @@ pub const RenderPassEncoder = struct {
         maxDrawCount: def.Size64 = 50000000,
     };
 
-    pub const AttachmentView = union(enum) {
-        texture: *texture.Texture,
-        texture_view: *texture.Texture.View,
-    };
-
     pub const ColorAttachment = struct {
-        view: AttachmentView,
+        view: *texture.Texture.View,
         depthSlice: ?def.IntegerCoordinate = null,
-        resolveTarget: ?AttachmentView = null,
+        resolveTarget: ?*texture.Texture.View = null,
         clearValue: ?def.Color = null,
         loadOp: LoadOp,
         storeOp: StoreOp,
     };
 
     pub const DepthStencilAttachment = struct {
-        view: AttachmentView,
+        view: *texture.Texture.View,
         depthClearValue: ?f32 = null,
-        depthLoadOp: ?LoadOp = null,
-        depthStoreOp: ?StoreOp = null,
-        depthReadOnly: bool = false,
-        stencilClearValue: def.StencilValue = 0,
-        stencilLoadOp: ?LoadOp = null,
-        stencilStoreOp: ?StoreOp = null,
-        stencilReadOnly: bool = false,
+        depthOperations: ?Operations = null,
+        stencilOperations: ?Operations = null,
     };
 
-    pub const LoadOp = enum {
+    pub const Operations = struct {
+        loadOp: LoadOp,
+        storeOp: StoreOp,
+    };
+
+    pub const LoadOp = union(enum) {
         load,
-        clear,
+        clear: f32,
     };
 
     pub const StoreOp = enum {

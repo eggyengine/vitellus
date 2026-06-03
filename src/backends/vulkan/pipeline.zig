@@ -222,7 +222,7 @@ pub const vkRenderPipeline = struct {
             .color_attachment_count = color_format_count,
             .p_color_attachment_formats = if (color_format_count == 0) null else &color_formats,
             .depth_attachment_format = if (descriptor.depthStencil) |depth| textureFormatToVulkan(depth.format) orelse .undefined else .undefined,
-            .stencil_attachment_format = if (descriptor.depthStencil) |depth| textureFormatToVulkan(depth.format) orelse .undefined else .undefined,
+            .stencil_attachment_format = if (descriptor.depthStencil) |depth| if (formatHasStencil(depth.format)) textureFormatToVulkan(depth.format) orelse .undefined else .undefined else .undefined,
         };
 
         const depth_stencil_state = if (descriptor.depthStencil) |depth_stencil|
@@ -575,6 +575,16 @@ fn colorBlendAttachmentToVulkan(target: ?pipeline.ColorTargetState) vk.PipelineC
         .dst_alpha_blend_factor = .zero,
         .alpha_blend_op = .add,
         .color_write_mask = color_write_mask,
+    };
+}
+
+fn formatHasStencil(format: texture.Texture.Format) bool {
+    return switch (format) {
+        .stencil8,
+        .depth24plus_stencil8,
+        .depth32float_stencil8,
+        => true,
+        else => false,
     };
 }
 
