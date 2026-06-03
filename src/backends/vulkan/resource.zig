@@ -440,6 +440,10 @@ pub const vkTexture = struct {
             .layer_count = layer_count,
             .components = try componentMappingFromSwizzle(descriptor.swizzle),
             .label = descriptor.label orelse self.label,
+            .extent = .{
+                .width = self.extent.width,
+                .height = self.extent.height,
+            },
         });
     }
 };
@@ -535,6 +539,7 @@ pub const vkTextureView = struct {
     handle: vk.ImageView,
     image: vk.Image,
     format: vk.Format,
+    extent: vk.Extent2D,
     label: ?[*:0]const u8 = null,
     owns_view: bool = true,
     present_surface: ?*anyopaque = null,
@@ -550,6 +555,7 @@ pub const vkTextureView = struct {
         base_array_layer: u32,
         layer_count: u32,
         components: vk.ComponentMapping,
+        extent: vk.Extent2D,
         label: ?[*:0]const u8 = null,
     };
 
@@ -579,6 +585,7 @@ pub const vkTextureView = struct {
             .handle = handle,
             .image = descriptor.image,
             .format = descriptor.format,
+            .extent = descriptor.extent,
             .label = descriptor.label,
         };
     }

@@ -158,10 +158,13 @@ pub const vkCommandEncoder = struct {
 
         var depth_attachment: vk.RenderingAttachmentInfo = undefined;
         var depth_image: vk.Image = .null_handle;
+        var render_extent = vk_view.extent;
         if (descriptor.depthStencilAttachment) |depth| {
             const depth_view_backend = depth.view.backend orelse return error.MissingBackendTextureView;
             const depth_vk_view: *resource.vkTextureView = @ptrCast(@alignCast(depth_view_backend.ptr));
             depth_image = depth_vk_view.image;
+            render_extent.width = @min(render_extent.width, depth_vk_view.extent.width);
+            render_extent.height = @min(render_extent.height, depth_vk_view.extent.height);
 
             transitionImageLayout(
                 typed.device,
@@ -192,7 +195,7 @@ pub const vkCommandEncoder = struct {
         }
 
         const rendering_info = vk.RenderingInfo{
-            .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = vk_view.device.adapter.gpu.instance.getPhysicalDeviceProperties(vk_view.device.adapter.pdev).limits.max_framebuffer_width, .height = 1 } },
+            .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = render_extent },
             .layer_count = 1,
             .view_mask = 0,
             .color_attachment_count = 1,
@@ -202,7 +205,8 @@ pub const vkCommandEncoder = struct {
         var adjusted = rendering_info;
         if (vk_view.present_surface) |surface_ptr| {
             const surface: *surface_backend.vkSurface = @ptrCast(@alignCast(surface_ptr));
-            adjusted.render_area.extent = surface.swapchain_extent;
+            adjusted.render_area.extent.width = @min(surface.swapchain_extent.width, render_extent.width);
+            adjusted.render_area.extent.height = @min(surface.swapchain_extent.height, render_extent.height);
         }
         typed.device.device.cmdBeginRendering(typed.command_buffer, &adjusted);
 

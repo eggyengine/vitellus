@@ -4,7 +4,7 @@ const std = @import("std");
 const emath = @import("eggenvector");
 const zigimg = @import("zigimg");
 
-const fps = 60;
+const fps = 240;
 const screen_width = 640;
 const screen_height = 480;
 
@@ -230,7 +230,10 @@ pub fn main(init: std.process.Init) !void {
     defer window.deinit();
 
     // Useful for limiting the FPS and getting the delta time.
-    var fps_capper = sdl3.extras.FramerateCapper(f32){ .mode = .{ .limited = fps } };
+    var fps_capper = sdl3.extras.FramerateCapper(f32){
+        .mode = .{ .limited = fps },
+        // .mode = .unlimited,
+    };
 
     const wrapper = vit.windowing.sdl3.Sdl3Window.init(window);
     var state = try initPipeline(wrapper, init);
@@ -281,9 +284,8 @@ pub fn main(init: std.process.Init) !void {
                 },
                 .window_resized => |res| {
                     if (res.width > 0 and res.height > 0) {
-                        const max = 2048; // temporary sample resize cap
-                        state.config.width = @intCast(@min(res.width, max));
-                        state.config.height = @intCast(@min(res.height, max));
+                        state.config.width = @intCast(res.width);
+                        state.config.height = @intCast(res.height);
                         state.surface.configure(&state.device, state.config);
                         state.depth_buffer_tex.deinit();
                         try create_depth_buffer(&state);
@@ -357,6 +359,7 @@ fn initPipeline(wrapper: vit.windowing.sdl3.Sdl3Window, init: std.process.Init) 
     var adapterF = instance.requestAdapter(init.io, .{
         .label = "custom adapter",
         .surface = surface,
+        .power_preference = .highPerformance,
     });
     defer _ = adapterF.cancel(init.io) catch {};
     var adapter = try adapterF.await(init.io);
@@ -645,6 +648,8 @@ fn render_the_pipeline(state: *State, input: InputState, dt: f32) !void {
         .timeout, .occluded, .validation => return,
         .outdated => {
             state.surface.configure(&state.device, state.config);
+            state.depth_buffer_tex.deinit();
+            try create_depth_buffer(state);
             return;
         },
         .lost => return error.DeviceLost,
