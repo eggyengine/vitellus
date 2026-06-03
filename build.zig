@@ -92,7 +92,7 @@ pub fn build(b: *std.Build) void {
     // ---------------
 
     const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/bin/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -133,28 +133,6 @@ pub fn build(b: *std.Build) void {
 
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
-    const example_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    example_test_mod.addImport("candler", candler.module("candler"));
-    example_test_mod.addOptions("build_options", options);
-    if (vulkan) |vulkan_mod| {
-        example_test_mod.addImport("vulkan", vulkan_mod);
-    }
-    if (sdl3) |dep| {
-        example_test_mod.addImport("sdl3", dep.module("sdl3"));
-    }
-
-    const example_tests = b.addTest(.{
-        .root_module = example_test_mod,
-    });
-    example_tests.use_llvm = true;
-
-    const run_example_tests = b.addRunArtifact(example_tests);
-
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
-    test_step.dependOn(&run_example_tests.step);
 }
