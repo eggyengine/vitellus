@@ -1,245 +1,65 @@
 const std = @import("std");
 
-const descriptor_set = @import("../../types/descriptor_set.zig");
-const buffer = @import("../../types/buffer.zig");
-const command = @import("../../types/command.zig");
-const def = @import("../../types/def.zig");
-const gpu = @import("../../types/gpu.zig");
-const hal = @import("../hal.zig");
-const pipeline = @import("../../types/pipeline.zig");
-const sampler = @import("../../types/sampler.zig");
-const shader = @import("../../types/shader.zig");
-const texture = @import("../../types/texture.zig");
-const command_backend = @import("command.zig");
-const pipeline_backend = @import("pipeline.zig");
-const resource = @import("resource.zig");
-const shader_backend = @import("shader.zig");
+const Device = @import("../../interface/device.zig").Device;
+const DeviceDescriptor = @import("../../interface/device.zig").DeviceDescriptor;
+const Queue = @import("../../interface/queue.zig").Queue;
+const QueueDescriptor = @import("../../interface/queue.zig").QueueDescriptor;
+const Dx12Adapter = @import("adapter.zig").Dx12Adapter;
+const Dx12Queue = @import("queue.zig").Dx12Queue;
+const debug = @import("debug.zig");
+const utils = @import("utils.zig");
+const ComPtr = utils.ComPtr;
+const checkHr = utils.checkHr;
 
-pub const DX_Device = struct {
-    allocator: std.mem.Allocator,
-    queue: DX_Queue = .{},
+const log = std.log.scoped(.dx12_device);
 
-    pub const vtable = hal.Device.VTable{
-        .destroy = destroy,
-        .createBuffer = createBuffer,
-        .createTexture = createTexture,
-        .createSampler = createSampler,
-        .createDescriptorSetLayout = createDescriptorSetLayout,
-        .createPipelineLayout = createPipelineLayout,
-        .createDescriptorSet = createDescriptorSet,
-        .createShaderModule = createShaderModule,
-        .createComputePipeline = createComputePipeline,
-        .createRenderPipeline = createRenderPipeline,
-        .createComputePipelineAsync = createComputePipelineAsync,
-        .createRenderPipelineAsync = createRenderPipelineAsync,
-        .createCommandEncoder = createCommandEncoder,
-        .createRenderBundleEncoder = createRenderBundleEncoder,
-        .createQuerySet = createQuerySet,
-        .lost = lost,
-        .popErrorScope = popErrorScope,
-        .pushErrorScope = pushErrorScope,
-        .getQueue = getQueue,
+const dx = @import("dx.zig").c;
+
+pub const Dx12Device = struct {
+    device: ComPtr(dx.ID3D12Device) = .{},
+    debug_device: debug.Dx12DebugDevice = .{},
+
+    const vtable: Device.VTable = .{
+        .deinitFn = deinitImpl,
+        .createQueueFn = createQueueImpl,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !struct { hal.Device, hal.Queue } {
-        const device = try allocator.create(DX_Device);
-        device.* = .{ .allocator = allocator };
-        const device_handle = hal.Device{
-            .ptr = device,
-            .vtable = &vtable,
-        };
-        const queue_handle = hal.Queue{
-            .ptr = &device.queue,
-            .vtable = &DX_Queue.vtable,
-        };
-        return .{ device_handle, queue_handle };
-    }
+    pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: DeviceDescriptor) !Device {
+        const adapter: *Dx12Adapter = @ptrCast(@alignCast(adapter_ptr));
 
-    fn destroy(ptr: *anyopaque) void {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        std.log.debug("destroying dx12 device", .{});
-        typed.allocator.destroy(typed);
-    }
-
-    fn createBuffer(ptr: *anyopaque, descriptor: buffer.Buffer.Descriptor) anyerror!hal.Buffer {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return resource.DX_Buffer.init(typed.allocator);
-    }
-
-    fn createTexture(ptr: *anyopaque, descriptor: texture.Texture.Descriptor) anyerror!hal.Texture {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return resource.DX_Texture.init(typed.allocator);
-    }
-
-    fn createSampler(ptr: *anyopaque, descriptor: sampler.Sampler.Descriptor) anyerror!hal.Sampler {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return resource.DX_Sampler.init(typed.allocator);
-    }
-
-    fn createDescriptorSetLayout(ptr: *anyopaque, descriptor: descriptor_set.DescriptorSetLayout.Descriptor) anyerror!hal.DescriptorSetLayout {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return resource.DX_DescriptorSetLayout.init(typed.allocator);
-    }
-
-    fn createPipelineLayout(ptr: *anyopaque, descriptor: pipeline.PipelineLayout.Descriptor) anyerror!hal.PipelineLayout {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return pipeline_backend.DX_PipelineLayout.init(typed.allocator);
-    }
-
-    fn createDescriptorSet(ptr: *anyopaque, descriptor: descriptor_set.DescriptorSet.Descriptor) anyerror!hal.DescriptorSet {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return resource.DX_DescriptorSet.init(typed.allocator);
-    }
-
-    fn createShaderModule(ptr: *anyopaque, descriptor: shader.ShaderModule.Descriptor) anyerror!hal.ShaderModule {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return shader_backend.DX_ShaderModule.init(typed.allocator);
-    }
-
-    fn createComputePipeline(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return pipeline_backend.DX_ComputePipeline.init(typed.allocator);
-    }
-
-    fn createRenderPipeline(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return pipeline_backend.DX_RenderPipeline.init(typed.allocator);
-    }
-
-    fn createComputePipelineAsync(
-        ptr: *anyopaque,
-        io: std.Io,
-        descriptor: pipeline.ComputePipeline.Descriptor,
-    ) std.Io.Future(anyerror!hal.ComputePipeline) {
-        return io.async(createComputePipelineAsyncInternal, .{ ptr, descriptor });
-    }
-
-    fn createComputePipelineAsyncInternal(ptr: *anyopaque, descriptor: pipeline.ComputePipeline.Descriptor) anyerror!hal.ComputePipeline {
-        return createComputePipeline(ptr, descriptor);
-    }
-
-    fn createRenderPipelineAsync(
-        ptr: *anyopaque,
-        io: std.Io,
-        descriptor: pipeline.RenderPipeline.Descriptor,
-    ) std.Io.Future(anyerror!hal.RenderPipeline) {
-        return io.async(createRenderPipelineAsyncInternal, .{ ptr, descriptor });
-    }
-
-    fn createRenderPipelineAsyncInternal(ptr: *anyopaque, descriptor: pipeline.RenderPipeline.Descriptor) anyerror!hal.RenderPipeline {
-        return createRenderPipeline(ptr, descriptor);
-    }
-
-    fn createCommandEncoder(ptr: *anyopaque, descriptor: ?command.CommandEncoder.Descriptor) anyerror!hal.CommandEncoder {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return command_backend.DX_CommandEncoder.init(typed.allocator);
-    }
-
-    fn createRenderBundleEncoder(ptr: *anyopaque, descriptor: command.RenderBundleEncoder.Descriptor) anyerror!hal.RenderBundleEncoder {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return command_backend.DX_RenderBundleEncoder.init(typed.allocator);
-    }
-
-    fn createQuerySet(ptr: *anyopaque, descriptor: gpu.QuerySet.Descriptor) anyerror!hal.QuerySet {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        _ = descriptor;
-        return resource.DX_QuerySet.init(typed.allocator);
-    }
-
-    fn lost(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!gpu.Device.LostInfo) {
-        return io.async(lostInternal, .{ptr});
-    }
-
-    fn lostInternal(ptr: *anyopaque) anyerror!gpu.Device.LostInfo {
-        _ = ptr;
-        return error.NotImplemented;
-    }
-
-    fn popErrorScope(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!?gpu.Device.Error) {
-        return io.async(popErrorScopeInternal, .{ptr});
-    }
-
-    fn popErrorScopeInternal(ptr: *anyopaque) anyerror!?gpu.Device.Error {
-        _ = ptr;
-        return error.NotImplemented;
-    }
-
-    fn pushErrorScope(ptr: *anyopaque, filter: gpu.Device.ErrorFilter) void {
-        _ = ptr;
-        _ = filter;
-    }
-
-    fn getQueue(ptr: *anyopaque) hal.Queue {
-        const typed: *DX_Device = @ptrCast(@alignCast(ptr));
-        return .{
-            .ptr = &typed.queue,
-            .vtable = &DX_Queue.vtable,
-        };
-    }
-};
-
-pub const DX_Queue = struct {
-    pub const vtable = hal.Queue.VTable{
-        .submit = submit,
-        .writeBuffer = writeBuffer,
-        .writeTexture = writeTexture,
-        .onSubmittedWorkDone = onSubmittedWorkDone,
-    };
-
-    fn submit(ptr: *anyopaque, command_buffers: []const hal.CommandBuffer) void {
-        _ = ptr;
-        for (command_buffers) |command_buffer| {
-            command_buffer.destroy();
+        const self = try allocator.create(Dx12Device);
+        self.* = .{};
+        errdefer {
+            self.device.deinit();
+            allocator.destroy(self);
         }
+
+        log.debug("creating ID3D12Device", .{});
+        try checkHr(dx.D3D12CreateDevice(
+            @ptrCast(adapter.adapter.get()),
+            dx.D3D_FEATURE_LEVEL_11_0,
+            &dx.IID_ID3D12Device,
+            @ptrCast(self.device.put()),
+        ));
+        log.debug("ID3D12Device successfully initialised", .{});
+
+        if (desc.validation != .none) {
+            self.debug_device = debug.Dx12DebugDevice.init(self.device);
+        }
+
+        return Device{ .ptr = self, .vtable = &vtable, .allocator = allocator };
     }
 
-    fn writeBuffer(
-        ptr: *anyopaque,
-        target: hal.Buffer,
-        buffer_offset: def.Size64,
-        data: def.AllowSharedBufferSource,
-        data_offset: def.Size64,
-        size: ?def.Size64,
-    ) void {
-        _ = ptr;
-        _ = target;
-        _ = buffer_offset;
-        _ = data;
-        _ = data_offset;
-        _ = size;
+    fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
+        const self: *Dx12Device = @ptrCast(@alignCast(ptr));
+        self.device.deinit();
+        self.debug_device.reportLiveObjects();
+        self.debug_device.deinit();
+        allocator.destroy(self);
     }
 
-    fn writeTexture(
-        ptr: *anyopaque,
-        destination: texture.TexelCopyTextureInfo,
-        data: def.AllowSharedBufferSource,
-        data_layout: texture.TexelCopyBufferLayout,
-        size: texture.Texture.Extent3D,
-    ) anyerror!void {
-        _ = ptr;
-        _ = destination;
-        _ = data;
-        _ = data_layout;
-        _ = size;
+    fn createQueueImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) anyerror!Queue {
+        return Dx12Queue.init(ptr, allocator, desc);
     }
 
-    fn onSubmittedWorkDone(ptr: *anyopaque, io: std.Io) std.Io.Future(anyerror!void) {
-        return io.async(onSubmittedWorkDoneInternal, .{ptr});
-    }
-
-    fn onSubmittedWorkDoneInternal(ptr: *anyopaque) anyerror!void {
-        _ = ptr;
-        return error.NotImplemented;
-    }
 };
