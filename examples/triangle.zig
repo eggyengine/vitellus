@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init) !void {
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
     const adapter = try vit.Adapter.init(init.gpa, .{
-        .backend = vit.hal.settings.BackendType.all(),
+        .backend = .{ .dx12 = true },
         .validation = .core,
     });
     defer adapter.deinit();

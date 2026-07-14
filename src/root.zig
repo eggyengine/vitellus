@@ -63,5 +63,39 @@ pub const SubmitDescriptor = hal.sync.SubmitDescriptor;
 
 test {
     _ = @import("backends/dx12/hlsl_shader_module.zig");
+    _ = @import("backends/dx12/resource.zig");
     _ = @import("backends/dx12/shader.zig");
+}
+
+test "DX12 buffers cover upload, device, and readback memory" {
+    const std = @import("std");
+    if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
+
+    const adapter = try Adapter.init(std.testing.allocator, .{
+        .backend = .{ .dx12 = true },
+        .validation = .none,
+    });
+    defer adapter.deinit();
+    const device = try adapter.createDevice();
+    defer device.deinit();
+
+    const upload = try device.createBuffer(.{
+        .size = 4,
+        .usage = .{ .vertex = true },
+        .memory = .upload,
+        .initial_data = &.{ 1, 2, 3, 4 },
+    });
+    defer device.destroyBuffer(upload);
+    const local = try device.createBuffer(.{
+        .size = 4,
+        .usage = .{ .vertex = true },
+        .initial_data = &.{ 1, 2, 3, 4 },
+    });
+    defer device.destroyBuffer(local);
+    const readback = try device.createBuffer(.{
+        .size = 4,
+        .usage = .{ .transfer_dst = true },
+        .memory = .readback,
+    });
+    defer device.destroyBuffer(readback);
 }

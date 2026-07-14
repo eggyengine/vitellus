@@ -20,6 +20,7 @@ const log = std.log.scoped(.dx12_device);
 const dx = @import("dx.zig").c;
 
 pub const Dx12Device = struct {
+    allocator: std.mem.Allocator,
     device: ComPtr(dx.ID3D12Device) = .{},
     debug_device: debug.Dx12DebugDevice = .{},
 
@@ -41,7 +42,7 @@ pub const Dx12Device = struct {
         const adapter: *Dx12Adapter = @ptrCast(@alignCast(adapter_ptr));
 
         const self = try allocator.create(Dx12Device);
-        self.* = .{};
+        self.* = .{ .allocator = allocator };
         errdefer {
             self.device.deinit();
             allocator.destroy(self);

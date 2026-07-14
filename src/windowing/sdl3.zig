@@ -3,6 +3,8 @@ const std = @import("std");
 const candler = @import("candler");
 const win = @import("windowing.zig");
 
+const log = std.log.scoped(.sdl3_ext);
+
 pub const Sdl3Window = struct {
     window: sdl.video.Window,
     metal_view: ?sdl.MetalView = null,
@@ -30,21 +32,21 @@ pub const Sdl3Window = struct {
 
         if (props.android_window) |window| {
             if (window.value) |ptr| {
-                std.log.debug("resolved SDL3 Android window handle", .{});
+                log.debug("resolved SDL3 Android window handle", .{});
                 return borrowedWindowHandle(candler.AndroidNdkWindowHandle.new(ptr).intoRaw());
             }
         }
 
         if (props.ui_kit_window != null) {
             if (self.metal_view) |view| {
-                std.log.debug("resolved SDL3 UIKit window handle", .{});
+                log.debug("resolved SDL3 UIKit window handle", .{});
                 return borrowedWindowHandle(candler.UiKitWindowHandle.new(view.value).intoRaw());
             }
         }
 
         if (props.cocoa_window != null) {
             if (self.metal_view) |view| {
-                std.log.debug("resolved SDL3 AppKit window handle", .{});
+                log.debug("resolved SDL3 AppKit window handle", .{});
                 return borrowedWindowHandle(candler.AppKitWindowHandle.new(view.value).intoRaw());
             }
         }
@@ -57,26 +59,26 @@ pub const Sdl3Window = struct {
                         handle.hinstance = @as(isize, @intCast(@intFromPtr(instance_ptr)));
                     }
                 }
-                std.log.debug("resolved SDL3 Win32 window handle: hinstance={}", .{handle.hinstance != null});
+                log.debug("resolved SDL3 Win32 window handle: hinstance={}", .{handle.hinstance != null});
                 return borrowedWindowHandle(handle.intoRaw());
             }
         }
 
         if (props.wayland_surface) |surface| {
             if (surface.value) |ptr| {
-                std.log.debug("resolved SDL3 Wayland window handle", .{});
+                log.debug("resolved SDL3 Wayland window handle", .{});
                 return borrowedWindowHandle(candler.WaylandWindowHandle.new(ptr).intoRaw());
             }
         }
 
         if (props.x11_window) |window| {
             if (window > 0) {
-                std.log.debug("resolved SDL3 Xlib window handle", .{});
+                log.debug("resolved SDL3 Xlib window handle", .{});
                 return borrowedWindowHandle(candler.XlibWindowHandle.new(@as(c_ulong, @intCast(window))).intoRaw());
             }
         }
 
-        std.log.debug("SDL3 window handle not supported by available properties", .{});
+        log.debug("SDL3 window handle not supported by available properties", .{});
         return error.NotSupported;
     }
 
@@ -84,51 +86,51 @@ pub const Sdl3Window = struct {
         const props = self.properties() catch return error.Unavailable;
 
         if (props.android_window != null or props.android_surface != null) {
-            std.log.debug("resolved SDL3 Android display handle", .{});
+            log.debug("resolved SDL3 Android display handle", .{});
             return borrowedDisplayHandle(candler.AndroidDisplayHandle.new().intoRaw());
         }
 
         if (props.ui_kit_window != null) {
-            std.log.debug("resolved SDL3 UIKit display handle", .{});
+            log.debug("resolved SDL3 UIKit display handle", .{});
             return borrowedDisplayHandle(candler.UiKitDisplayHandle.new().intoRaw());
         }
 
         if (props.cocoa_window != null) {
-            std.log.debug("resolved SDL3 AppKit display handle", .{});
+            log.debug("resolved SDL3 AppKit display handle", .{});
             return borrowedDisplayHandle(candler.AppKitDisplayHandle.new().intoRaw());
         }
 
         if (props.win32_hwnd != null or props.win32_hdc != null or props.win32_instance != null) {
-            std.log.debug("resolved SDL3 Windows display handle", .{});
+            log.debug("resolved SDL3 Windows display handle", .{});
             return borrowedDisplayHandle(candler.WindowsDisplayHandle.new().intoRaw());
         }
 
         if (props.wayland_display) |display| {
             if (display.value) |ptr| {
-                std.log.debug("resolved SDL3 Wayland display handle", .{});
+                log.debug("resolved SDL3 Wayland display handle", .{});
                 return borrowedDisplayHandle(candler.WaylandDisplayHandle.new(ptr).intoRaw());
             }
         }
 
         if (props.x11_display) |display| {
             const screen = if (props.x11_screen) |screen| @as(c_int, @intCast(screen)) else 0;
-            std.log.debug("resolved SDL3 Xlib display handle: screen={}", .{screen});
+            log.debug("resolved SDL3 Xlib display handle: screen={}", .{screen});
             return borrowedDisplayHandle(candler.XlibDisplayHandle.new(display.value, screen).intoRaw());
         }
 
         if (props.kmsdrm_gbm_device) |device| {
             if (device.value) |ptr| {
-                std.log.debug("resolved SDL3 GBM display handle", .{});
+                log.debug("resolved SDL3 GBM display handle", .{});
                 return borrowedDisplayHandle(candler.GbmDisplayHandle.new(ptr).intoRaw());
             }
         }
 
         if (props.kmsdrm_drm_fd) |fd| {
-            std.log.debug("resolved SDL3 DRM display handle", .{});
+            log.debug("resolved SDL3 DRM display handle", .{});
             return borrowedDisplayHandle(candler.DrmDisplayHandle.new(@as(i32, @intCast(fd))).intoRaw());
         }
 
-        std.log.debug("SDL3 display handle not supported by available properties", .{});
+        log.debug("SDL3 display handle not supported by available properties", .{});
         return error.NotSupported;
     }
 

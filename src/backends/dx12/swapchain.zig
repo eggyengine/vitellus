@@ -6,6 +6,7 @@ const PresentMode = @import("../../interface/swapchain.zig").PresentMode;
 const CompositeAlpha = @import("../../interface/swapchain.zig").CompositeAlpha;
 const ImageUsage = @import("../../interface/swapchain.zig").ImageUsage;
 const resource = @import("../../interface/resource.zig");
+const resource_impl = @import("resource.zig");
 const sync = @import("../../interface/sync.zig");
 const adapter_mod = @import("adapter.zig");
 const utils = @import("utils.zig");
@@ -18,10 +19,15 @@ const dx = @import("dx.zig").c;
 const log = std.log.scoped(.dx12_swapchain);
 
 pub const Dx12Swapchain = struct {
+    allocator: std.mem.Allocator,
     factory: ComPtr(dx.IDXGIFactory4) = .{},
     swapchain: ComPtr(dx.IDXGISwapChain3) = .{},
+    rtv_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
+    buffers: []ComPtr(dx.ID3D12Resource) = &.{},
+    views: []resource_impl.Dx12TextureView = &.{},
     hwnd: isize,
     dx_desc: dx.DXGI_SWAP_CHAIN_DESC1,
+    present_mode: PresentMode,
 
     const vtable: Swapchain.VTable = .{
         .deinitFn = deinitImpl,
@@ -44,11 +50,14 @@ pub const Dx12Swapchain = struct {
         const dx_desc = toDxSwapchainDesc(desc);
         const self = try allocator.create(Dx12Swapchain);
         self.* = .{
+            .allocator = allocator,
             .factory = adapter.factory.clone(),
             .hwnd = hwnd,
             .dx_desc = dx_desc,
+            .present_mode = desc.present_mode,
         };
         errdefer {
+            self.releaseBuffers();
             self.swapchain.deinit();
             self.factory.deinit();
             allocator.destroy(self);
@@ -69,6 +78,7 @@ pub const Dx12Swapchain = struct {
         ));
 
         self.swapchain = try swapchain1.as(dx.IDXGISwapChain3, &dx.IID_IDXGISwapChain3);
+        try self.createViews(queue);
 
         log.debug("created DX12 swapchain for HWND={} buffers={} size={}x{}", .{
             hwnd,
@@ -81,21 +91,87 @@ pub const Dx12Swapchain = struct {
 
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        self.releaseBuffers();
         self.swapchain.deinit();
         self.factory.deinit();
         allocator.destroy(self);
     }
 
-    fn acquireNextImageImpl(_: *anyopaque, _: ?sync.Semaphore) anyerror!u32 {
-        return error.Unsupported;
+    fn acquireNextImageImpl(ptr: *anyopaque, signal: ?sync.Semaphore) anyerror!u32 {
+        if (signal) |value| if (value.handle != 0) return error.UnsupportedSynchronization;
+        const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        return self.swapchain.unwrap().lpVtbl.*.GetCurrentBackBufferIndex.?(self.swapchain.unwrap());
     }
 
-    fn currentTextureViewImpl(_: *anyopaque) anyerror!resource.TextureView {
-        return error.Unsupported;
+    fn currentTextureViewImpl(ptr: *anyopaque) anyerror!resource.TextureView {
+        const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        const index = self.swapchain.unwrap().lpVtbl.*.GetCurrentBackBufferIndex.?(self.swapchain.unwrap());
+        if (index >= self.views.len) return error.InvalidBackBufferIndex;
+        return .{ .handle = @intCast(@intFromPtr(&self.views[index])) };
     }
 
-    fn presentImpl(_: *anyopaque, _: []const sync.Semaphore) anyerror!void {
-        return error.Unsupported;
+    fn presentImpl(ptr: *anyopaque, waits: []const sync.Semaphore) anyerror!void {
+        if (waits.len != 0) return error.UnsupportedSynchronization;
+        const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        const interval: dx.UINT = if (self.present_mode == .fifo or self.present_mode == .fifo_relaxed) 1 else 0;
+        const flags: dx.UINT = if (interval == 0 and (self.dx_desc.Flags & dx.DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0) dx.DXGI_PRESENT_ALLOW_TEARING else 0;
+        try checkHr(self.swapchain.unwrap().lpVtbl.*.Present.?(self.swapchain.unwrap(), interval, flags));
+    }
+
+    fn createViews(self: *Dx12Swapchain, queue: *Dx12Queue) !void {
+        const count: usize = @intCast(self.dx_desc.BufferCount);
+        self.buffers = try self.allocator.alloc(ComPtr(dx.ID3D12Resource), count);
+        for (self.buffers) |*buffer| buffer.* = .{};
+        self.views = try self.allocator.alloc(resource_impl.Dx12TextureView, count);
+
+        var raw_device: ComPtr(dx.ID3D12Device) = .{};
+        defer raw_device.deinit();
+        try checkHr(queue.queue.unwrap().lpVtbl.*.GetDevice.?(
+            queue.queue.unwrap(),
+            &dx.IID_ID3D12Device,
+            @ptrCast(raw_device.put()),
+        ));
+        const device = raw_device.unwrap();
+        const heap_desc = dx.D3D12_DESCRIPTOR_HEAP_DESC{
+            .Type = dx.D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+            .NumDescriptors = @intCast(count),
+            .Flags = dx.D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
+            .NodeMask = 0,
+        };
+        try checkHr(device.lpVtbl.*.CreateDescriptorHeap.?(
+            device,
+            &heap_desc,
+            &dx.IID_ID3D12DescriptorHeap,
+            @ptrCast(self.rtv_heap.put()),
+        ));
+        const stride = device.lpVtbl.*.GetDescriptorHandleIncrementSize.?(device, dx.D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        var handle: dx.D3D12_CPU_DESCRIPTOR_HANDLE = undefined;
+        _ = self.rtv_heap.unwrap().lpVtbl.*.GetCPUDescriptorHandleForHeapStart.?(self.rtv_heap.unwrap(), &handle);
+        for (self.buffers, 0..) |*buffer, i| {
+            try checkHr(self.swapchain.unwrap().lpVtbl.*.GetBuffer.?(
+                self.swapchain.unwrap(),
+                @intCast(i),
+                &dx.IID_ID3D12Resource,
+                @ptrCast(buffer.put()),
+            ));
+            device.lpVtbl.*.CreateRenderTargetView.?(device, buffer.unwrap(), null, handle);
+            self.views[i] = .{
+                .resource = buffer.unwrap(),
+                .rtv = handle,
+                .width = self.dx_desc.Width,
+                .height = self.dx_desc.Height,
+            };
+            handle.ptr += stride;
+        }
+    }
+
+    fn releaseBuffers(self: *Dx12Swapchain) void {
+        for (self.buffers) |*buffer| buffer.deinit();
+        if (self.buffers.len != 0) self.allocator.free(self.buffers);
+        if (self.views.len != 0) self.allocator.free(self.views);
+        self.buffers = &.{};
+        self.views = &.{};
+        self.rtv_heap.deinit();
     }
 };
 
