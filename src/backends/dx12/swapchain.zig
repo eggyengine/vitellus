@@ -5,6 +5,8 @@ const SwapchainFormat = @import("../../interface/swapchain.zig").SwapchainFormat
 const PresentMode = @import("../../interface/swapchain.zig").PresentMode;
 const CompositeAlpha = @import("../../interface/swapchain.zig").CompositeAlpha;
 const ImageUsage = @import("../../interface/swapchain.zig").ImageUsage;
+const resource = @import("../../interface/resource.zig");
+const sync = @import("../../interface/sync.zig");
 const adapter_mod = @import("adapter.zig");
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
@@ -23,6 +25,9 @@ pub const Dx12Swapchain = struct {
 
     const vtable: Swapchain.VTable = .{
         .deinitFn = deinitImpl,
+        .acquireNextImageFn = acquireNextImageImpl,
+        .currentTextureViewFn = currentTextureViewImpl,
+        .presentFn = presentImpl,
     };
 
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: SwapchainDescriptor) !Swapchain {
@@ -79,6 +84,18 @@ pub const Dx12Swapchain = struct {
         self.swapchain.deinit();
         self.factory.deinit();
         allocator.destroy(self);
+    }
+
+    fn acquireNextImageImpl(_: *anyopaque, _: ?sync.Semaphore) anyerror!u32 {
+        return error.Unsupported;
+    }
+
+    fn currentTextureViewImpl(_: *anyopaque) anyerror!resource.TextureView {
+        return error.Unsupported;
+    }
+
+    fn presentImpl(_: *anyopaque, _: []const sync.Semaphore) anyerror!void {
+        return error.Unsupported;
     }
 };
 

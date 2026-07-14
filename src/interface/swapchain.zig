@@ -1,6 +1,8 @@
 const std = @import("std");
 const Queue = @import("queue.zig").Queue;
 const Window = @import("../windowing/windowing.zig").Window;
+const resource = @import("resource.zig");
+const sync = @import("sync.zig");
 
 pub const Extent2D = struct {
     width: u32 = 0,
@@ -60,9 +62,15 @@ pub const Swapchain = struct {
 
     pub const VTable = struct {
         deinitFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
+        acquireNextImageFn: ?*const fn (*anyopaque, ?sync.Semaphore) anyerror!u32 = null,
+        currentTextureViewFn: ?*const fn (*anyopaque) anyerror!resource.TextureView = null,
+        presentFn: ?*const fn (*anyopaque, []const sync.Semaphore) anyerror!void = null,
     };
 
     pub fn deinit(self: Swapchain) void {
         self.vtable.deinitFn(self.ptr, self.allocator);
     }
+    pub fn acquireNextImage(self: Swapchain, signal: ?sync.Semaphore) !u32 { return if (self.vtable.acquireNextImageFn) |f| f(self.ptr, signal) else error.Unsupported; }
+    pub fn currentTextureView(self: Swapchain) !resource.TextureView { return if (self.vtable.currentTextureViewFn) |f| f(self.ptr) else error.Unsupported; }
+    pub fn present(self: Swapchain, waits: []const sync.Semaphore) !void { return if (self.vtable.presentFn) |f| f(self.ptr, waits) else error.Unsupported; }
 };

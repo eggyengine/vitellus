@@ -51,7 +51,6 @@ pub fn main(init: std.process.Init) !void {
             .profile = .vs_6_7,
         }),
     });
-
     defer device.destroyShader(vertex_shader);
 
     const fragment_shader = try device.createShader(.{

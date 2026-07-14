@@ -8,6 +8,7 @@ const dx = @import("dx.zig").c;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
+const sync = @import("sync.zig");
 
 const log = std.log.scoped(.dx12_queue);
 
@@ -17,6 +18,8 @@ pub const Dx12Queue = struct {
 
     const vtable: Queue.VTable = .{
         .deinitFn = deinitImpl,
+        .submitFn = sync.submit,
+        .waitIdleFn = sync.waitIdle,
     };
 
     pub fn init(device_ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) !Queue {

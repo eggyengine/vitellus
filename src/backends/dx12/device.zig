@@ -6,6 +6,10 @@ const Queue = @import("../../interface/queue.zig").Queue;
 const QueueDescriptor = @import("../../interface/queue.zig").QueueDescriptor;
 const Dx12Adapter = @import("adapter.zig").Dx12Adapter;
 const Dx12Queue = @import("queue.zig").Dx12Queue;
+const shader = @import("shader.zig");
+const resource = @import("resource.zig");
+const pipeline = @import("pipeline.zig");
+const command = @import("command.zig");
 const debug = @import("debug.zig");
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
@@ -22,6 +26,15 @@ pub const Dx12Device = struct {
     const vtable: Device.VTable = .{
         .deinitFn = deinitImpl,
         .createQueueFn = createQueueImpl,
+        .createShaderFn = shader.create,
+        .createBufferFn = resource.createBuffer,
+        .createGraphicsPipelineFn = pipeline.createGraphics,
+        .createCommandPoolFn = command.createPool,
+        .createCommandBufferFn = command.createBuffer,
+        .destroyShaderFn = shader.destroy,
+        .destroyBufferFn = resource.destroyBuffer,
+        .destroyGraphicsPipelineFn = pipeline.destroyGraphics,
+        .destroyCommandPoolFn = command.destroyPool,
     };
 
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: DeviceDescriptor) !Device {
@@ -61,5 +74,4 @@ pub const Dx12Device = struct {
     fn createQueueImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) anyerror!Queue {
         return Dx12Queue.init(ptr, allocator, desc);
     }
-
 };

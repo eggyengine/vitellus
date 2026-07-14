@@ -44,6 +44,10 @@
             .url = "git+https://github.com/eggyengine/candler#68e3041704e098ebb891f527dbae207f344b00bb",
             .hash = "candler-0.1.0-J6_AgyBGAABeqjsriWPJFR9bjmQzM8exqWq3oBAGtdF2",
         },
+        .@"directx-shader-compiler" = .{
+            .url = "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/dxc_2026_05_27.zip",
+            .hash = "N-V-__8AADDUvANDVTAEXW1xlMtWXX3bUyU8tGOfn57BBCk-",
+        },
     },
     .paths = .{
         "build.zig",
