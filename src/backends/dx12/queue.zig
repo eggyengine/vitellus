@@ -75,8 +75,11 @@ pub fn waitIdle(self: *Dx12Queue) !void {
     const queue = self.queue.unwrap();
     const fence = self.fence.unwrap();
     try checkHr(queue.lpVtbl.*.Signal.?(queue, fence, self.fence_value));
-    // ponytail: synchronous submission keeps command-pool reuse safe; add frame fences when parallel frames matter.
-    while (fence.lpVtbl.*.GetCompletedValue.?(fence) < self.fence_value) std.atomic.spinLoopHint();
+    if (fence.lpVtbl.*.GetCompletedValue.?(fence) >= self.fence_value) return;
+    const event = dx.CreateEventW(null, 0, 0, null) orelse return error.CreateEventFailed;
+    defer _ = dx.CloseHandle(event);
+    try checkHr(fence.lpVtbl.*.SetEventOnCompletion.?(fence, self.fence_value, event));
+    if (dx.WaitForSingleObject(event, dx.INFINITE) != dx.WAIT_OBJECT_0) return error.FenceWaitFailed;
 }
 
 fn toDxQueueKind(kind: QueueKind) dx.D3D12_COMMAND_LIST_TYPE {

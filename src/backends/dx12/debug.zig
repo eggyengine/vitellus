@@ -2,6 +2,7 @@ const ComPtr = @import("utils.zig").ComPtr;
 const std = @import("std");
 
 const dx = @import("dx.zig").c;
+const ValidationLevel = @import("../../interface/settings.zig").ValidationLevel;
 
 const log = std.log.scoped(.dx12_debug);
 
@@ -13,7 +14,7 @@ pub const Dx12DebugController = struct {
     /// If the debug interface is unavailable (SDK layers not installed, or a
     /// release build), the call is silently skipped and a no-op controller is
     /// returned.
-    pub fn init() Dx12DebugController {
+    pub fn init(level: ValidationLevel) Dx12DebugController {
         var self: Dx12DebugController = .{};
         var raw_debug: ?*anyopaque = null;
 
@@ -29,7 +30,8 @@ pub const Dx12DebugController = struct {
 
                 if (p.lpVtbl) |vtbl| {
                     vtbl.*.EnableDebugLayer.?(p);
-                    log.debug("debug layers enabled", .{});
+                    self.configureAdvancedValidation(level);
+                    log.debug("debug layers enabled ({s})", .{@tagName(level)});
                 } else {
                     log.warn("debug layers not enabled: {}", .{@src()});
                 }
@@ -41,6 +43,28 @@ pub const Dx12DebugController = struct {
         } // huhh??? this is confusing
 
         return self;
+    }
+
+    /// Ensures the requested validation features are enabled before device creation.
+    pub fn enable(self: *Dx12DebugController, level: ValidationLevel) void {
+        if (level == .none) return;
+        if (self.debug.get() == null) {
+            self.* = init(level);
+        } else {
+            self.configureAdvancedValidation(level);
+        }
+    }
+
+    fn configureAdvancedValidation(self: *Dx12DebugController, level: ValidationLevel) void {
+        if (level == .none or level == .core) return;
+        var advanced = self.debug.as(dx.ID3D12Debug1, &dx.IID_ID3D12Debug1) catch {
+            log.warn("ID3D12Debug1 unavailable; advanced validation was not enabled", .{});
+            return;
+        };
+        defer advanced.deinit();
+        const controller = advanced.unwrap();
+        controller.lpVtbl.*.SetEnableSynchronizedCommandQueueValidation.?(controller, 1);
+        if (level == .gpu_based) controller.lpVtbl.*.SetEnableGPUBasedValidation.?(controller, 1);
     }
 
     pub fn deinit(self: *Dx12DebugController) void {

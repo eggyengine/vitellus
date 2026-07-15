@@ -1,5 +1,6 @@
 const std = @import("std");
 const Swapchain = @import("../../interface/swapchain.zig").Swapchain;
+const swapchain_interface = @import("../../interface/swapchain.zig");
 const SwapchainDescriptor = @import("../../interface/swapchain.zig").SwapchainDescriptor;
 const SwapchainFormat = @import("../../interface/swapchain.zig").SwapchainFormat;
 const PresentMode = @import("../../interface/swapchain.zig").PresentMode;
@@ -8,6 +9,7 @@ const ImageUsage = @import("../../interface/swapchain.zig").ImageUsage;
 const resource = @import("../../interface/resource.zig");
 const resource_impl = @import("resource.zig");
 const sync = @import("../../interface/sync.zig");
+const sync_impl = @import("sync.zig");
 const adapter_mod = @import("adapter.zig");
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
@@ -28,12 +30,14 @@ pub const Dx12Swapchain = struct {
     hwnd: isize,
     dx_desc: dx.DXGI_SWAP_CHAIN_DESC1,
     present_mode: PresentMode,
+    queue: *Dx12Queue,
 
     const vtable: Swapchain.VTable = .{
         .deinitFn = deinitImpl,
         .acquireNextImageFn = acquireNextImageImpl,
-        .currentTextureViewFn = currentTextureViewImpl,
         .presentFn = presentImpl,
+        .resizeFn = resizeImpl,
+        .infoFn = infoImpl,
     };
 
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: SwapchainDescriptor) !Swapchain {
@@ -55,6 +59,7 @@ pub const Dx12Swapchain = struct {
             .hwnd = hwnd,
             .dx_desc = dx_desc,
             .present_mode = desc.present_mode,
+            .queue = queue,
         };
         errdefer {
             self.releaseBuffers();
@@ -97,25 +102,49 @@ pub const Dx12Swapchain = struct {
         allocator.destroy(self);
     }
 
-    fn acquireNextImageImpl(ptr: *anyopaque, signal: ?sync.Semaphore) anyerror!u32 {
-        if (signal) |value| if (value.handle != 0) return error.UnsupportedSynchronization;
-        const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
-        return self.swapchain.unwrap().lpVtbl.*.GetCurrentBackBufferIndex.?(self.swapchain.unwrap());
-    }
-
-    fn currentTextureViewImpl(ptr: *anyopaque) anyerror!resource.TextureView {
+    fn acquireNextImageImpl(ptr: *anyopaque, signal: ?sync.Semaphore) anyerror!swapchain_interface.AcquireResult {
         const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
         const index = self.swapchain.unwrap().lpVtbl.*.GetCurrentBackBufferIndex.?(self.swapchain.unwrap());
         if (index >= self.views.len) return error.InvalidBackBufferIndex;
-        return .{ .handle = @intCast(@intFromPtr(&self.views[index])) };
+        if (signal) |value| try sync_impl.signalSemaphoreCpu(value);
+        return .{
+            .index = index,
+            .view = .{ .handle = @intCast(@intFromPtr(&self.views[index])) },
+        };
     }
 
-    fn presentImpl(ptr: *anyopaque, waits: []const sync.Semaphore) anyerror!void {
-        if (waits.len != 0) return error.UnsupportedSynchronization;
+    fn presentImpl(ptr: *anyopaque, waits: []const sync.Semaphore) anyerror!swapchain_interface.PresentStatus {
         const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        for (waits) |value| try sync_impl.waitSemaphore(self.queue.queue.unwrap(), value);
         const interval: dx.UINT = if (self.present_mode == .fifo or self.present_mode == .fifo_relaxed) 1 else 0;
         const flags: dx.UINT = if (interval == 0 and (self.dx_desc.Flags & dx.DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0) dx.DXGI_PRESENT_ALLOW_TEARING else 0;
-        try checkHr(self.swapchain.unwrap().lpVtbl.*.Present.?(self.swapchain.unwrap(), interval, flags));
+        const result = self.swapchain.unwrap().lpVtbl.*.Present.?(self.swapchain.unwrap(), interval, flags);
+        if (result == dx.DXGI_STATUS_OCCLUDED) return .occluded;
+        try checkHr(result);
+        return .optimal;
+    }
+
+    fn resizeImpl(ptr: *anyopaque, extent: swapchain_interface.Extent2D) anyerror!void {
+        const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        if (extent.width == 0 or extent.height == 0) return error.InvalidExtent;
+        try @import("queue.zig").waitIdle(self.queue);
+        self.releaseBuffers();
+        self.dx_desc.Width = extent.width;
+        self.dx_desc.Height = extent.height;
+        try checkHr(self.swapchain.unwrap().lpVtbl.*.ResizeBuffers.?(
+            self.swapchain.unwrap(), self.dx_desc.BufferCount, extent.width, extent.height,
+            self.dx_desc.Format, self.dx_desc.Flags,
+        ));
+        try self.createViews(self.queue);
+    }
+
+    fn infoImpl(ptr: *anyopaque) swapchain_interface.SwapchainInfo {
+        const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        return .{
+            .extent = .{ .width = self.dx_desc.Width, .height = self.dx_desc.Height },
+            .format = fromDxFormat(self.dx_desc.Format),
+            .image_count = self.dx_desc.BufferCount,
+        };
     }
 
     fn createViews(self: *Dx12Swapchain, queue: *Dx12Queue) !void {
@@ -160,6 +189,9 @@ pub const Dx12Swapchain = struct {
                 .rtv = handle,
                 .width = self.dx_desc.Width,
                 .height = self.dx_desc.Height,
+                .dimension = .d2,
+                .depth_or_layers = 1,
+                .format = self.dx_desc.Format,
             };
             handle.ptr += stride;
         }
@@ -208,6 +240,17 @@ fn toDxFormat(format: SwapchainFormat) dx.DXGI_FORMAT {
         .rgba8_unorm => dx.DXGI_FORMAT_R8G8B8A8_UNORM,
         .rgba8_unorm_srgb => dx.DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
         .rgba16_float => dx.DXGI_FORMAT_R16G16B16A16_FLOAT,
+    };
+}
+
+fn fromDxFormat(format: dx.DXGI_FORMAT) SwapchainFormat {
+    return switch (format) {
+        dx.DXGI_FORMAT_B8G8R8A8_UNORM => .bgra8_unorm,
+        dx.DXGI_FORMAT_B8G8R8A8_UNORM_SRGB => .bgra8_unorm_srgb,
+        dx.DXGI_FORMAT_R8G8B8A8_UNORM => .rgba8_unorm,
+        dx.DXGI_FORMAT_R8G8B8A8_UNORM_SRGB => .rgba8_unorm_srgb,
+        dx.DXGI_FORMAT_R16G16B16A16_FLOAT => .rgba16_float,
+        else => .bgra8_unorm,
     };
 }
 

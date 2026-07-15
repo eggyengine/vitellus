@@ -6,6 +6,9 @@ const Device = @import("../../interface/device.zig").Device;
 const DeviceDescriptor = @import("../../interface/device.zig").DeviceDescriptor;
 const Swapchain = @import("../../interface/swapchain.zig").Swapchain;
 const SwapchainDescriptor = @import("../../interface/swapchain.zig").SwapchainDescriptor;
+const adapter_interface = @import("../../interface/adapter.zig");
+const resource = @import("../../interface/resource.zig");
+const Window = @import("../../windowing/windowing.zig").Window;
 const VitellusConfig = @import("../../interface/settings.zig").VitellusConfig;
 const Dx12Device = @import("device.zig").Dx12Device;
 const Dx12Swapchain = @import("swapchain.zig").Dx12Swapchain;
@@ -28,7 +31,57 @@ pub const Dx12Adapter = struct {
         .infoFn = infoImpl,
         .createDeviceFn = createDeviceImpl,
         .createSwapchainFn = createSwapchainImpl,
+        .capabilitiesFn = capabilitiesImpl,
+        .formatCapabilitiesFn = formatCapabilitiesImpl,
+        .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
+
+    fn capabilitiesImpl(_: *anyopaque) adapter_interface.AdapterCapabilities {
+        return .{ .features = .{ .timestamp_query = true, .occlusion_query = true, .indirect_first_instance = true, .depth_clip_control = true, .wireframe = true, .anisotropic_filtering = true, .bc_compression = true }, .limits = .{
+            .max_buffer_size = std.math.maxInt(u32),
+            .max_texture_dimension_1d = 16384,
+            .max_texture_dimension_2d = 16384,
+            .max_texture_dimension_3d = 2048,
+            .max_texture_array_layers = 2048,
+            .max_bind_groups = 8,
+            .max_bindings_per_group = 64,
+            .max_uniform_buffer_binding_size = 65536,
+            .max_storage_buffer_binding_size = std.math.maxInt(u32),
+            .min_uniform_buffer_offset_alignment = 256,
+            .min_storage_buffer_offset_alignment = 16,
+            .max_vertex_buffers = 32,
+            .max_vertex_attributes = 32,
+            .max_vertex_stride = 2048,
+            .max_color_attachments = 8,
+            .max_compute_workgroup_storage = 32768,
+            .max_compute_invocations = 1024,
+            .max_compute_workgroup_size = .{ 1024, 1024, 64 },
+            .max_compute_workgroups = .{ 65535, 65535, 65535 },
+            .max_sampler_anisotropy = 16,
+        } };
+    }
+
+    fn formatCapabilitiesImpl(_: *anyopaque, format: resource.Format) adapter_interface.FormatCapabilities {
+        if (format == .undefined) return .{};
+        const compressed = switch (format) {
+            .bc1_rgba_unorm, .bc1_rgba_unorm_srgb, .bc2_rgba_unorm, .bc2_rgba_unorm_srgb, .bc3_rgba_unorm, .bc3_rgba_unorm_srgb, .bc4_r_unorm, .bc4_r_snorm, .bc5_rg_unorm, .bc5_rg_snorm, .bc6h_rgb_ufloat, .bc6h_rgb_float, .bc7_rgba_unorm, .bc7_rgba_unorm_srgb => true,
+            else => false,
+        };
+        const depth = switch (format) {
+            .stencil8, .d16_unorm, .d24_unorm_s8_uint, .d32_float, .d32_float_s8_uint => true,
+            else => false,
+        };
+        return .{ .usage = .{ .sampled = format != .stencil8, .storage = !compressed and !depth, .color_attachment = !compressed and !depth, .depth_stencil_attachment = depth, .transfer_src = true, .transfer_dst = true }, .sample_counts = .{ .one = true, .two = !compressed, .four = !compressed, .eight = !compressed } };
+    }
+
+    fn surfaceCapabilitiesImpl(_: *anyopaque, allocator: std.mem.Allocator, _: Window) !adapter_interface.SurfaceCapabilities {
+        const formats = try allocator.dupe(@import("../../interface/swapchain.zig").SwapchainFormat, &.{ .bgra8_unorm, .bgra8_unorm_srgb, .rgba8_unorm, .rgba8_unorm_srgb, .rgba16_float });
+        errdefer allocator.free(formats);
+        const present_modes = try allocator.dupe(@import("../../interface/swapchain.zig").PresentMode, &.{ .fifo, .immediate });
+        errdefer allocator.free(present_modes);
+        const composite_alpha = try allocator.dupe(@import("../../interface/swapchain.zig").CompositeAlpha, &.{.opaque_alpha});
+        return .{ .allocator = allocator, .formats = formats, .present_modes = present_modes, .composite_alpha = composite_alpha, .min_image_count = 2, .max_image_count = 16, .min_extent = .{ .width = 1, .height = 1 }, .max_extent = .{ .width = 16384, .height = 16384 } };
+    }
 
     pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Adapter {
         const self = try allocator.create(Dx12Adapter);
@@ -45,7 +98,7 @@ pub const Dx12Adapter = struct {
         // create debug layer
         switch (config.validation) {
             .core, .extended, .gpu_based => {
-                self.debug_ctrl = debug.Dx12DebugController.init();
+                self.debug_ctrl = debug.Dx12DebugController.init(config.validation);
             },
             .none => {},
         }
@@ -134,7 +187,7 @@ pub const Dx12Adapter = struct {
         }
 
         if (initialized != adapters.len) {
-            log.err("DX12 adapter enumeration count mismatch: expected {}, initialized {}", .{ adapters.len, initialized });
+            log.err("DX12 adapter enumeration count mismatch: expected {}, initialised {}", .{ adapters.len, initialized });
             return error.HrFailed;
         }
         return adapters;

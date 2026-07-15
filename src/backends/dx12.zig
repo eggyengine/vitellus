@@ -20,3 +20,4 @@ pub const resource = @import("dx12/resource.zig");
 pub const pipeline = @import("dx12/pipeline.zig");
 pub const command = @import("dx12/command.zig");
 pub const sync = @import("dx12/sync.zig");
+pub const binding = @import("dx12/binding.zig");

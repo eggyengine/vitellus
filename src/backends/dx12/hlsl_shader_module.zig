@@ -60,11 +60,6 @@ pub const HLSLProfile = enum {
             .vertex => "vs_",
             .fragment => "ps_",
             .compute => "cs_",
-            .geometry => "gs_",
-            .tessellation_control => "hs_",
-            .tessellation_evaluation => "ds_",
-            .mesh => "ms_",
-            .task => "as_",
         };
         return std.mem.startsWith(u8, self.name(), prefix);
     }

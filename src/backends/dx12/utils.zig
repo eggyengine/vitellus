@@ -57,11 +57,6 @@ pub fn ComPtr(comptime T: type) type {
             return .{ .ptr = raw };
         }
 
-        /// Returns `true` if the internal pointer is null.
-        pub fn isNull(self: Self) bool {
-            return self.ptr == null;
-        }
-
         /// Returns the raw interface pointer, or `null` if empty.
         pub fn get(self: Self) ?*T {
             return self.ptr;
@@ -97,13 +92,6 @@ pub fn ComPtr(comptime T: type) type {
         /// After the factory call succeeds, the `ComPtr` owns the new reference.
         pub fn put(self: *Self) *?*T {
             self.deinit();
-            return &self.ptr;
-        }
-
-        /// Returns the address of the internal pointer *without* releasing it.
-        /// Useful when passing `**T` to a function that is known to not release
-        /// the existing value (e.g. `GetParent`-style queries).
-        pub fn getAddressOf(self: *Self) *?*T {
             return &self.ptr;
         }
 

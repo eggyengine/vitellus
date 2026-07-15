@@ -35,9 +35,9 @@ const vit = @import("vitellus");
 
 ## documentation
 
-- [Draw your first triangle](docs/triangle.md)
+- [Vitellus tutorial](docs/tutorial/README.md)
 - Complete example: [`examples/triangle.zig`](examples/triangle.zig) and
   [`examples/triangle.hlsl`](examples/triangle.hlsl). Build it with
   `zig build triangle`.
-- Public RHI interfaces live under `vitellus.hal`; commonly used types are also
-  re-exported from the package root.
+- Public RHI interfaces are grouped under `vitellus.hal`, including
+  `vitellus.hal.command`, `vitellus.hal.binding`, and `vitellus.hal.resource`.

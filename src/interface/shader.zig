@@ -1,17 +1,16 @@
+//! Shader stages, binary formats, and pluggable compilation modules.
+
 const std = @import("std");
 const Backend = @import("settings.zig").Backend;
 
+/// Programmable pipeline stage targeted by a shader.
 pub const ShaderStage = enum {
     vertex,
     fragment,
     compute,
-    geometry,
-    tessellation_control,
-    tessellation_evaluation,
-    mesh,
-    task,
 };
 
+/// Backend-ready shader binary representation.
 pub const ShaderBinaryFormat = enum {
     dxil,
     spirv,
@@ -35,6 +34,7 @@ pub const CompiledShader = struct {
     bytes: []u8,
     entry_point: []const u8 = "main",
 
+    /// Frees the owned bytecode with the allocator used to compile it.
     pub fn deinit(self: CompiledShader, allocator: std.mem.Allocator) void {
         allocator.free(self.bytes);
     }
@@ -68,6 +68,8 @@ pub const ShaderModule = struct {
         ) anyerror!CompiledShader,
     };
 
+    /// Stores a compiler implementation inline, or stores a borrowed pointer
+    /// when `value` is a pointer.
     pub fn init(value: anytype) ShaderModule {
         const T = @TypeOf(value);
         const Implementation = switch (@typeInfo(T)) {
@@ -106,6 +108,7 @@ pub const ShaderModule = struct {
         return result;
     }
 
+    /// Compiles this module for the backend and stage in `request`.
     pub fn compile(
         self: *const ShaderModule,
         allocator: std.mem.Allocator,
@@ -117,6 +120,7 @@ pub const ShaderModule = struct {
 
 /// A convenient module for already compiled backend-specific shader code.
 pub const BinaryShaderModule = struct {
+    /// Borrowed precompiled shader data and its target backend.
     pub const Descriptor = struct {
         backend: Backend,
         format: ShaderBinaryFormat,
@@ -144,6 +148,7 @@ pub const BinaryShaderModule = struct {
         }
     };
 
+    /// Wraps precompiled backend bytecode as a `ShaderModule`.
     pub fn init(desc: Descriptor) ShaderModule {
         return ShaderModule.init(Context{
             .backend = desc.backend,
@@ -154,13 +159,21 @@ pub const BinaryShaderModule = struct {
     }
 };
 
+/// Shader stage, optional debug label, and source compiler.
 pub const ShaderDescriptor = struct {
     label: ?[]const u8 = null,
     stage: ShaderStage,
     source: ShaderModule,
 };
 
-pub const Shader = struct { handle: u64 = 0 };
+/// Opaque backend shader handle.
+pub const Shader = struct {
+    handle: u64 = 0,
+
+    pub fn destroy(self: Shader, device: anytype) void {
+        device.destroyShader(self);
+    }
+};
 
 test "custom shader modules compile through the interface vtable" {
     const CustomModule = struct {
