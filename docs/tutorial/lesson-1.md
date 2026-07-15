@@ -123,10 +123,10 @@ pub fn main(init: std.process.Init) !void {
     });
     defer adapter.deinit();
 
-    const device = try adapter.createDevice();
+    const device = try vit.Device.init(adapter, .{});
     defer device.deinit();
 
-    const queue = try device.createQueue(.{ .kind = .graphics });
+const queue = try vit.Queue.init(device, .{ .kind = .graphics });
     defer queue.deinit();
 }
 ```
@@ -141,7 +141,7 @@ A swapchain owns the images displayed by the window. Create it after the queue
 so it can present through that queue:
 
 ```zig
-const swapchain = try adapter.createSwapchain(.{
+const swapchain = try vit.Swapchain.init(adapter, .{
     .window = try window_adapter.asWindow(),
     .queue = queue,
     .extent = .{

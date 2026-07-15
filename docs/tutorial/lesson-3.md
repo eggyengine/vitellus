@@ -31,7 +31,7 @@ texture view used as the render target:
 ```zig
 const acquired = try swapchain.acquireNextImage(null);
 const back_buffer = acquired.view;
-const commands = try device.createCommandBuffer(command_pool);
+const commands = try vit.CommandBuffer.init(command_pool);
 ```
 
 The acquired view refers to the swapchain image selected for this frame.

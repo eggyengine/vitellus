@@ -18,14 +18,25 @@ pub const PowerPreference = enum { low_power, high_performance };
 pub const FeatureSet = settings_mod.FeatureSet;
 pub const Limits = struct {
     max_buffer_size: u64 = 0,
-    max_texture_dimension_1d: u32 = 0, max_texture_dimension_2d: u32 = 0, max_texture_dimension_3d: u32 = 0,
-    max_texture_array_layers: u32 = 0, max_bind_groups: u32 = 0, max_bindings_per_group: u32 = 0,
-    max_uniform_buffer_binding_size: u64 = 0, max_storage_buffer_binding_size: u64 = 0,
-    min_uniform_buffer_offset_alignment: u32 = 1, min_storage_buffer_offset_alignment: u32 = 1,
-    max_vertex_buffers: u32 = 0, max_vertex_attributes: u32 = 0, max_vertex_stride: u32 = 0,
-    max_color_attachments: u32 = 0, max_compute_workgroup_storage: u32 = 0,
-    max_compute_invocations: u32 = 0, max_compute_workgroup_size: [3]u32 = .{ 0, 0, 0 },
-    max_compute_workgroups: [3]u32 = .{ 0, 0, 0 }, max_sampler_anisotropy: u16 = 1,
+    max_texture_dimension_1d: u32 = 0,
+    max_texture_dimension_2d: u32 = 0,
+    max_texture_dimension_3d: u32 = 0,
+    max_texture_array_layers: u32 = 0,
+    max_bind_groups: u32 = 0,
+    max_bindings_per_group: u32 = 0,
+    max_uniform_buffer_binding_size: u64 = 0,
+    max_storage_buffer_binding_size: u64 = 0,
+    min_uniform_buffer_offset_alignment: u32 = 1,
+    min_storage_buffer_offset_alignment: u32 = 1,
+    max_vertex_buffers: u32 = 0,
+    max_vertex_attributes: u32 = 0,
+    max_vertex_stride: u32 = 0,
+    max_color_attachments: u32 = 0,
+    max_compute_workgroup_storage: u32 = 0,
+    max_compute_invocations: u32 = 0,
+    max_compute_workgroup_size: [3]u32 = .{ 0, 0, 0 },
+    max_compute_workgroups: [3]u32 = .{ 0, 0, 0 },
+    max_sampler_anisotropy: u16 = 1,
 };
 pub const AdapterCapabilities = struct { features: FeatureSet = .{}, limits: Limits = .{} };
 pub const SampleCounts = packed struct(u8) { one: bool = true, two: bool = false, four: bool = false, eight: bool = false, _pad: u4 = 0 };
@@ -39,7 +50,11 @@ pub const SurfaceCapabilities = struct {
     max_image_count: u32,
     min_extent: swapchain.Extent2D,
     max_extent: swapchain.Extent2D,
-    pub fn deinit(self: SurfaceCapabilities) void { self.allocator.free(self.formats); self.allocator.free(self.present_modes); self.allocator.free(self.composite_alpha); }
+    pub fn deinit(self: SurfaceCapabilities) void {
+        self.allocator.free(self.formats);
+        self.allocator.free(self.present_modes);
+        self.allocator.free(self.composite_alpha);
+    }
 };
 
 /// Recognised GPU vendor families.
@@ -175,23 +190,15 @@ pub const Adapter = struct {
         return self.vtable.infoFn(self.ptr);
     }
 
-    /// Creates a logical device using this adapter's validation configuration.
-    pub fn createDevice(self: Adapter, desc: DeviceDescriptor) !Device {
-        var resolved = desc;
-        if (resolved.validation == .none) resolved.validation = self.config.validation;
-        const required: u32 = @bitCast(resolved.required_features);
-        const available: u32 = @bitCast(self.capabilities().features);
-        if ((required & ~available) != 0) return error.RequiredFeatureUnsupported;
-        return self.vtable.createDeviceFn(self.ptr, self.allocator, resolved);
+    pub fn capabilities(self: Adapter) AdapterCapabilities {
+        return self.vtable.capabilitiesFn(self.ptr);
     }
-
-    /// Creates a presentation swapchain for a window and graphics queue.
-    pub fn createSwapchain(self: Adapter, desc: SwapchainDescriptor) !Swapchain {
-        return self.vtable.createSwapchainFn(self.ptr, self.allocator, desc);
+    pub fn formatCapabilities(self: Adapter, format: resource.Format) FormatCapabilities {
+        return self.vtable.formatCapabilitiesFn(self.ptr, format);
     }
-    pub fn capabilities(self: Adapter) AdapterCapabilities { return self.vtable.capabilitiesFn(self.ptr); }
-    pub fn formatCapabilities(self: Adapter, format: resource.Format) FormatCapabilities { return self.vtable.formatCapabilitiesFn(self.ptr, format); }
-    pub fn surfaceCapabilities(self: Adapter, allocator: std.mem.Allocator, window: Window) !SurfaceCapabilities { return self.vtable.surfaceCapabilitiesFn(self.ptr, allocator, window); }
+    pub fn surfaceCapabilities(self: Adapter, allocator: std.mem.Allocator, window: Window) !SurfaceCapabilities {
+        return self.vtable.surfaceCapabilitiesFn(self.ptr, allocator, window);
+    }
 
     /// Releases the backend adapter and its native resources.
     pub fn deinit(self: Adapter) void {

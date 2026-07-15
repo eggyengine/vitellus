@@ -84,9 +84,14 @@ pub const MultisampleState = struct { count: u32 = 1, mask: u32 = 0xffff_ffff, a
 pub const PipelineLayoutDescriptor = struct { label: ?[]const u8 = null, bind_group_layouts: []const binding.BindGroupLayout = &.{} };
 pub const PipelineLayout = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (PipelineLayout) void };
 
-    pub fn destroy(self: PipelineLayout, device: anytype) void {
-        device.destroyPipelineLayout(self);
+    pub fn init(device: anytype, desc: PipelineLayoutDescriptor) !PipelineLayout {
+        return if (device.vtable.createPipelineLayoutFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+    pub fn deinit(self: PipelineLayout) void {
+        self.vtable.deinitFn(self);
     }
 };
 /// Complete immutable state used to create a graphics pipeline.
@@ -107,16 +112,26 @@ pub const GraphicsPipelineDescriptor = struct {
 /// Opaque backend graphics-pipeline handle.
 pub const GraphicsPipeline = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (GraphicsPipeline) void };
 
-    pub fn destroy(self: GraphicsPipeline, device: anytype) void {
-        device.destroyGraphicsPipeline(self);
+    pub fn init(device: anytype, desc: GraphicsPipelineDescriptor) !GraphicsPipeline {
+        return if (device.vtable.createGraphicsPipelineFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+    pub fn deinit(self: GraphicsPipeline) void {
+        self.vtable.deinitFn(self);
     }
 };
 pub const ComputePipelineDescriptor = struct { label: ?[]const u8 = null, compute: shader.Shader, layout: PipelineLayout };
 pub const ComputePipeline = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (ComputePipeline) void };
 
-    pub fn destroy(self: ComputePipeline, device: anytype) void {
-        device.destroyComputePipeline(self);
+    pub fn init(device: anytype, desc: ComputePipelineDescriptor) !ComputePipeline {
+        return if (device.vtable.createComputePipelineFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+    pub fn deinit(self: ComputePipeline) void {
+        self.vtable.deinitFn(self);
     }
 };

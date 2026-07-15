@@ -19,6 +19,8 @@ pub const Dx12Shader = struct {
     }
 };
 
+const vtable: shader.Shader.VTable = .{ .deinitFn = destroy };
+
 pub fn create(_: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDescriptor) anyerror!shader.Shader {
     var compiled = try desc.source.compile(allocator, .{
         .backend = .dx12,
@@ -40,10 +42,10 @@ pub fn create(_: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDe
         @tagName(desc.stage),
         compiled.bytes.len,
     });
-    return .{ .handle = @intCast(@intFromPtr(dx_shader)) };
+    return .{ .handle = @intCast(@intFromPtr(dx_shader)), .vtable = &vtable };
 }
 
-pub fn destroy(_: *anyopaque, value: shader.Shader) void {
+pub fn destroy(value: shader.Shader) void {
     const dx_shader = Dx12Shader.fromHandle(value) catch return;
     const allocator = dx_shader.allocator;
     allocator.free(dx_shader.bytecode);
@@ -60,7 +62,7 @@ test "DX12 shaders retain compiled bytecode until destroyed" {
             .bytes = "DXBC-test-bytecode",
         }),
     });
-    defer destroy(undefined, value);
+    defer value.deinit();
 
     const dx_shader = try Dx12Shader.fromHandle(value);
     try std.testing.expectEqual(shader.ShaderStage.vertex, dx_shader.stage);

@@ -41,9 +41,14 @@ pub const BindGroupLayoutDescriptor = struct {
 /// Opaque backend bind-group-layout handle.
 pub const BindGroupLayout = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (BindGroupLayout) void };
 
-    pub fn destroy(self: BindGroupLayout, device: anytype) void {
-        device.destroyBindGroupLayout(self);
+    pub fn init(device: anytype, desc: BindGroupLayoutDescriptor) !BindGroupLayout {
+        return if (device.vtable.createBindGroupLayoutFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+    pub fn deinit(self: BindGroupLayout) void {
+        self.vtable.deinitFn(self);
     }
 };
 
@@ -78,8 +83,13 @@ pub const BindGroupDescriptor = struct {
 /// Opaque backend bind-group handle.
 pub const BindGroup = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (BindGroup) void };
 
-    pub fn destroy(self: BindGroup, device: anytype) void {
-        device.destroyBindGroup(self);
+    pub fn init(device: anytype, desc: BindGroupDescriptor) !BindGroup {
+        return if (device.vtable.createBindGroupFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+    pub fn deinit(self: BindGroup) void {
+        self.vtable.deinitFn(self);
     }
 };

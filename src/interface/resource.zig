@@ -161,43 +161,74 @@ pub const SamplerDescriptor = struct {
 /// Opaque backend buffer handle.
 pub const Buffer = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
 
-    /// Maps a CPU-visible range through the device that owns this buffer.
-    pub fn map(self: Buffer, device: anytype, mode: MapMode, range: BufferRange) ![]u8 {
-        return device.mapBuffer(self, mode, range);
+    pub const VTable = struct {
+        deinitFn: *const fn (Buffer) void,
+        mapFn: *const fn (Buffer, MapMode, BufferRange) anyerror![]u8,
+        unmapFn: *const fn (Buffer, ?BufferRange) void,
+    };
+
+    pub fn init(device: anytype, desc: BufferDescriptor) !Buffer {
+        return if (device.vtable.createBufferFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+
+    /// Maps a CPU-visible range.
+    pub fn map(self: Buffer, mode: MapMode, range: BufferRange) ![]u8 {
+        return self.vtable.mapFn(self, mode, range);
     }
 
     /// Ends a mapping and optionally identifies the range written by the CPU.
-    pub fn unmap(self: Buffer, device: anytype, written: ?BufferRange) void {
-        device.unmapBuffer(self, written);
+    pub fn unmap(self: Buffer, written: ?BufferRange) void {
+        self.vtable.unmapFn(self, written);
     }
 
-    /// Releases this buffer through its owning device.
-    pub fn destroy(self: Buffer, device: anytype) void {
-        device.destroyBuffer(self);
+    pub fn deinit(self: Buffer) void {
+        self.vtable.deinitFn(self);
     }
 };
 /// Opaque backend texture handle.
 pub const Texture = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
 
-    pub fn destroy(self: Texture, device: anytype) void {
-        device.destroyTexture(self);
+    pub const VTable = struct { deinitFn: *const fn (Texture) void };
+
+    pub fn init(device: anytype, desc: TextureDescriptor) !Texture {
+        return if (device.vtable.createTextureFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+
+    pub fn deinit(self: Texture) void {
+        self.vtable.deinitFn(self);
     }
 };
 /// Opaque view describing how a texture is accessed.
 pub const TextureView = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
 
-    pub fn destroy(self: TextureView, device: anytype) void {
-        device.destroyTextureView(self);
+    pub const VTable = struct { deinitFn: *const fn (TextureView) void };
+
+    pub fn init(device: anytype, desc: TextureViewDescriptor) !TextureView {
+        return if (device.vtable.createTextureViewFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+
+    pub fn deinit(self: TextureView) void {
+        self.vtable.deinitFn(self);
     }
 };
 /// Opaque backend sampler handle.
 pub const Sampler = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
 
-    pub fn destroy(self: Sampler, device: anytype) void {
-        device.destroySampler(self);
+    pub const VTable = struct { deinitFn: *const fn (Sampler) void };
+
+    pub fn init(device: anytype, desc: SamplerDescriptor) !Sampler {
+        return if (device.vtable.createSamplerFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+
+    pub fn deinit(self: Sampler) void {
+        self.vtable.deinitFn(self);
     }
 };

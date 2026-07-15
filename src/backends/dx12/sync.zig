@@ -30,16 +30,23 @@ pub const Dx12Semaphore = struct {
     }
 };
 
+const fence_vtable: sync.Fence.VTable = .{
+    .deinitFn = destroyFence,
+    .currentValueFn = fenceValue,
+    .waitFn = waitFence,
+};
+const semaphore_vtable: sync.Semaphore.VTable = .{ .deinitFn = destroySemaphore };
+
 pub fn createFence(ptr: *anyopaque, initial_value: u64) anyerror!sync.Fence {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12Fence);
     self.* = .{ .allocator = device.allocator };
     errdefer device.allocator.destroy(self);
     try checkHr(device.device.unwrap().lpVtbl.*.CreateFence.?(device.device.unwrap(), initial_value, dx.D3D12_FENCE_FLAG_NONE, &dx.IID_ID3D12Fence, @ptrCast(self.fence.put())));
-    return .{ .handle = @intCast(@intFromPtr(self)) };
+    return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &fence_vtable };
 }
 
-pub fn destroyFence(_: *anyopaque, value: sync.Fence) void {
+pub fn destroyFence(value: sync.Fence) void {
     const self = Dx12Fence.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.fence.deinit();
@@ -52,22 +59,22 @@ pub fn createSemaphore(ptr: *anyopaque) anyerror!sync.Semaphore {
     self.* = .{ .allocator = device.allocator };
     errdefer device.allocator.destroy(self);
     try checkHr(device.device.unwrap().lpVtbl.*.CreateFence.?(device.device.unwrap(), 0, dx.D3D12_FENCE_FLAG_NONE, &dx.IID_ID3D12Fence, @ptrCast(self.fence.put())));
-    return .{ .handle = @intCast(@intFromPtr(self)) };
+    return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &semaphore_vtable };
 }
 
-pub fn destroySemaphore(_: *anyopaque, value: sync.Semaphore) void {
+pub fn destroySemaphore(value: sync.Semaphore) void {
     const self = Dx12Semaphore.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.fence.deinit();
     allocator.destroy(self);
 }
 
-pub fn fenceValue(_: *anyopaque, value: sync.Fence) u64 {
+pub fn fenceValue(value: sync.Fence) u64 {
     const self = Dx12Fence.fromHandle(value) catch return 0;
     return self.fence.unwrap().lpVtbl.*.GetCompletedValue.?(self.fence.unwrap());
 }
 
-pub fn waitFence(_: *anyopaque, point: sync.FencePoint, timeout_ns: ?u64) anyerror!bool {
+pub fn waitFence(point: sync.FencePoint, timeout_ns: ?u64) anyerror!bool {
     const self = try Dx12Fence.fromHandle(point.fence);
     const fence = self.fence.unwrap();
     if (fence.lpVtbl.*.GetCompletedValue.?(fence) >= point.value) return true;

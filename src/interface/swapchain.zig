@@ -84,6 +84,10 @@ pub const Swapchain = struct {
         infoFn: ?*const fn (*anyopaque) SwapchainInfo = null,
     };
 
+    pub fn init(adapter: anytype, desc: SwapchainDescriptor) !Swapchain {
+        return adapter.vtable.createSwapchainFn(adapter.ptr, adapter.allocator, desc);
+    }
+
     /// Releases the swapchain and its images.
     pub fn deinit(self: Swapchain) void {
         self.vtable.deinitFn(self.ptr, self.allocator);
@@ -97,6 +101,10 @@ pub const Swapchain = struct {
     pub fn present(self: Swapchain, waits: []const sync.Semaphore) !PresentStatus {
         return if (self.vtable.presentFn) |f| f(self.ptr, waits) else error.Unsupported;
     }
-    pub fn resize(self: Swapchain, extent: Extent2D) !void { return if (self.vtable.resizeFn) |f| f(self.ptr, extent) else error.Unsupported; }
-    pub fn info(self: Swapchain) SwapchainInfo { return if (self.vtable.infoFn) |f| f(self.ptr) else .{ .extent = .{}, .format = .bgra8_unorm, .image_count = 0 }; }
+    pub fn resize(self: Swapchain, extent: Extent2D) !void {
+        return if (self.vtable.resizeFn) |f| f(self.ptr, extent) else error.Unsupported;
+    }
+    pub fn info(self: Swapchain) SwapchainInfo {
+        return if (self.vtable.infoFn) |f| f(self.ptr) else .{ .extent = .{}, .format = .bgra8_unorm, .image_count = 0 };
+    }
 };

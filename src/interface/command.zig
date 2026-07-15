@@ -31,17 +31,24 @@ pub const CommandPoolDescriptor = struct { kind: CommandPoolKind = .graphics, tr
 /// Opaque backend command-pool handle.
 pub const CommandPool = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
 
-    pub fn createCommandBuffer(self: CommandPool, device: anytype) !CommandBuffer {
-        return device.createCommandBuffer(self);
+    pub const VTable = struct {
+        deinitFn: *const fn (CommandPool) void,
+        resetFn: *const fn (CommandPool) anyerror!void,
+        createCommandBufferFn: *const fn (CommandPool) anyerror!CommandBuffer,
+    };
+
+    pub fn init(device: anytype, desc: CommandPoolDescriptor) !CommandPool {
+        return if (device.vtable.createCommandPoolFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
-    pub fn reset(self: CommandPool, device: anytype) !void {
-        return device.resetCommandPool(self);
+    pub fn reset(self: CommandPool) !void {
+        return self.vtable.resetFn(self);
     }
 
-    pub fn destroy(self: CommandPool, device: anytype) void {
-        device.destroyCommandPool(self);
+    pub fn deinit(self: CommandPool) void {
+        self.vtable.deinitFn(self);
     }
 };
 /// Integer width used by an index buffer.
@@ -73,9 +80,14 @@ pub const QueryType = enum { occlusion, timestamp };
 pub const QuerySetDescriptor = struct { label: ?[]const u8 = null, kind: QueryType, count: u32 };
 pub const QuerySet = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (QuerySet) void };
 
-    pub fn destroy(self: QuerySet, device: anytype) void {
-        device.destroyQuerySet(self);
+    pub fn init(device: anytype, desc: QuerySetDescriptor) !QuerySet {
+        return if (device.vtable.createQuerySetFn) |f| f(device.ptr, desc) else error.Unsupported;
+    }
+    pub fn deinit(self: QuerySet) void {
+        self.vtable.deinitFn(self);
     }
 };
 /// One texture subresource used by a copy command.
@@ -132,6 +144,7 @@ pub const CommandBuffer = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
     pub const VTable = struct {
+        deinitFn: *const fn (*anyopaque) void,
         beginRenderPassFn: *const fn (*anyopaque, RenderPassDescriptor) anyerror!void,
         setGraphicsPipelineFn: *const fn (*anyopaque, pipeline.GraphicsPipeline) void,
         beginComputePassFn: *const fn (*anyopaque, ?[]const u8) anyerror!void,
@@ -174,6 +187,12 @@ pub const CommandBuffer = struct {
         insertDebugMarkerFn: *const fn (*anyopaque, []const u8) void,
         finishFn: *const fn (*anyopaque) anyerror!void,
     };
+    pub fn init(pool: CommandPool) !CommandBuffer {
+        return pool.vtable.createCommandBufferFn(pool);
+    }
+    pub fn deinit(self: CommandBuffer) void {
+        self.vtable.deinitFn(self.ptr);
+    }
     /// Begins a render pass targeting the supplied attachments.
     pub fn beginRenderPass(self: CommandBuffer, desc: RenderPassDescriptor) !void {
         return self.vtable.beginRenderPassFn(self.ptr, desc);
@@ -324,9 +343,5 @@ pub const CommandBuffer = struct {
     /// Ends recording and makes the command buffer ready for submission.
     pub fn finish(self: CommandBuffer) !void {
         return self.vtable.finishFn(self.ptr);
-    }
-    /// Releases this command buffer through the device that created it.
-    pub fn destroy(self: CommandBuffer, device: anytype) void {
-        device.destroyCommandBuffer(self);
     }
 };

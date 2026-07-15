@@ -53,12 +53,20 @@ pub const Buffer = hal.resource.Buffer;
 pub const BufferDescriptor = hal.resource.BufferDescriptor;
 pub const Texture = hal.resource.Texture;
 pub const TextureView = hal.resource.TextureView;
+pub const Sampler = hal.resource.Sampler;
 pub const TextureDescriptor = hal.resource.TextureDescriptor;
 pub const Format = hal.resource.Format;
 pub const GraphicsPipeline = hal.pipeline.GraphicsPipeline;
+pub const ComputePipeline = hal.pipeline.ComputePipeline;
+pub const PipelineLayout = hal.pipeline.PipelineLayout;
 pub const GraphicsPipelineDescriptor = hal.pipeline.GraphicsPipelineDescriptor;
 pub const CommandPool = hal.command.CommandPool;
 pub const CommandBuffer = hal.command.CommandBuffer;
+pub const QuerySet = hal.command.QuerySet;
+pub const BindGroupLayout = hal.binding.BindGroupLayout;
+pub const BindGroup = hal.binding.BindGroup;
+pub const Fence = hal.sync.Fence;
+pub const Semaphore = hal.sync.Semaphore;
 pub const RenderPassDescriptor = hal.command.RenderPassDescriptor;
 pub const SubmitDescriptor = hal.sync.SubmitDescriptor;
 
@@ -77,28 +85,28 @@ test "DX12 buffers cover upload, device, and readback memory" {
         .validation = .none,
     });
     defer adapter.deinit();
-    const device = try adapter.createDevice(.{});
+    const device = try Device.init(adapter, .{});
     defer device.deinit();
 
-    const upload = try device.createBuffer(.{
+    const upload = try Buffer.init(device, .{
         .size = 4,
         .usage = .{ .vertex = true },
         .memory = .upload,
         .initial_data = &.{ 1, 2, 3, 4 },
     });
-    defer device.destroyBuffer(upload);
-    const local = try device.createBuffer(.{
+    defer upload.deinit();
+    const local = try Buffer.init(device, .{
         .size = 4,
         .usage = .{ .vertex = true },
         .initial_data = &.{ 1, 2, 3, 4 },
     });
-    defer device.destroyBuffer(local);
-    const readback = try device.createBuffer(.{
+    defer local.deinit();
+    const readback = try Buffer.init(device, .{
         .size = 4,
         .usage = .{ .transfer_dst = true },
         .memory = .readback,
     });
-    defer device.destroyBuffer(readback);
+    defer readback.deinit();
 }
 
 test "DX12 indexed draw binds uniforms and a sampled texture" {
@@ -110,47 +118,47 @@ test "DX12 indexed draw binds uniforms and a sampled texture" {
         .validation = .none,
     });
     defer adapter.deinit();
-    const device = try adapter.createDevice(.{});
+    const device = try Device.init(adapter, .{});
     defer device.deinit();
-    const queue = try device.createQueue(.{ .kind = .graphics });
+    const queue = try Queue.init(device, .{ .kind = .graphics });
     defer queue.deinit();
 
-    const layout = try device.createBindGroupLayout(.{ .entries = &.{
+    const layout = try hal.binding.BindGroupLayout.init(device, .{ .entries = &.{
         .{ .binding = 0, .kind = .{ .buffer = .{ .kind = .uniform } }, .visibility = .{ .fragment = true } },
         .{ .binding = 1, .kind = .{ .sampled_texture = .{} }, .visibility = .{ .fragment = true } },
         .{ .binding = 2, .kind = .{ .sampler = .filtering }, .visibility = .{ .fragment = true } },
     } });
-    defer device.destroyBindGroupLayout(layout);
+    defer layout.deinit();
 
     const tint = [4]f32{ 1, 1, 1, 1 };
-    const uniform = try device.createBuffer(.{
+    const uniform = try Buffer.init(device, .{
         .size = 256,
         .usage = .{ .uniform = true },
         .memory = .upload,
         .initial_data = std.mem.asBytes(&tint),
     });
-    defer device.destroyBuffer(uniform);
+    defer uniform.deinit();
     const indices = [3]u16{ 0, 1, 2 };
-    const index_buffer = try device.createBuffer(.{
+    const index_buffer = try Buffer.init(device, .{
         .size = @sizeOf(@TypeOf(indices)),
         .usage = .{ .index = true },
         .initial_data = std.mem.asBytes(&indices),
     });
-    defer device.destroyBuffer(index_buffer);
+    defer index_buffer.deinit();
 
-    const sampled_texture = try device.createTexture(.{
+    const sampled_texture = try hal.resource.Texture.init(device, .{
         .width = 1,
         .height = 1,
         .format = .rgba8_unorm,
         .usage = .{ .sampled = true },
         .initial_data = &.{ 255, 255, 255, 255 },
     });
-    defer device.destroyTexture(sampled_texture);
-    const sampled_view = try device.createTextureView(.{ .texture = sampled_texture });
-    defer device.destroyTextureView(sampled_view);
-    const sampler = try device.createSampler(.{});
-    defer device.destroySampler(sampler);
-    const group = try device.createBindGroup(.{
+    defer sampled_texture.deinit();
+    const sampled_view = try hal.resource.TextureView.init(device, .{ .texture = sampled_texture });
+    defer sampled_view.deinit();
+    const sampler = try hal.resource.Sampler.init(device, .{});
+    defer sampler.deinit();
+    const group = try hal.binding.BindGroup.init(device, .{
         .layout = layout,
         .entries = &.{
             .{ .binding = 0, .resource = .{ .buffer = .{ .buffer = uniform } } },
@@ -158,7 +166,7 @@ test "DX12 indexed draw binds uniforms and a sampled texture" {
             .{ .binding = 2, .resource = .{ .sampler = sampler } },
         },
     });
-    defer device.destroyBindGroup(group);
+    defer group.deinit();
 
     const source =
         \\struct Output { float4 position : SV_Position; float2 uv : TEXCOORD0; };
@@ -171,40 +179,40 @@ test "DX12 indexed draw binds uniforms and a sampled texture" {
         \\SamplerState image_sampler : register(s2, space0);
         \\float4 psMain(Output input) : SV_Target0 { return image.Sample(image_sampler, input.uv) * tint; }
     ;
-    const vertex = try device.createShader(.{
+    const vertex = try Shader.init(device, .{
         .stage = .vertex,
         .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "vsMain", .profile = .vs_6_7 }),
     });
-    defer device.destroyShader(vertex);
-    const fragment = try device.createShader(.{
+    defer vertex.deinit();
+    const fragment = try Shader.init(device, .{
         .stage = .fragment,
         .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "psMain", .profile = .ps_6_7 }),
     });
-    defer device.destroyShader(fragment);
+    defer fragment.deinit();
     const targets = [_]hal.pipeline.ColorTargetState{.{ .format = .rgba8_unorm }};
-    const pipeline_layout = try device.createPipelineLayout(.{ .bind_group_layouts = &.{layout} });
-    defer device.destroyPipelineLayout(pipeline_layout);
-    const pipeline = try device.createGraphicsPipeline(.{
+    const pipeline_layout = try hal.pipeline.PipelineLayout.init(device, .{ .bind_group_layouts = &.{layout} });
+    defer pipeline_layout.deinit();
+    const pipeline = try GraphicsPipeline.init(device, .{
         .vertex = vertex,
         .fragment = fragment,
         .raster = .{ .cull_mode = .none },
         .color_targets = &targets,
         .layout = pipeline_layout,
     });
-    defer device.destroyGraphicsPipeline(pipeline);
+    defer pipeline.deinit();
 
-    const target = try device.createTexture(.{
+    const target = try hal.resource.Texture.init(device, .{
         .width = 16,
         .height = 16,
         .format = .rgba8_unorm,
         .usage = .{ .color_attachment = true },
     });
-    defer device.destroyTexture(target);
-    const target_view = try device.createTextureView(.{ .texture = target });
-    defer device.destroyTextureView(target_view);
-    const pool = try device.createCommandPool(.{});
-    defer device.destroyCommandPool(pool);
-    const commands = try device.createCommandBuffer(pool);
+    defer target.deinit();
+    const target_view = try hal.resource.TextureView.init(device, .{ .texture = target });
+    defer target_view.deinit();
+    const pool = try CommandPool.init(device, .{});
+    defer pool.deinit();
+    const commands = try CommandBuffer.init(pool);
     try commands.barrier(&.{
         .{ .texture = .{ .texture = target, .before = .common, .after = .color_attachment } },
         .{ .texture = .{ .texture = sampled_texture, .before = .common, .after = .sampled } },
@@ -224,7 +232,7 @@ test "DX12 indexed draw binds uniforms and a sampled texture" {
     try commands.finish();
     try queue.submit(.{ .command_buffers = &.{commands} });
     try queue.waitIdle();
-    device.destroyCommandBuffer(commands);
+    commands.deinit();
 }
 
 test "DX12 command transfers copy buffers and textures" {
@@ -236,65 +244,65 @@ test "DX12 command transfers copy buffers and textures" {
         .validation = .none,
     });
     defer adapter.deinit();
-    const device = try adapter.createDevice(.{});
+    const device = try Device.init(adapter, .{});
     defer device.deinit();
-    const queue = try device.createQueue(.{ .kind = .graphics });
+    const queue = try Queue.init(device, .{ .kind = .graphics });
     defer queue.deinit();
 
     const expected = [4]u8{ 1, 2, 3, 4 };
-    const upload = try device.createBuffer(.{
+    const upload = try Buffer.init(device, .{
         .size = expected.len,
         .usage = .{ .transfer_src = true },
         .memory = .upload,
     });
-    defer device.destroyBuffer(upload);
-    const upload_mapping = try device.mapBuffer(upload, .write, .{ .size = expected.len });
+    defer upload.deinit();
+    const upload_mapping = try upload.map(.write, .{ .size = expected.len });
     @memcpy(upload_mapping, &expected);
-    device.unmapBuffer(upload, .{ .size = expected.len });
-    const local = try device.createBuffer(.{
+    upload.unmap(.{ .size = expected.len });
+    const local = try Buffer.init(device, .{
         .size = expected.len,
         .usage = .{ .transfer_src = true, .transfer_dst = true },
     });
-    defer device.destroyBuffer(local);
-    const readback = try device.createBuffer(.{
+    defer local.deinit();
+    const readback = try Buffer.init(device, .{
         .size = expected.len,
         .usage = .{ .transfer_dst = true },
         .memory = .readback,
     });
-    defer device.destroyBuffer(readback);
+    defer readback.deinit();
 
     const pixels = [4]u8{ 10, 20, 30, 255 };
-    const texture_upload = try device.createBuffer(.{
+    const texture_upload = try Buffer.init(device, .{
         .size = 256,
         .usage = .{ .transfer_src = true },
         .memory = .upload,
         .initial_data = &pixels,
     });
-    defer device.destroyBuffer(texture_upload);
-    const source_texture = try device.createTexture(.{
+    defer texture_upload.deinit();
+    const source_texture = try hal.resource.Texture.init(device, .{
         .width = 1,
         .height = 1,
         .format = .rgba8_unorm,
         .usage = .{ .transfer_src = true, .transfer_dst = true },
     });
-    defer device.destroyTexture(source_texture);
-    const destination_texture = try device.createTexture(.{
+    defer source_texture.deinit();
+    const destination_texture = try hal.resource.Texture.init(device, .{
         .width = 1,
         .height = 1,
         .format = .rgba8_unorm,
         .usage = .{ .transfer_src = true, .transfer_dst = true },
     });
-    defer device.destroyTexture(destination_texture);
-    const texture_readback = try device.createBuffer(.{
+    defer destination_texture.deinit();
+    const texture_readback = try Buffer.init(device, .{
         .size = 256,
         .usage = .{ .transfer_dst = true },
         .memory = .readback,
     });
-    defer device.destroyBuffer(texture_readback);
+    defer texture_readback.deinit();
 
-    const pool = try device.createCommandPool(.{});
-    defer device.destroyCommandPool(pool);
-    const commands = try device.createCommandBuffer(pool);
+    const pool = try CommandPool.init(device, .{});
+    defer pool.deinit();
+    const commands = try CommandBuffer.init(pool);
     commands.beginDebugGroup("transfer test");
     try commands.barrier(&.{.{ .buffer = .{ .buffer = local, .before = .common, .after = .copy_destination } }});
     try commands.copyBuffer(.{ .source = upload, .destination = local, .size = expected.len });
@@ -326,16 +334,16 @@ test "DX12 command transfers copy buffers and textures" {
     try commands.finish();
     try queue.submit(.{ .command_buffers = &.{commands} });
     try queue.waitIdle();
-    device.destroyCommandBuffer(commands);
+    commands.deinit();
 
-    try expectBufferBytes(device, readback, &expected);
-    try expectBufferBytes(device, texture_readback, &pixels);
+    try expectBufferBytes(readback, &expected);
+    try expectBufferBytes(texture_readback, &pixels);
 }
 
-fn expectBufferBytes(device: Device, value: Buffer, expected: []const u8) !void {
+fn expectBufferBytes(value: Buffer, expected: []const u8) !void {
     const std = @import("std");
-    const bytes = try device.mapBuffer(value, .read, .{ .size = expected.len });
-    defer device.unmapBuffer(value, null);
+    const bytes = try value.map(.read, .{ .size = expected.len });
+    defer value.unmap(null);
     try std.testing.expectEqualSlices(u8, expected, bytes);
 }
 
@@ -344,19 +352,19 @@ test "DX12 submission signals timeline fences asynchronously" {
     if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
     const adapter = try Adapter.init(std.testing.allocator, .{ .backend = .{ .dx12 = true }, .validation = .none });
     defer adapter.deinit();
-    const device = try adapter.createDevice(.{});
+    const device = try Device.init(adapter, .{});
     defer device.deinit();
-    const queue = try device.createQueue(.{ .kind = .graphics });
+    const queue = try Queue.init(device, .{ .kind = .graphics });
     defer queue.deinit();
-    const fence = try device.createFence(0);
-    defer device.destroyFence(fence);
-    const pool = try device.createCommandPool(.{});
-    defer device.destroyCommandPool(pool);
-    const commands = try device.createCommandBuffer(pool);
+    const fence = try hal.sync.Fence.init(device, 0);
+    defer fence.deinit();
+    const pool = try CommandPool.init(device, .{});
+    defer pool.deinit();
+    const commands = try CommandBuffer.init(pool);
     try commands.finish();
     try queue.submit(.{ .command_buffers = &.{commands}, .signal_fences = &.{.{ .fence = fence, .value = 1 }} });
-    try std.testing.expect(try device.waitFence(.{ .fence = fence, .value = 1 }, 5 * std.time.ns_per_s));
-    try std.testing.expect(device.fenceValue(fence) >= 1);
-    device.destroyCommandBuffer(commands);
-    try device.resetCommandPool(pool);
+    try std.testing.expect(try fence.wait(1, 5 * std.time.ns_per_s));
+    try std.testing.expect(fence.currentValue() >= 1);
+    commands.deinit();
+    try pool.reset();
 }

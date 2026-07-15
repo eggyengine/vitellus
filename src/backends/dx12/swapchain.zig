@@ -109,7 +109,7 @@ pub const Dx12Swapchain = struct {
         if (signal) |value| try sync_impl.signalSemaphoreCpu(value);
         return .{
             .index = index,
-            .view = .{ .handle = @intCast(@intFromPtr(&self.views[index])) },
+            .view = .{ .handle = @intCast(@intFromPtr(&self.views[index])), .vtable = &resource_impl.texture_view_vtable },
         };
     }
 
@@ -132,8 +132,12 @@ pub const Dx12Swapchain = struct {
         self.dx_desc.Width = extent.width;
         self.dx_desc.Height = extent.height;
         try checkHr(self.swapchain.unwrap().lpVtbl.*.ResizeBuffers.?(
-            self.swapchain.unwrap(), self.dx_desc.BufferCount, extent.width, extent.height,
-            self.dx_desc.Format, self.dx_desc.Flags,
+            self.swapchain.unwrap(),
+            self.dx_desc.BufferCount,
+            extent.width,
+            extent.height,
+            self.dx_desc.Format,
+            self.dx_desc.Flags,
         ));
         try self.createViews(self.queue);
     }
@@ -185,6 +189,7 @@ pub const Dx12Swapchain = struct {
             ));
             device.lpVtbl.*.CreateRenderTargetView.?(device, buffer.unwrap(), null, handle);
             self.views[i] = .{
+                .owner = null,
                 .resource = buffer.unwrap(),
                 .rtv = handle,
                 .width = self.dx_desc.Width,

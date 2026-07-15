@@ -38,26 +38,26 @@ buffer supplies a different offset for each copy of the square.
 ## Creating the buffers
 
 ```zig
-const vertex_buffer = try device.createBuffer(.{
+const vertex_buffer = try vit.Buffer.init(device, .{
     .size = @sizeOf(@TypeOf(vertices)),
     .usage = .{ .vertex = true },
     .initial_data = std.mem.asBytes(&vertices),
 });
-defer device.destroyBuffer(vertex_buffer);
+defer vertex_buffer.deinit();
 
-const index_buffer = try device.createBuffer(.{
+const index_buffer = try vit.Buffer.init(device, .{
     .size = @sizeOf(@TypeOf(indices)),
     .usage = .{ .index = true },
     .initial_data = std.mem.asBytes(&indices),
 });
-defer device.destroyBuffer(index_buffer);
+defer index_buffer.deinit();
 
-const instance_buffer = try device.createBuffer(.{
+const instance_buffer = try vit.Buffer.init(device, .{
     .size = @sizeOf(@TypeOf(instances)),
     .usage = .{ .vertex = true },
     .initial_data = std.mem.asBytes(&instances),
 });
-defer device.destroyBuffer(instance_buffer);
+defer instance_buffer.deinit();
 ```
 
 Device-local buffers use an upload copy during creation when `initial_data` is
@@ -102,7 +102,7 @@ const vertex_layouts = [_]vit.hal.pipeline.VertexBufferLayout{
     .{ .stride = @sizeOf(Instance), .step_mode = .instance, .attributes = &instance_attributes },
 };
 
-const pipeline = try device.createGraphicsPipeline(.{
+const pipeline = try vit.GraphicsPipeline.init(device, .{
     // Shader and colour-target fields from Lesson 2...
     .vertex_buffers = &vertex_layouts,
 });
@@ -114,7 +114,7 @@ Buffers with `initial_data` are ready in the `common` state after creation. Befo
 using them as vertex or index input, record their intended states once:
 
 ```zig
-const setup_commands = try device.createCommandBuffer(command_pool);
+const setup_commands = try vit.CommandBuffer.init(command_pool);
 try setup_commands.barrier(&.{
     .{ .buffer = .{ .buffer = vertex_buffer, .before = .common, .after = .vertex } },
     .{ .buffer = .{ .buffer = instance_buffer, .before = .common, .after = .vertex } },
@@ -123,7 +123,7 @@ try setup_commands.barrier(&.{
 try setup_commands.finish();
 try queue.submit(.{ .command_buffers = &.{setup_commands} });
 try queue.waitIdle();
-device.destroyCommandBuffer(setup_commands);
+setup_commands.deinit();
 ```
 
 These transitions are one-time setup work. Do not record `common` to `vertex`

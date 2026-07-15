@@ -65,7 +65,15 @@ const Dx12CommandPool = struct {
     }
 };
 
+const pool_vtable: command.CommandPool.VTable = .{
+    .deinitFn = destroyPool,
+    .resetFn = resetPool,
+    .createCommandBufferFn = createBuffer,
+};
+const query_set_vtable: command.QuerySet.VTable = .{ .deinitFn = destroyQuerySet };
+
 pub const command_buffer_vtable: command.CommandBuffer.VTable = .{
+    .deinitFn = destroyBuffer,
     .beginRenderPassFn = beginRenderPass,
     .setGraphicsPipelineFn = setGraphicsPipeline,
     .beginComputePassFn = beginComputePass,
@@ -114,10 +122,10 @@ pub fn createPool(ptr: *anyopaque, desc: command.CommandPoolDescriptor) anyerror
     const self = try device.allocator.create(Dx12CommandPool);
     self.* = .{ .allocator = device.allocator, .owner = device, .device = device.device.unwrap(), .kind = desc.kind };
     errdefer device.allocator.destroy(self);
-    return .{ .handle = @intCast(@intFromPtr(self)) };
+    return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &pool_vtable };
 }
 
-pub fn createBuffer(_: *anyopaque, value: command.CommandPool) anyerror!command.CommandBuffer {
+pub fn createBuffer(value: command.CommandPool) anyerror!command.CommandBuffer {
     const pool = try Dx12CommandPool.fromHandle(value);
     const self = try pool.allocator.create(Dx12CommandBuffer);
     self.* = .{ .allocator = pool.allocator, .pool = pool, .device = pool.owner };
@@ -130,20 +138,20 @@ pub fn createBuffer(_: *anyopaque, value: command.CommandPool) anyerror!command.
     return .{ .ptr = self, .vtable = &command_buffer_vtable };
 }
 
-pub fn destroyPool(_: *anyopaque, value: command.CommandPool) void {
+pub fn destroyPool(value: command.CommandPool) void {
     const self = Dx12CommandPool.fromHandle(value) catch return;
     const allocator = self.allocator;
     if (self.live_buffers != 0) return;
     allocator.destroy(self);
 }
 
-pub fn resetPool(_: *anyopaque, value: command.CommandPool) anyerror!void {
+pub fn resetPool(value: command.CommandPool) anyerror!void {
     const self = try Dx12CommandPool.fromHandle(value);
     if (self.live_buffers != 0) return error.CommandBuffersStillAlive;
 }
 
-pub fn destroyBuffer(_: *anyopaque, value: command.CommandBuffer) void {
-    const self = Dx12CommandBuffer.fromCommandBuffer(value);
+pub fn destroyBuffer(ptr: *anyopaque) void {
+    const self: *Dx12CommandBuffer = @ptrCast(@alignCast(ptr));
     self.dispatch_signature.deinit();
     self.draw_indexed_signature.deinit();
     self.draw_signature.deinit();
@@ -166,10 +174,10 @@ pub fn createQuerySet(ptr: *anyopaque, desc: command.QuerySetDescriptor) anyerro
         .NodeMask = 0,
     };
     try checkHr(device.device.unwrap().lpVtbl.*.CreateQueryHeap.?(device.device.unwrap(), &heap_desc, &dx.IID_ID3D12QueryHeap, @ptrCast(self.heap.put())));
-    return .{ .handle = @intCast(@intFromPtr(self)) };
+    return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &query_set_vtable };
 }
 
-pub fn destroyQuerySet(_: *anyopaque, value: command.QuerySet) void {
+pub fn destroyQuerySet(value: command.QuerySet) void {
     const self = Dx12QuerySet.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.heap.deinit();

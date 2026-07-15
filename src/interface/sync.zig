@@ -3,26 +3,42 @@
 /// Monotonic CPU/GPU synchronisation object.
 pub const Fence = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
 
-    pub fn currentValue(self: Fence, device: anytype) u64 {
-        return device.fenceValue(self);
+    pub const VTable = struct {
+        deinitFn: *const fn (Fence) void,
+        currentValueFn: *const fn (Fence) u64,
+        waitFn: *const fn (FencePoint, ?u64) anyerror!bool,
+    };
+
+    pub fn init(device: anytype, initial_value: u64) !Fence {
+        return if (device.vtable.createFenceFn) |f| f(device.ptr, initial_value) else error.Unsupported;
     }
 
-    pub fn wait(self: Fence, device: anytype, value: u64, timeout_ns: ?u64) !bool {
-        return device.waitFence(.{ .fence = self, .value = value }, timeout_ns);
+    pub fn currentValue(self: Fence) u64 {
+        return self.vtable.currentValueFn(self);
     }
 
-    pub fn destroy(self: Fence, device: anytype) void {
-        device.destroyFence(self);
+    pub fn wait(self: Fence, value: u64, timeout_ns: ?u64) !bool {
+        return self.vtable.waitFn(.{ .fence = self, .value = value }, timeout_ns);
+    }
+
+    pub fn deinit(self: Fence) void {
+        self.vtable.deinitFn(self);
     }
 };
 pub const FencePoint = struct { fence: Fence, value: u64 };
 /// GPU-to-GPU synchronisation object.
 pub const Semaphore = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (Semaphore) void };
 
-    pub fn destroy(self: Semaphore, device: anytype) void {
-        device.destroySemaphore(self);
+    pub fn init(device: anytype) !Semaphore {
+        return if (device.vtable.createSemaphoreFn) |f| f(device.ptr) else error.Unsupported;
+    }
+    pub fn deinit(self: Semaphore) void {
+        self.vtable.deinitFn(self);
     }
 };
 /// Work and synchronisation passed to one queue submission.

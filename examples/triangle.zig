@@ -40,13 +40,13 @@ pub fn main(init: std.process.Init) !void {
     });
     defer adapter.deinit();
 
-    const device = try adapter.createDevice(.{});
+    const device = try vit.Device.init(adapter, .{});
     defer device.deinit();
 
-    const queue = try device.createQueue(.{ .kind = .graphics });
+    const queue = try vit.Queue.init(device, .{ .kind = .graphics });
     defer queue.deinit();
 
-    const swapchain = try adapter.createSwapchain(.{
+    const swapchain = try vit.Swapchain.init(adapter, .{
         .window = try window_adapter.asWindow(),
         .queue = queue,
         .extent = .{ .width = width, .height = height },
@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
     });
     defer swapchain.deinit();
 
-    const vertex_shader = try device.createShader(.{
+    const vertex_shader = try vit.Shader.init(device, .{
         .label = "triangle vertex shader",
         .stage = .vertex,
         .source = vit.HLSLShaderModule.init(.{
@@ -65,9 +65,9 @@ pub fn main(init: std.process.Init) !void {
             .profile = .vs_6_7,
         }),
     });
-    defer device.destroyShader(vertex_shader);
+    defer vertex_shader.deinit();
 
-    const fragment_shader = try device.createShader(.{
+    const fragment_shader = try vit.Shader.init(device, .{
         .label = "triangle fragment shader",
         .stage = .fragment,
         .source = vit.HLSLShaderModule.init(.{
@@ -76,35 +76,35 @@ pub fn main(init: std.process.Init) !void {
             .profile = .ps_6_7,
         }),
     });
-    defer device.destroyShader(fragment_shader);
+    defer fragment_shader.deinit();
 
-    const vertex_buffer = try device.createBuffer(.{
+    const vertex_buffer = try vit.Buffer.init(device, .{
         .label = "quad vertices",
         .size = @sizeOf(@TypeOf(vertices)),
         .usage = .{ .vertex = true },
         .initial_data = std.mem.asBytes(&vertices),
     });
-    defer device.destroyBuffer(vertex_buffer);
+    defer vertex_buffer.deinit();
 
-    const index_buffer = try device.createBuffer(.{
+    const index_buffer = try vit.Buffer.init(device, .{
         .label = "quad indices",
         .size = @sizeOf(@TypeOf(indices)),
         .usage = .{ .index = true },
         .initial_data = std.mem.asBytes(&indices),
     });
-    defer device.destroyBuffer(index_buffer);
+    defer index_buffer.deinit();
 
     const tint = [4]f32{ 0.45, 0.85, 1.0, 1.0 };
-    const uniform_buffer = try device.createBuffer(.{
+    const uniform_buffer = try vit.Buffer.init(device, .{
         .label = "scene uniform",
         .size = 256,
         .usage = .{ .uniform = true },
         .memory = .upload,
         .initial_data = std.mem.asBytes(&tint),
     });
-    defer device.destroyBuffer(uniform_buffer);
+    defer uniform_buffer.deinit();
 
-    const scene_layout = try device.createBindGroupLayout(.{
+    const scene_layout = try vit.BindGroupLayout.init(device, .{
         .label = "scene layout",
         .entries = &.{.{
             .binding = 0,
@@ -112,9 +112,9 @@ pub fn main(init: std.process.Init) !void {
             .visibility = .{ .fragment = true },
         }},
     });
-    defer device.destroyBindGroupLayout(scene_layout);
+    defer scene_layout.deinit();
 
-    const scene_group = try device.createBindGroup(.{
+    const scene_group = try vit.BindGroup.init(device, .{
         .label = "scene resources",
         .layout = scene_layout,
         .entries = &.{.{
@@ -122,7 +122,7 @@ pub fn main(init: std.process.Init) !void {
             .resource = .{ .buffer = .{ .buffer = uniform_buffer, .size = 256 } },
         }},
     });
-    defer device.destroyBindGroup(scene_group);
+    defer scene_group.deinit();
 
     const vertex_attributes = [_]vit.hal.pipeline.VertexAttribute{
         .{ .location = 0, .format = .float32x2, .offset = @offsetOf(Vertex, "position") },
@@ -135,9 +135,9 @@ pub fn main(init: std.process.Init) !void {
     const color_targets = [_]vit.hal.pipeline.ColorTargetState{
         .{ .format = .bgra8_unorm },
     };
-    const pipeline_layout = try device.createPipelineLayout(.{ .bind_group_layouts = &.{scene_layout} });
-    defer device.destroyPipelineLayout(pipeline_layout);
-    const pipeline = try device.createGraphicsPipeline(.{
+    const pipeline_layout = try vit.PipelineLayout.init(device, .{ .bind_group_layouts = &.{scene_layout} });
+    defer pipeline_layout.deinit();
+    const pipeline = try vit.GraphicsPipeline.init(device, .{
         .label = "indexed quad pipeline",
         .vertex = vertex_shader,
         .fragment = fragment_shader,
@@ -147,18 +147,18 @@ pub fn main(init: std.process.Init) !void {
         .color_targets = &color_targets,
         .layout = pipeline_layout,
     });
-    defer device.destroyGraphicsPipeline(pipeline);
+    defer pipeline.deinit();
 
-    const command_pool = try device.createCommandPool(.{
+    const command_pool = try vit.CommandPool.init(device, .{
         .transient = false,
         .reset_individually = true,
     });
-    defer device.destroyCommandPool(command_pool);
-    const frame_fence = try device.createFence(0);
-    defer device.destroyFence(frame_fence);
+    defer command_pool.deinit();
+    const frame_fence = try vit.Fence.init(device, 0);
+    defer frame_fence.deinit();
     var frame_value: u64 = 0;
 
-    const setup_commands = try device.createCommandBuffer(command_pool);
+    const setup_commands = try vit.CommandBuffer.init(command_pool);
     try setup_commands.barrier(&.{
         .{ .buffer = .{ .buffer = vertex_buffer, .before = .common, .after = .vertex } },
         .{ .buffer = .{ .buffer = index_buffer, .before = .common, .after = .index } },
@@ -166,7 +166,7 @@ pub fn main(init: std.process.Init) !void {
     try setup_commands.finish();
     try queue.submit(.{ .command_buffers = &.{setup_commands} });
     try queue.waitIdle();
-    device.destroyCommandBuffer(setup_commands);
+    setup_commands.deinit();
 
     var quit = false;
     while (!quit) {
@@ -178,7 +178,7 @@ pub fn main(init: std.process.Init) !void {
 
         const acquired = try swapchain.acquireNextImage(null);
         const back_buffer = acquired.view;
-        const commands = try device.createCommandBuffer(command_pool);
+        const commands = try vit.CommandBuffer.init(command_pool);
         try commands.barrier(&.{.{ .texture_view = .{ .view = back_buffer, .before = .present, .after = .color_attachment } }});
 
         const color_attachments = [_]vit.hal.command.ColorAttachment{.{
@@ -205,8 +205,8 @@ pub fn main(init: std.process.Init) !void {
         frame_value += 1;
         try queue.submit(.{ .command_buffers = &command_buffers, .signal_fences = &.{.{ .fence = frame_fence, .value = frame_value }} });
         _ = try swapchain.present(&.{});
-        _ = try device.waitFence(.{ .fence = frame_fence, .value = frame_value }, null);
-        device.destroyCommandBuffer(commands);
+        _ = try frame_fence.wait(frame_value, null);
+        commands.deinit();
     }
 
     try queue.waitIdle();

@@ -20,7 +20,6 @@ const vit = b.dependency("vitellus", .{
 exe.root_module.addImport("vitellus", vit.module("vitellus"));
 ```
 
-Backends can be selected from your dependency options:
 ```zig
 const vit = b.dependency("vitellus", .{
     .target = target,

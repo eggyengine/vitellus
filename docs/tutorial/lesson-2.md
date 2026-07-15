@@ -56,7 +56,7 @@ const shader_source = @embedFile("triangle.hlsl");
 Create one shader for each stage:
 
 ```zig
-const vertex_shader = try device.createShader(.{
+const vertex_shader = try vit.Shader.init(device, .{
     .label = "triangle vertex shader",
     .stage = .vertex,
     .source = vit.HLSLShaderModule.init(.{
@@ -65,9 +65,9 @@ const vertex_shader = try device.createShader(.{
         .profile = .vs_6_7,
     }),
 });
-defer device.destroyShader(vertex_shader);
+defer vertex_shader.deinit();
 
-const fragment_shader = try device.createShader(.{
+const fragment_shader = try vit.Shader.init(device, .{
     .label = "triangle fragment shader",
     .stage = .fragment,
     .source = vit.HLSLShaderModule.init(.{
@@ -76,7 +76,7 @@ const fragment_shader = try device.createShader(.{
         .profile = .ps_6_7,
     }),
 });
-defer device.destroyShader(fragment_shader);
+defer fragment_shader.deinit();
 ```
 
 On DirectX 12, `HLSLShaderModule` compiles these entry points to DXIL through
@@ -92,10 +92,10 @@ draw:
 const color_targets = [_]vit.hal.pipeline.ColorTargetState{
     .{ .format = .bgra8_unorm },
 };
-const pipeline_layout = try device.createPipelineLayout(.{});
-defer device.destroyPipelineLayout(pipeline_layout);
+const pipeline_layout = try vit.PipelineLayout.init(device, .{});
+defer pipeline_layout.deinit();
 
-const pipeline = try device.createGraphicsPipeline(.{
+const pipeline = try vit.GraphicsPipeline.init(device, .{
     .label = "triangle pipeline",
     .vertex = vertex_shader,
     .fragment = fragment_shader,
@@ -104,7 +104,7 @@ const pipeline = try device.createGraphicsPipeline(.{
     .color_targets = &color_targets,
     .layout = pipeline_layout,
 });
-defer device.destroyGraphicsPipeline(pipeline);
+defer pipeline.deinit();
 ```
 
 The colour-target format must match the swapchain format from Lesson 1. Culling
@@ -114,11 +114,11 @@ are learning the API.
 Finally, create storage for the command list that will record each frame:
 
 ```zig
-const command_pool = try device.createCommandPool(.{
+const command_pool = try vit.CommandPool.init(device, .{
     .transient = false,
     .reset_individually = true,
 });
-defer device.destroyCommandPool(command_pool);
+defer command_pool.deinit();
 ```
 
 Next: [Lesson 3 — drawing and presenting](lesson-3.md).

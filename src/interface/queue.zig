@@ -32,6 +32,10 @@ pub const Queue = struct {
         waitIdleFn: ?*const fn (*anyopaque) anyerror!void = null,
     };
 
+    pub fn init(device: anytype, desc: QueueDescriptor) !Queue {
+        return device.vtable.createQueueFn(device.ptr, device.allocator, desc);
+    }
+
     /// Releases the queue after any required completion wait.
     pub fn deinit(self: Queue) void {
         self.vtable.deinitFn(self.ptr, self.allocator);

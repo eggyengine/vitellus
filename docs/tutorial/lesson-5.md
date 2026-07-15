@@ -28,7 +28,7 @@ A bind-group layout describes what type of resource occupies each binding and
 which shader stages can access it:
 
 ```zig
-const scene_layout = try device.createBindGroupLayout(.{
+const scene_layout = try vit.BindGroupLayout.init(device, .{
     .label = "scene layout",
     .entries = &.{.{
         .binding = 0,
@@ -39,23 +39,23 @@ const scene_layout = try device.createBindGroupLayout(.{
         .visibility = .{ .fragment = true },
     }},
 });
-defer device.destroyBindGroupLayout(scene_layout);
+defer scene_layout.deinit();
 ```
 
 Include that layout in the pipeline layout, then pass the pipeline layout to the
 graphics pipeline:
 
 ```zig
-const pipeline_layout = try device.createPipelineLayout(.{
+const pipeline_layout = try vit.PipelineLayout.init(device, .{
     .bind_group_layouts = &.{scene_layout},
 });
-defer device.destroyPipelineLayout(pipeline_layout);
+defer pipeline_layout.deinit();
 
-const pipeline = try device.createGraphicsPipeline(.{
+const pipeline = try vit.GraphicsPipeline.init(device, .{
     // Shader, vertex-buffer, and colour-target fields from Lesson 4...
     .layout = pipeline_layout,
 });
-defer device.destroyGraphicsPipeline(pipeline);
+defer pipeline.deinit();
 ```
 
 The position of `scene_layout` in `bind_group_layouts` is the slot later passed
@@ -68,14 +68,14 @@ bytes even though the shader reads only one 16-byte `float4`:
 
 ```zig
 const tint = [4]f32{ 0.45, 0.85, 1.0, 1.0 };
-const uniform_buffer = try device.createBuffer(.{
+const uniform_buffer = try vit.Buffer.init(device, .{
     .label = "scene uniform",
     .size = 256,
     .usage = .{ .uniform = true },
     .memory = .upload,
     .initial_data = std.mem.asBytes(&tint),
 });
-defer device.destroyBuffer(uniform_buffer);
+defer uniform_buffer.deinit();
 ```
 
 The RGB values multiply the red, green, and blue vertex channels; alpha
@@ -91,7 +91,7 @@ and index buffers.
 Create a bind group that assigns the uniform buffer to binding `0`:
 
 ```zig
-const scene_group = try device.createBindGroup(.{
+const scene_group = try vit.BindGroup.init(device, .{
     .label = "scene resources",
     .layout = scene_layout,
     .entries = &.{.{
@@ -102,7 +102,7 @@ const scene_group = try device.createBindGroup(.{
         } },
     }},
 });
-defer device.destroyBindGroup(scene_group);
+defer scene_group.deinit();
 ```
 
 Bind the group after the matching pipeline and before the indexed draw:

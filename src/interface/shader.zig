@@ -169,9 +169,14 @@ pub const ShaderDescriptor = struct {
 /// Opaque backend shader handle.
 pub const Shader = struct {
     handle: u64 = 0,
+    vtable: *const VTable,
+    pub const VTable = struct { deinitFn: *const fn (Shader) void };
 
-    pub fn destroy(self: Shader, device: anytype) void {
-        device.destroyShader(self);
+    pub fn init(device: anytype, desc: ShaderDescriptor) !Shader {
+        return if (device.vtable.createShaderFn) |f| f(device.ptr, device.allocator, desc) else error.Unsupported;
+    }
+    pub fn deinit(self: Shader) void {
+        self.vtable.deinitFn(self);
     }
 };
 
