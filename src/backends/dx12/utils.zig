@@ -126,5 +126,8 @@ pub const HrError = error{
 ///
 ///   try checkHr(device.lpVtbl.?.CreateCommandQueue.?(device, &desc, &IID_..., @ptrCast(queue.put())));
 pub fn checkHr(hr: HRESULT) HrError!void {
-    if (hr < 0) return error.HrFailed;
+    if (hr < 0) {
+        std.log.err("HRESULT 0x{X:0>8} ({})", .{ @as(u32, @bitCast(hr)), hr });
+        return error.HrFailed;
+    }
 }

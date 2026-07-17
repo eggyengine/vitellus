@@ -12,6 +12,7 @@ const dx = @import("dx.zig").c;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
+const log = std.log.scoped(.dx12_command);
 
 pub const Dx12QuerySet = struct {
     allocator: std.mem.Allocator,
@@ -122,6 +123,7 @@ pub fn createPool(ptr: *anyopaque, desc: command.CommandPoolDescriptor) anyerror
     const self = try device.allocator.create(Dx12CommandPool);
     self.* = .{ .allocator = device.allocator, .owner = device, .device = device.device.unwrap(), .kind = desc.kind };
     errdefer device.allocator.destroy(self);
+    log.debug("created DX12 command pool kind={s}", .{@tagName(desc.kind)});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &pool_vtable };
 }
 
@@ -142,6 +144,7 @@ pub fn destroyPool(value: command.CommandPool) void {
     const self = Dx12CommandPool.fromHandle(value) catch return;
     const allocator = self.allocator;
     if (self.live_buffers != 0) return;
+    log.debug("destroyed DX12 command pool", .{});
     allocator.destroy(self);
 }
 
@@ -174,6 +177,7 @@ pub fn createQuerySet(ptr: *anyopaque, desc: command.QuerySetDescriptor) anyerro
         .NodeMask = 0,
     };
     try checkHr(device.device.unwrap().lpVtbl.*.CreateQueryHeap.?(device.device.unwrap(), &heap_desc, &dx.IID_ID3D12QueryHeap, @ptrCast(self.heap.put())));
+    log.debug("created DX12 query set kind={s} count={}", .{ @tagName(desc.kind), desc.count });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &query_set_vtable };
 }
 
@@ -181,6 +185,7 @@ pub fn destroyQuerySet(value: command.QuerySet) void {
     const self = Dx12QuerySet.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.heap.deinit();
+    log.debug("destroyed DX12 query set", .{});
     allocator.destroy(self);
 }
 

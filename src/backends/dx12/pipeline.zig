@@ -10,6 +10,7 @@ const dx = @import("dx.zig").c;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
+const log = std.log.scoped(.dx12_pipeline);
 
 pub const BindGroupRoots = struct { resources: ?u32 = null, samplers: ?u32 = null };
 pub const Dx12PipelineLayout = struct {
@@ -62,6 +63,7 @@ pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) an
     errdefer device.allocator.destroy(self);
     for (desc.bind_group_layouts, 0..) |layout, i| self.bind_group_layouts[i] = try binding.Dx12BindGroupLayout.fromHandle(layout);
     self.root_signature = try makeRootSignature(device, self.bind_group_layouts[0..self.bind_group_count], &self.bind_group_roots);
+    log.debug("created DX12 pipeline layout bind-groups={}", .{self.bind_group_count});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
@@ -69,6 +71,7 @@ pub fn destroyLayout(value: pipeline.PipelineLayout) void {
     const self = Dx12PipelineLayout.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.root_signature.deinit();
+    log.debug("destroyed DX12 pipeline layout", .{});
     allocator.destroy(self);
 }
 
@@ -129,12 +132,15 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
     state_desc.SampleDesc = .{ .Count = desc.multisample.count, .Quality = 0 };
     state_desc.Flags = dx.D3D12_PIPELINE_STATE_FLAG_NONE;
 
-    try checkHr(raw_device.lpVtbl.*.CreateGraphicsPipelineState.?(
+    const hr = raw_device.lpVtbl.*.CreateGraphicsPipelineState.?(
         raw_device,
         &state_desc,
         &dx.IID_ID3D12PipelineState,
         @ptrCast(self.state.put()),
-    ));
+    );
+    if (hr < 0) device.debug_device.logMessages();
+    try checkHr(hr);
+    log.debug("created DX12 graphics pipeline vertex-buffers={} color-targets={} topology={s}", .{ desc.vertex_buffers.len, desc.color_targets.len, @tagName(desc.topology) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &graphics_vtable };
 }
 
@@ -223,6 +229,7 @@ pub fn destroyGraphics(value: pipeline.GraphicsPipeline) void {
     const allocator = self.allocator;
     self.state.deinit();
     self.root_signature.deinit();
+    log.debug("destroyed DX12 graphics pipeline", .{});
     allocator.destroy(self);
 }
 
@@ -237,6 +244,7 @@ pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) 
     const raw = device.device.unwrap();
     const state_desc = dx.D3D12_COMPUTE_PIPELINE_STATE_DESC{ .pRootSignature = layout.root_signature.unwrap(), .CS = bytecode(compute), .NodeMask = 0, .CachedPSO = .{ .pCachedBlob = null, .CachedBlobSizeInBytes = 0 }, .Flags = dx.D3D12_PIPELINE_STATE_FLAG_NONE };
     try checkHr(raw.lpVtbl.*.CreateComputePipelineState.?(raw, &state_desc, &dx.IID_ID3D12PipelineState, @ptrCast(self.state.put())));
+    log.debug("created DX12 compute pipeline", .{});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &compute_vtable };
 }
 
@@ -244,6 +252,7 @@ pub fn destroyCompute(value: pipeline.ComputePipeline) void {
     const self = Dx12ComputePipeline.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.state.deinit();
+    log.debug("destroyed DX12 compute pipeline", .{});
     allocator.destroy(self);
 }
 
@@ -392,6 +401,7 @@ fn depthStencilState(value: ?pipeline.DepthStencilState) dx.D3D12_DEPTH_STENCIL_
     const enabled = value != null;
     const depth_write = if (value) |depth| depth.depth_write else false;
     const depth_compare = if (value) |depth| depth.depth_compare else .always;
+    const default_face = stencilFace(.{});
     return .{
         .DepthEnable = @intFromBool(enabled),
         .DepthWriteMask = if (depth_write) dx.D3D12_DEPTH_WRITE_MASK_ALL else dx.D3D12_DEPTH_WRITE_MASK_ZERO,
@@ -399,8 +409,8 @@ fn depthStencilState(value: ?pipeline.DepthStencilState) dx.D3D12_DEPTH_STENCIL_
         .StencilEnable = @intFromBool(enabled and (value.?.stencil_read_mask != 0 or value.?.stencil_write_mask != 0)),
         .StencilReadMask = if (value) |v| v.stencil_read_mask else 0,
         .StencilWriteMask = if (value) |v| v.stencil_write_mask else 0,
-        .FrontFace = if (value) |v| stencilFace(v.stencil_front) else std.mem.zeroes(dx.D3D12_DEPTH_STENCILOP_DESC),
-        .BackFace = if (value) |v| stencilFace(v.stencil_back) else std.mem.zeroes(dx.D3D12_DEPTH_STENCILOP_DESC),
+        .FrontFace = if (value) |v| stencilFace(v.stencil_front) else default_face,
+        .BackFace = if (value) |v| stencilFace(v.stencil_back) else default_face,
     };
 }
 
@@ -454,4 +464,10 @@ test "pipeline topology mappings cover the public primitive modes" {
     try std.testing.expectEqual(@as(dx.D3D12_PRIMITIVE_TOPOLOGY_TYPE, dx.D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT), toDxTopologyType(.point_list));
     try std.testing.expectEqual(@as(dx.D3D12_PRIMITIVE_TOPOLOGY_TYPE, dx.D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE), toDxTopologyType(.line_strip));
     try std.testing.expectEqual(@as(dx.D3D12_PRIMITIVE_TOPOLOGY_TYPE, dx.D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE), toDxTopologyType(.triangle_list));
+}
+
+test "disabled depth stencil state still uses valid D3D12 enum values" {
+    const state = depthStencilState(null);
+    try std.testing.expectEqual(@as(dx.D3D12_STENCIL_OP, dx.D3D12_STENCIL_OP_KEEP), state.FrontFace.StencilFailOp);
+    try std.testing.expectEqual(@as(dx.D3D12_COMPARISON_FUNC, dx.D3D12_COMPARISON_FUNC_ALWAYS), state.FrontFace.StencilFunc);
 }

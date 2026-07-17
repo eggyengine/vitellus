@@ -7,6 +7,7 @@ const dx = @import("dx.zig").c;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
+const log = std.log.scoped(.dx12_resource);
 
 pub const Dx12Buffer = struct {
     allocator: std.mem.Allocator,
@@ -103,6 +104,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
         .readback => unreachable,
     };
 
+    log.debug("created DX12 buffer size={} memory={s}", .{ desc.size, @tagName(desc.memory) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &buffer_vtable };
 }
 
@@ -110,6 +112,7 @@ pub fn destroyBuffer(value: resource.Buffer) void {
     const self = Dx12Buffer.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.resource.deinit();
+    log.debug("destroyed DX12 buffer size={}", .{self.size});
     allocator.destroy(self);
 }
 
@@ -183,6 +186,7 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
         @ptrCast(self.resource.put()),
     ));
     if (desc.initial_data) |data| try uploadTexture(device.device.unwrap(), self.resource.unwrap(), &native_desc, desc, data);
+    log.debug("created DX12 texture {}x{}x{} format={s}", .{ desc.width, desc.height, desc.depth_or_layers, @tagName(desc.format) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
 
@@ -190,6 +194,7 @@ pub fn destroyTexture(value: resource.Texture) void {
     const self = Dx12Texture.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.resource.deinit();
+    log.debug("destroyed DX12 texture {}x{}x{}", .{ self.desc.width, self.desc.height, self.desc.depth_or_layers });
     allocator.destroy(self);
 }
 
@@ -244,6 +249,7 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
         var dsv = depthStencilViewDesc(self.format, view_dimension, desc.base_mip, desc.base_layer, layer_count);
         device.device.unwrap().lpVtbl.*.CreateDepthStencilView.?(device.device.unwrap(), self.resource, &dsv, self.dsv);
     }
+    log.debug("created DX12 texture view dimension={s} mips={} layers={}", .{ @tagName(view_dimension), mip_count, layer_count });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_view_vtable };
 }
 
@@ -313,7 +319,10 @@ pub fn destroyTextureView(value: resource.TextureView) void {
     const self = Dx12TextureView.fromHandle(value) catch return;
     if (self.rtv_index) |index| self.owner.?.freeRtv(index);
     if (self.dsv_index) |index| self.owner.?.freeDsv(index);
-    if (self.allocator) |allocator| allocator.destroy(self);
+    if (self.allocator) |allocator| {
+        log.debug("destroyed DX12 texture view", .{});
+        allocator.destroy(self);
+    }
 }
 
 fn createCommittedBuffer(

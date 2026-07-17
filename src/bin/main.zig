@@ -4,7 +4,6 @@ const vit = @import("vitellus");
 
 const width = 1280;
 const height = 720;
-const shader_source = @embedFile("triangle.hlsl");
 
 const Vertex = extern struct {
     position: [2]f32,
@@ -63,7 +62,7 @@ pub fn main(init: std.process.Init) !void {
         .label = "triangle vertex shader",
         .stage = .vertex,
         .source = vit.HLSLShaderModule.init(.{
-            .code = shader_source,
+            .code = @embedFile("compiled/triangle.vsMain.hlsl"),
             .entry_point = "vsMain",
             .profile = .vs_6_7,
         }),
@@ -74,7 +73,7 @@ pub fn main(init: std.process.Init) !void {
         .label = "triangle fragment shader",
         .stage = .fragment,
         .source = vit.HLSLShaderModule.init(.{
-            .code = shader_source,
+            .code = @embedFile("compiled/triangle.psMain.hlsl"),
             .entry_point = "psMain",
             .profile = .ps_6_7,
         }),

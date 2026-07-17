@@ -353,12 +353,13 @@ pub const Dx12Adapter = struct {
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
 
-        self.query_device.deinit();
-        self.adapter.deinit();
-        self.factory.deinit();
+    self.query_device.deinit();
+    self.adapter.deinit();
+    self.factory.deinit();
 
-        allocator.destroy(self);
-    }
+    log.debug("destroyed DX12 adapter", .{});
+    allocator.destroy(self);
+}
 
     fn infoImpl(ptr: *anyopaque) AdapterInfo {
         const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));

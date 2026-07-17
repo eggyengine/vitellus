@@ -6,6 +6,7 @@ const resource_interface = @import("../../interface/resource.zig");
 const resource = @import("resource.zig");
 const Dx12Device = @import("device.zig").Dx12Device;
 const dx = @import("dx.zig").c;
+const log = std.log.scoped(.dx12_binding);
 
 pub const Dx12BindGroupLayout = struct {
     allocator: std.mem.Allocator,
@@ -73,6 +74,7 @@ pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) an
         .resource_count = resource_count,
         .sampler_count = sampler_count,
     };
+    log.debug("created DX12 bind-group layout entries={} resources={} samplers={}", .{ entries.len, resource_count, sampler_count });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
@@ -80,6 +82,7 @@ pub fn destroyLayout(value: binding.BindGroupLayout) void {
     const self = Dx12BindGroupLayout.fromHandle(value) catch return;
     const allocator = self.allocator;
     allocator.free(self.entries);
+    log.debug("destroyed DX12 bind-group layout", .{});
     allocator.destroy(self);
 }
 
@@ -103,11 +106,13 @@ pub fn createSampler(ptr: *anyopaque, desc: resource_interface.SamplerDescriptor
             .MaxLOD = desc.lod_max,
         },
     };
+    log.debug("created DX12 sampler", .{});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &sampler_vtable };
 }
 
 pub fn destroySampler(value: resource_interface.Sampler) void {
     const self = Dx12Sampler.fromHandle(value) catch return;
+    log.debug("destroyed DX12 sampler", .{});
     self.allocator.destroy(self);
 }
 
@@ -271,6 +276,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
             }
         }
     }
+    log.debug("created DX12 bind group entries={}", .{desc.entries.len});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &group_vtable };
 }
 
@@ -279,6 +285,7 @@ pub fn destroyGroup(value: binding.BindGroup) void {
     if (self.resource_count != 0) self.owner.freeResourceDescriptors(self.resource_index, self.resource_count);
     if (self.sampler_count != 0) self.owner.freeSamplerDescriptors(self.sampler_index, self.sampler_count);
     self.allocator.free(self.entries);
+    log.debug("destroyed DX12 bind group", .{});
     self.allocator.destroy(self);
 }
 

@@ -10,6 +10,7 @@ const dx = @import("dx.zig").c;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
+const log = std.log.scoped(.dx12_sync);
 
 pub const Dx12Fence = struct {
     allocator: std.mem.Allocator,
@@ -43,6 +44,7 @@ pub fn createFence(ptr: *anyopaque, initial_value: u64) anyerror!sync.Fence {
     self.* = .{ .allocator = device.allocator };
     errdefer device.allocator.destroy(self);
     try checkHr(device.device.unwrap().lpVtbl.*.CreateFence.?(device.device.unwrap(), initial_value, dx.D3D12_FENCE_FLAG_NONE, &dx.IID_ID3D12Fence, @ptrCast(self.fence.put())));
+    log.debug("created DX12 fence initial-value={}", .{initial_value});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &fence_vtable };
 }
 
@@ -50,6 +52,7 @@ pub fn destroyFence(value: sync.Fence) void {
     const self = Dx12Fence.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.fence.deinit();
+    log.debug("destroyed DX12 fence", .{});
     allocator.destroy(self);
 }
 
@@ -59,6 +62,7 @@ pub fn createSemaphore(ptr: *anyopaque) anyerror!sync.Semaphore {
     self.* = .{ .allocator = device.allocator };
     errdefer device.allocator.destroy(self);
     try checkHr(device.device.unwrap().lpVtbl.*.CreateFence.?(device.device.unwrap(), 0, dx.D3D12_FENCE_FLAG_NONE, &dx.IID_ID3D12Fence, @ptrCast(self.fence.put())));
+    log.debug("created DX12 semaphore", .{});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &semaphore_vtable };
 }
 
@@ -66,6 +70,7 @@ pub fn destroySemaphore(value: sync.Semaphore) void {
     const self = Dx12Semaphore.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.fence.deinit();
+    log.debug("destroyed DX12 semaphore", .{});
     allocator.destroy(self);
 }
 

@@ -66,6 +66,7 @@ pub const Dx12Queue = struct {
         waitIdle(self) catch {};
         self.fence.deinit();
         self.queue.deinit();
+        log.debug("destroyed DX12 command queue", .{});
         allocator.destroy(self);
     }
 };

@@ -8,6 +8,7 @@ const dx = @import("dx.zig").c;
 const ComPtr = @import("utils.zig").ComPtr;
 const checkHr = @import("utils.zig").checkHr;
 const debug = @import("debug.zig");
+const log = std.log.scoped(.dx12_instance);
 
 pub const Dx12Instance = struct {
     debug_ctrl: debug.Dx12DebugController = .{},
@@ -40,6 +41,7 @@ pub const Dx12Instance = struct {
         const self: *Dx12Instance = @ptrCast(@alignCast(ptr));
         self.factory.deinit();
         self.debug_ctrl.deinit();
+        log.debug("destroyed DX12 instance", .{});
         allocator.destroy(self);
     }
 

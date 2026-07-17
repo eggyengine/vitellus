@@ -99,6 +99,7 @@ pub const Dx12Swapchain = struct {
         self.releaseBuffers();
         self.swapchain.deinit();
         self.factory.deinit();
+        log.debug("destroyed DX12 swapchain", .{});
         allocator.destroy(self);
     }
 

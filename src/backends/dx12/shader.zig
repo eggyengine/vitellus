@@ -49,6 +49,7 @@ pub fn destroy(value: shader.Shader) void {
     const dx_shader = Dx12Shader.fromHandle(value) catch return;
     const allocator = dx_shader.allocator;
     allocator.free(dx_shader.bytecode);
+    log.debug("destroyed DX12 {s} shader", .{@tagName(dx_shader.stage)});
     allocator.destroy(dx_shader);
 }
 
