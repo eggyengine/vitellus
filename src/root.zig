@@ -7,6 +7,7 @@ pub const windowing = struct {
 
 pub const backends = struct {
     pub const dx12 = @import("backends/dx12.zig");
+    pub const vk = @import("backends/vulkan.zig");
 };
 
 pub const hal = struct {
@@ -21,9 +22,12 @@ pub const hal = struct {
     pub const shader = @import("interface/shader.zig");
     pub const swapchain = @import("interface/swapchain.zig");
     pub const sync = @import("interface/sync.zig");
+    pub const instance = @import("interface/instance.zig");
 };
 
+pub const Instance = hal.instance.Instance;
 pub const Adapter = hal.adapter.Adapter;
+pub const AdapterDescriptor = hal.adapter.AdapterDescriptor;
 pub const AdapterInfo = hal.adapter.AdapterInfo;
 pub const Device = hal.device.Device;
 pub const DeviceDescriptor = hal.device.DeviceDescriptor;
@@ -39,6 +43,10 @@ pub const ImageUsage = hal.swapchain.ImageUsage;
 pub const Extent2D = hal.swapchain.Extent2D;
 pub const Window = windowing.Window;
 pub const Config = hal.settings.VitellusConfig;
+pub const Backend = hal.settings.Backend;
+pub const BackendType = hal.settings.BackendType;
+pub const BackendFactory = hal.settings.BackendFactory;
+pub const ValidationLevel = hal.settings.ValidationLevel;
 pub const Shader = hal.shader.Shader;
 pub const ShaderModule = hal.shader.ShaderModule;
 pub const HLSLShaderModule = @import("backends/dx12/hlsl_shader_module.zig").HLSLShaderModule;
@@ -76,14 +84,54 @@ test {
     _ = @import("backends/dx12/shader.zig");
 }
 
+test "DX12 capability queries reflect the live adapter" {
+    const std = @import("std");
+    if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
+
+    const instance = try Instance.init(std.testing.allocator, .{
+        .backend = .{ .dx12 = true },
+        .validation = .none,
+    });
+    defer instance.deinit();
+    const adapter = try Adapter.init(instance, .{});
+    defer adapter.deinit();
+
+    const caps = adapter.capabilities();
+    try std.testing.expect(caps.limits.max_buffer_size >= std.math.maxInt(u32));
+    try std.testing.expect(caps.limits.max_texture_dimension_2d >= 16384);
+    try std.testing.expect(caps.limits.max_bindings_per_group >= 64);
+    try std.testing.expect(caps.limits.min_uniform_buffer_offset_alignment == 256);
+    try std.testing.expect(caps.features.bc_compression);
+
+    const rgba8 = adapter.formatCapabilities(.rgba8_unorm);
+    try std.testing.expect(rgba8.usage.sampled);
+    try std.testing.expect(rgba8.usage.color_attachment);
+    try std.testing.expect(!rgba8.usage.depth_stencil_attachment);
+    try std.testing.expect(rgba8.sample_counts.four);
+
+    const depth = adapter.formatCapabilities(.d32_float);
+    try std.testing.expect(depth.usage.depth_stencil_attachment);
+    try std.testing.expect(!depth.usage.color_attachment);
+    try std.testing.expect(!depth.usage.storage);
+
+    const bc7 = adapter.formatCapabilities(.bc7_rgba_unorm);
+    try std.testing.expect(bc7.usage.sampled);
+    try std.testing.expect(!bc7.usage.color_attachment);
+    try std.testing.expect(!bc7.sample_counts.four);
+
+    try std.testing.expectEqual(hal.adapter.FormatCapabilities{}, adapter.formatCapabilities(.undefined));
+}
+
 test "DX12 buffers cover upload, device, and readback memory" {
     const std = @import("std");
     if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
 
-    const adapter = try Adapter.init(std.testing.allocator, .{
+    const instance = try Instance.init(std.testing.allocator, .{
         .backend = .{ .dx12 = true },
         .validation = .none,
     });
+    defer instance.deinit();
+    const adapter = try Adapter.init(instance, .{});
     defer adapter.deinit();
     const device = try Device.init(adapter, .{});
     defer device.deinit();
@@ -113,10 +161,12 @@ test "DX12 indexed draw binds uniforms and a sampled texture" {
     const std = @import("std");
     if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
 
-    const adapter = try Adapter.init(std.testing.allocator, .{
+    const instance = try Instance.init(std.testing.allocator, .{
         .backend = .{ .dx12 = true },
         .validation = .none,
     });
+    defer instance.deinit();
+    const adapter = try Adapter.init(instance, .{});
     defer adapter.deinit();
     const device = try Device.init(adapter, .{});
     defer device.deinit();
@@ -239,10 +289,12 @@ test "DX12 command transfers copy buffers and textures" {
     const std = @import("std");
     if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
 
-    const adapter = try Adapter.init(std.testing.allocator, .{
+    const instance = try Instance.init(std.testing.allocator, .{
         .backend = .{ .dx12 = true },
         .validation = .none,
     });
+    defer instance.deinit();
+    const adapter = try Adapter.init(instance, .{});
     defer adapter.deinit();
     const device = try Device.init(adapter, .{});
     defer device.deinit();
@@ -350,7 +402,9 @@ fn expectBufferBytes(value: Buffer, expected: []const u8) !void {
 test "DX12 submission signals timeline fences asynchronously" {
     const std = @import("std");
     if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
-    const adapter = try Adapter.init(std.testing.allocator, .{ .backend = .{ .dx12 = true }, .validation = .none });
+    const instance = try Instance.init(std.testing.allocator, .{ .backend = .{ .dx12 = true }, .validation = .none });
+    defer instance.deinit();
+    const adapter = try Adapter.init(instance, .{});
     defer adapter.deinit();
     const device = try Device.init(adapter, .{});
     defer device.deinit();

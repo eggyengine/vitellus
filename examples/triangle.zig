@@ -34,10 +34,13 @@ pub fn main(init: std.process.Init) !void {
 
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
-    const adapter = try vit.Adapter.init(init.gpa, .{
+    const instance = try vit.Instance.init(init.gpa, .{
         .backend = .{ .dx12 = true },
         .validation = .core,
     });
+    defer instance.deinit();
+
+    const adapter = try vit.Adapter.init(instance, .{});
     defer adapter.deinit();
 
     const device = try vit.Device.init(adapter, .{});

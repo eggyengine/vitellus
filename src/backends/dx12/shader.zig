@@ -29,7 +29,7 @@ pub fn create(_: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDe
     });
     errdefer compiled.deinit(allocator);
 
-    if (compiled.format != .dxil) return error.UnsupportedShaderFormat;
+    if (!compiled.format.eql(.dxil)) return error.UnsupportedShaderFormat;
 
     const dx_shader = try allocator.create(Dx12Shader);
     dx_shader.* = .{

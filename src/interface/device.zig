@@ -47,7 +47,7 @@ pub const Device = struct {
 
     pub fn init(adapter: anytype, desc: DeviceDescriptor) !Device {
         var resolved = desc;
-        if (resolved.validation == .none) resolved.validation = adapter.config.validation;
+        if (resolved.validation == .none) resolved.validation = adapter.validation;
         const required: u32 = @bitCast(resolved.required_features);
         const available: u32 = @bitCast(adapter.capabilities().features);
         if ((required & ~available) != 0) return error.RequiredFeatureUnsupported;

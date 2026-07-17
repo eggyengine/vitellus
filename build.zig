@@ -8,6 +8,8 @@ pub fn build(b: *std.Build) void {
     const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
     var dxc_bin_dir: ?std.Build.LazyPath = null;
 
+    const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse true;
+
     const mod = b.addModule("vitellus", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -55,6 +57,13 @@ pub fn build(b: *std.Build) void {
         }
         mod.linkSystemLibrary("dxgi", .{});
         mod.linkSystemLibrary("d3d12", .{});
+    }
+
+    if (enable_vk) {
+        const vulkan = b.lazyDependency("vulkan", .{
+            .registry = b.lazyDependency("vulkan_headers", .{}).?.path("registry/vk.xml"),
+        }).?.module("vulkan-zig");
+        mod.addImport("vulkan", vulkan);
     }
 
     const exe = b.addExecutable(.{

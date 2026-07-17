@@ -79,7 +79,14 @@ pub const Dx12Device = struct {
             allocator.destroy(self);
         }
 
-        adapter.debug_ctrl.enable(desc.validation);
+        if (desc.validation != .none) {
+            if (adapter.instance) |instance| {
+                instance.debug_ctrl.enable(desc.validation);
+            } else {
+                var debug_ctrl = debug.Dx12DebugController.init(desc.validation);
+                defer debug_ctrl.deinit();
+            }
+        }
         log.debug("creating ID3D12Device", .{});
         try checkHr(dx.D3D12CreateDevice(
             @ptrCast(adapter.adapter.get()),

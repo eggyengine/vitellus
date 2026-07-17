@@ -7,6 +7,7 @@ const dx = @cImport({
 });
 
 pub const adapter = @import("dx12/adapter.zig");
+pub const instance = @import("dx12/instance.zig");
 pub const device = @import("dx12/device.zig");
 pub const debug = @import("dx12/debug.zig");
 pub const utils = @import("dx12/utils.zig");

@@ -87,6 +87,7 @@ pub const HLSLShaderModule = struct {
                 .dx12 => self.compileDxil(allocator, request),
                 .vulkan => self.compileSpirv(allocator, request),
                 .metal => self.compileMetallib(allocator, request),
+                .custom => error.UnsupportedShaderBackend,
             };
         }
 
@@ -232,7 +233,7 @@ test "HLSL module compiles DXIL as an inline temporary" {
     });
     defer compiled.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(shader.ShaderBinaryFormat.dxil, compiled.format);
+    try std.testing.expect(compiled.format.eql(.dxil));
     try std.testing.expectEqualStrings("DXBC", compiled.bytes[0..4]);
 }
 
@@ -251,6 +252,6 @@ test "HLSL module compiles SPIR-V" {
     });
     defer compiled.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(shader.ShaderBinaryFormat.spirv, compiled.format);
+    try std.testing.expect(compiled.format.eql(.spirv));
     try std.testing.expectEqualSlices(u8, &.{ 0x03, 0x02, 0x23, 0x07 }, compiled.bytes[0..4]);
 }

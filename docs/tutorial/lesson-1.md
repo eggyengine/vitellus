@@ -117,10 +117,13 @@ allocator is used to own the backend objects:
 pub fn main(init: std.process.Init) !void {
     // SDL setup from above...
 
-    const adapter = try vit.Adapter.init(init.gpa, .{
+    const instance = try vit.Instance.init(init.gpa, .{
         .backend = .{ .dx12 = true },
         .validation = .core,
     });
+    defer instance.deinit();
+
+    const adapter = try vit.Adapter.init(instance, .{});
     defer adapter.deinit();
 
     const device = try vit.Device.init(adapter, .{});

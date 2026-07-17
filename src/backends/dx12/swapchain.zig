@@ -238,7 +238,7 @@ fn toDxSwapchainDesc(desc: SwapchainDescriptor) dx.DXGI_SWAP_CHAIN_DESC1 {
     };
 }
 
-fn toDxFormat(format: SwapchainFormat) dx.DXGI_FORMAT {
+pub fn toDxFormat(format: SwapchainFormat) dx.DXGI_FORMAT {
     return switch (format) {
         .bgra8_unorm => dx.DXGI_FORMAT_B8G8R8A8_UNORM,
         .bgra8_unorm_srgb => dx.DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,

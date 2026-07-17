@@ -1,11 +1,11 @@
 //! Physical GPU discovery and backend selection.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const settings_mod = @import("settings.zig");
 const Backend = settings_mod.Backend;
 const BackendType = settings_mod.BackendType;
-const VitellusConfig = settings_mod.VitellusConfig;
+const ValidationLevel = settings_mod.ValidationLevel;
+const Instance = @import("instance.zig").Instance;
 const Device = @import("device.zig").Device;
 const DeviceDescriptor = @import("device.zig").DeviceDescriptor;
 const Swapchain = @import("swapchain.zig").Swapchain;
@@ -15,6 +15,7 @@ const resource = @import("resource.zig");
 const Window = @import("../windowing/windowing.zig").Window;
 
 pub const PowerPreference = enum { low_power, high_performance };
+pub const AdapterDescriptor = struct {};
 pub const FeatureSet = settings_mod.FeatureSet;
 pub const Limits = struct {
     max_buffer_size: u64 = 0,
@@ -89,8 +90,7 @@ pub const Adapter = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
     allocator: std.mem.Allocator,
-
-    config: VitellusConfig = undefined,
+    validation: ValidationLevel = .none,
 
     pub const VTable = struct {
         deinitFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
@@ -102,23 +102,10 @@ pub const Adapter = struct {
         surfaceCapabilitiesFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, window: Window) anyerror!SurfaceCapabilities,
     };
 
-    /// Selects the first backend that initialises successfully in platform
-    /// preference order, filtered by `config.backend`.
-    pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Adapter {
-        const order = settings_mod.backendFallbackOrder(config.backend);
-        var last_error: ?anyerror = null;
-
-        for (order.slice()) |backend| {
-            var adapter = initBackend(backend, allocator, config) catch |err| {
-                last_error = err;
-                continue;
-            };
-            adapter.config = config;
-            return adapter;
-        }
-
-        if (last_error) |err| return err;
-        return error.NoSupportedBackend;
+    pub fn init(instance: Instance, desc: AdapterDescriptor) !Adapter {
+        var adapter = try instance.createAdapter(desc);
+        adapter.validation = instance.config.validation;
+        return adapter;
     }
 
     /// Enumerates adapters from the first requested backend that succeeds.
@@ -140,14 +127,15 @@ pub const Adapter = struct {
         return error.NoSupportedBackend;
     }
 
-    fn initBackend(backend: Backend, allocator: std.mem.Allocator, config: VitellusConfig) !Adapter {
-        return switch (backend) {
-            .dx12 => {
-                return @import("../backends/dx12/adapter.zig").Dx12Adapter.init(allocator, config);
-            },
-            .vulkan => error.VulkanNotImplemented,
-            .metal => error.MetalNotImplemented,
-        };
+    /// Enumerates adapters from a user-implemented backend. Fails with
+    /// `error.EnumerationUnsupported` when the factory does not implement
+    /// adapter enumeration.
+    ///
+    /// The caller owns the returned slice and every adapter in it, as with
+    /// `enumerate`.
+    pub fn enumerateCustom(allocator: std.mem.Allocator, factory: settings_mod.BackendFactory) ![]Adapter {
+        const enumerateFn = factory.enumerateAdaptersFn orelse return error.EnumerationUnsupported;
+        return enumerateFn(allocator);
     }
 
     fn enumerateBackend(backend: Backend, allocator: std.mem.Allocator) ![]Adapter {
@@ -155,6 +143,7 @@ pub const Adapter = struct {
             .dx12 => @import("../backends/dx12/adapter.zig").Dx12Adapter.enumerate(allocator),
             .vulkan => error.VulkanNotImplemented,
             .metal => error.MetalNotImplemented,
+            .custom => unreachable, // custom backends never enter the built-in fallback order
         };
     }
 

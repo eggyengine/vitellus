@@ -1,5 +1,6 @@
 const std = @import("std");
 const Adapter = @import("../../interface/adapter.zig").Adapter;
+const AdapterDescriptor = @import("../../interface/adapter.zig").AdapterDescriptor;
 const AdapterInfo = @import("../../interface/adapter.zig").AdapterInfo;
 const Vendor = @import("../../interface/adapter.zig").Vendor;
 const Device = @import("../../interface/device.zig").Device;
@@ -8,11 +9,12 @@ const Swapchain = @import("../../interface/swapchain.zig").Swapchain;
 const SwapchainDescriptor = @import("../../interface/swapchain.zig").SwapchainDescriptor;
 const adapter_interface = @import("../../interface/adapter.zig");
 const resource = @import("../../interface/resource.zig");
+const swapchain_interface = @import("../../interface/swapchain.zig");
 const Window = @import("../../windowing/windowing.zig").Window;
-const VitellusConfig = @import("../../interface/settings.zig").VitellusConfig;
+const Dx12Instance = @import("instance.zig").Dx12Instance;
 const Dx12Device = @import("device.zig").Dx12Device;
 const Dx12Swapchain = @import("swapchain.zig").Dx12Swapchain;
-const debug = @import("debug.zig");
+const dx_resource = @import("resource.zig");
 
 const dx = @import("dx.zig").c;
 const utils = @import("utils.zig");
@@ -22,9 +24,13 @@ const checkHr = utils.checkHr;
 const log = std.log.scoped(.dx12_adapter);
 
 pub const Dx12Adapter = struct {
-    debug_ctrl: debug.Dx12DebugController = .{},
+    instance: ?*Dx12Instance = null,
     factory: ComPtr(dx.IDXGIFactory4) = .{},
     adapter: ComPtr(dx.IDXGIAdapter1) = .{},
+    /// Lazily created D3D12 device used only for capability queries.
+    /// D3D12 devices are singletons per adapter, so this aliases any device
+    /// later created for rendering rather than duplicating GPU state.
+    query_device: ComPtr(dx.ID3D12Device) = .{},
 
     const vtable: Adapter.VTable = .{
         .deinitFn = deinitImpl,
@@ -36,87 +42,238 @@ pub const Dx12Adapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
-    fn capabilitiesImpl(_: *anyopaque) adapter_interface.AdapterCapabilities {
-        return .{ .features = .{ .timestamp_query = true, .occlusion_query = true, .indirect_first_instance = true, .depth_clip_control = true, .wireframe = true, .anisotropic_filtering = true, .bc_compression = true }, .limits = .{
+    fn capabilitiesImpl(ptr: *anyopaque) adapter_interface.AdapterCapabilities {
+        const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
+        const device = self.queryDevice() catch |err| {
+            log.warn("failed to create D3D12 capability query device ({}); reporting guaranteed FL 11_0 capabilities", .{err});
+            return featureLevel11Capabilities();
+        };
+
+        var caps = featureLevel11Capabilities();
+
+        var options = std.mem.zeroes(dx.D3D12_FEATURE_DATA_D3D12_OPTIONS);
+        if (checkFeature(device, dx.D3D12_FEATURE_D3D12_OPTIONS, &options)) {
+            // Tier 1 hardware bounds descriptors visible to a single shader
+            // stage; higher tiers only bound them by descriptor heap size.
+            caps.limits.max_bindings_per_group = switch (options.ResourceBindingTier) {
+                dx.D3D12_RESOURCE_BINDING_TIER_1 => 64,
+                dx.D3D12_RESOURCE_BINDING_TIER_2 => 256,
+                else => 1024,
+            };
+        }
+
+        var va = std.mem.zeroes(dx.D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT);
+        if (checkFeature(device, dx.D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT, &va) and
+            va.MaxGPUVirtualAddressBitsPerResource > 0)
+        {
+            const bits: u6 = @intCast(@min(va.MaxGPUVirtualAddressBitsPerResource, 63));
+            caps.limits.max_buffer_size = (@as(u64, 1) << bits) - 1;
+            caps.limits.max_storage_buffer_binding_size = @min(
+                caps.limits.max_buffer_size,
+                std.math.maxInt(u32),
+            );
+        }
+
+        caps.features.bc_compression = blk: {
+            var support = std.mem.zeroes(dx.D3D12_FEATURE_DATA_FORMAT_SUPPORT);
+            support.Format = dx.DXGI_FORMAT_BC7_UNORM;
+            if (!checkFeature(device, dx.D3D12_FEATURE_FORMAT_SUPPORT, &support)) break :blk false;
+            break :blk (support.Support1 & dx.D3D12_FORMAT_SUPPORT1_TEXTURE2D) != 0;
+        };
+
+        return caps;
+    }
+
+    /// Capabilities every D3D12 feature-level 11_0 device must provide. The
+    /// fixed limits come from the D3D12 constants in `d3d12.h`; hardware-
+    /// dependent values are refined by `capabilitiesImpl`.
+    fn featureLevel11Capabilities() adapter_interface.AdapterCapabilities {
+        return .{ .features = .{
+            // Guaranteed by D3D12 at feature level 11_0.
+            .timestamp_query = true,
+            .occlusion_query = true,
+            .indirect_first_instance = true,
+            .depth_clip_control = true,
+            .wireframe = true,
+            .anisotropic_filtering = true,
+            .bc_compression = true,
+        }, .limits = .{
             .max_buffer_size = std.math.maxInt(u32),
-            .max_texture_dimension_1d = 16384,
-            .max_texture_dimension_2d = 16384,
-            .max_texture_dimension_3d = 2048,
-            .max_texture_array_layers = 2048,
+            .max_texture_dimension_1d = dx.D3D12_REQ_TEXTURE1D_U_DIMENSION,
+            .max_texture_dimension_2d = dx.D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION,
+            .max_texture_dimension_3d = dx.D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION,
+            .max_texture_array_layers = dx.D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION,
             .max_bind_groups = 8,
             .max_bindings_per_group = 64,
-            .max_uniform_buffer_binding_size = 65536,
+            .max_uniform_buffer_binding_size = dx.D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16,
             .max_storage_buffer_binding_size = std.math.maxInt(u32),
-            .min_uniform_buffer_offset_alignment = 256,
-            .min_storage_buffer_offset_alignment = 16,
-            .max_vertex_buffers = 32,
-            .max_vertex_attributes = 32,
+            .min_uniform_buffer_offset_alignment = dx.D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
+            .min_storage_buffer_offset_alignment = dx.D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT,
+            .max_vertex_buffers = dx.D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT,
+            .max_vertex_attributes = dx.D3D12_IA_VERTEX_INPUT_STRUCTURE_ELEMENT_COUNT,
             .max_vertex_stride = 2048,
-            .max_color_attachments = 8,
-            .max_compute_workgroup_storage = 32768,
-            .max_compute_invocations = 1024,
-            .max_compute_workgroup_size = .{ 1024, 1024, 64 },
-            .max_compute_workgroups = .{ 65535, 65535, 65535 },
-            .max_sampler_anisotropy = 16,
+            .max_color_attachments = dx.D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT,
+            .max_compute_workgroup_storage = dx.D3D12_CS_TGSM_REGISTER_COUNT * 4,
+            .max_compute_invocations = dx.D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP,
+            .max_compute_workgroup_size = .{
+                dx.D3D12_CS_THREAD_GROUP_MAX_X,
+                dx.D3D12_CS_THREAD_GROUP_MAX_Y,
+                dx.D3D12_CS_THREAD_GROUP_MAX_Z,
+            },
+            .max_compute_workgroups = .{
+                dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
+                dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
+                dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
+            },
+            .max_sampler_anisotropy = dx.D3D12_MAX_MAXANISOTROPY,
         } };
     }
 
-    fn formatCapabilitiesImpl(_: *anyopaque, format: resource.Format) adapter_interface.FormatCapabilities {
+    fn formatCapabilitiesImpl(ptr: *anyopaque, format: resource.Format) adapter_interface.FormatCapabilities {
+        const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
         if (format == .undefined) return .{};
-        const compressed = switch (format) {
-            .bc1_rgba_unorm, .bc1_rgba_unorm_srgb, .bc2_rgba_unorm, .bc2_rgba_unorm_srgb, .bc3_rgba_unorm, .bc3_rgba_unorm_srgb, .bc4_r_unorm, .bc4_r_snorm, .bc5_rg_unorm, .bc5_rg_snorm, .bc6h_rgb_ufloat, .bc6h_rgb_float, .bc7_rgba_unorm, .bc7_rgba_unorm_srgb => true,
-            else => false,
+        const dxgi_format = dx_resource.toDxFormat(format);
+        if (dxgi_format == dx.DXGI_FORMAT_UNKNOWN) return .{};
+        const device = self.queryDevice() catch |err| {
+            log.warn("failed to create D3D12 capability query device: {}", .{err});
+            return .{};
         };
-        const depth = switch (format) {
-            .stencil8, .d16_unorm, .d24_unorm_s8_uint, .d32_float, .d32_float_s8_uint => true,
-            else => false,
+
+        var support = std.mem.zeroes(dx.D3D12_FEATURE_DATA_FORMAT_SUPPORT);
+        support.Format = dxgi_format;
+        if (!checkFeature(device, dx.D3D12_FEATURE_FORMAT_SUPPORT, &support)) return .{};
+
+        const s1 = support.Support1;
+        const texture = (s1 & (dx.D3D12_FORMAT_SUPPORT1_TEXTURE1D |
+            dx.D3D12_FORMAT_SUPPORT1_TEXTURE2D |
+            dx.D3D12_FORMAT_SUPPORT1_TEXTURE3D)) != 0;
+        if (!texture) return .{};
+
+        const renderable = (s1 & dx.D3D12_FORMAT_SUPPORT1_RENDER_TARGET) != 0;
+        return .{
+            .usage = .{
+                .sampled = (s1 & (dx.D3D12_FORMAT_SUPPORT1_SHADER_LOAD |
+                    dx.D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE)) != 0,
+                .storage = (s1 & dx.D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0,
+                .color_attachment = renderable,
+                .depth_stencil_attachment = (s1 & dx.D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL) != 0,
+                .transfer_src = true,
+                .transfer_dst = true,
+            },
+            .sample_counts = .{
+                .one = true,
+                .two = multisampleSupported(device, dxgi_format, 2),
+                .four = multisampleSupported(device, dxgi_format, 4),
+                .eight = multisampleSupported(device, dxgi_format, 8),
+            },
         };
-        return .{ .usage = .{ .sampled = format != .stencil8, .storage = !compressed and !depth, .color_attachment = !compressed and !depth, .depth_stencil_attachment = depth, .transfer_src = true, .transfer_dst = true }, .sample_counts = .{ .one = true, .two = !compressed, .four = !compressed, .eight = !compressed } };
     }
 
-    fn surfaceCapabilitiesImpl(_: *anyopaque, allocator: std.mem.Allocator, _: Window) !adapter_interface.SurfaceCapabilities {
-        const formats = try allocator.dupe(@import("../../interface/swapchain.zig").SwapchainFormat, &.{ .bgra8_unorm, .bgra8_unorm_srgb, .rgba8_unorm, .rgba8_unorm_srgb, .rgba16_float });
+    fn multisampleSupported(device: *dx.ID3D12Device, format: dx.DXGI_FORMAT, count: dx.UINT) bool {
+        var levels = std.mem.zeroes(dx.D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS);
+        levels.Format = format;
+        levels.SampleCount = count;
+        if (!checkFeature(device, dx.D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &levels)) return false;
+        return levels.NumQualityLevels > 0;
+    }
+
+    fn checkFeature(device: *dx.ID3D12Device, feature: dx.D3D12_FEATURE, data: anytype) bool {
+        const hr = device.lpVtbl.*.CheckFeatureSupport.?(
+            device,
+            feature,
+            @ptrCast(data),
+            @sizeOf(@TypeOf(data.*)),
+        );
+        if (hr < 0) log.warn("CheckFeatureSupport({}) failed with 0x{X:0>8}", .{ feature, @as(u32, @bitCast(hr)) });
+        return hr >= 0;
+    }
+
+    /// Lazily creates the D3D12 device used for capability queries. D3D12
+    /// devices are per-adapter singletons, so this shares state with any
+    /// device later created for rendering.
+    fn queryDevice(self: *Dx12Adapter) !*dx.ID3D12Device {
+        if (self.query_device.get()) |device| return device;
+        const adapter = self.adapter.get() orelse return error.HrFailed;
+        var raw: ?*anyopaque = null;
+        try checkHr(dx.D3D12CreateDevice(
+            @ptrCast(adapter),
+            dx.D3D_FEATURE_LEVEL_11_0,
+            &dx.IID_ID3D12Device,
+            &raw,
+        ));
+        self.query_device = .attach(@ptrCast(@alignCast(raw orelse return error.HrFailed)));
+        return self.query_device.unwrap();
+    }
+
+    fn surfaceCapabilitiesImpl(ptr: *anyopaque, allocator: std.mem.Allocator, _: Window) !adapter_interface.SurfaceCapabilities {
+        const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
+
+        const candidates = [_]swapchain_interface.SwapchainFormat{
+            .bgra8_unorm, .bgra8_unorm_srgb, .rgba8_unorm, .rgba8_unorm_srgb, .rgba16_float,
+        };
+        var supported: [candidates.len]swapchain_interface.SwapchainFormat = undefined;
+        var supported_len: usize = 0;
+        const device = try self.queryDevice();
+        for (candidates) |candidate| {
+            var support = std.mem.zeroes(dx.D3D12_FEATURE_DATA_FORMAT_SUPPORT);
+            support.Format = @import("swapchain.zig").toDxFormat(candidate);
+            if (!checkFeature(device, dx.D3D12_FEATURE_FORMAT_SUPPORT, &support)) continue;
+            if ((support.Support1 & dx.D3D12_FORMAT_SUPPORT1_DISPLAY) == 0) continue;
+            supported[supported_len] = candidate;
+            supported_len += 1;
+        }
+        const formats = try allocator.dupe(swapchain_interface.SwapchainFormat, supported[0..supported_len]);
         errdefer allocator.free(formats);
-        const present_modes = try allocator.dupe(@import("../../interface/swapchain.zig").PresentMode, &.{ .fifo, .immediate });
+
+        // Sync-interval-0 presents need DXGI tearing support from the factory.
+        const present_modes = if (self.allowsTearing())
+            try allocator.dupe(swapchain_interface.PresentMode, &.{ .fifo, .immediate, .mailbox })
+        else
+            try allocator.dupe(swapchain_interface.PresentMode, &.{.fifo});
         errdefer allocator.free(present_modes);
-        const composite_alpha = try allocator.dupe(@import("../../interface/swapchain.zig").CompositeAlpha, &.{.opaque_alpha});
-        return .{ .allocator = allocator, .formats = formats, .present_modes = present_modes, .composite_alpha = composite_alpha, .min_image_count = 2, .max_image_count = 16, .min_extent = .{ .width = 1, .height = 1 }, .max_extent = .{ .width = 16384, .height = 16384 } };
+
+        // HWND flip-model swapchains always composite opaquely.
+        const composite_alpha = try allocator.dupe(swapchain_interface.CompositeAlpha, &.{.opaque_alpha});
+
+        return .{
+            .allocator = allocator,
+            .formats = formats,
+            .present_modes = present_modes,
+            .composite_alpha = composite_alpha,
+            .min_image_count = 2,
+            .max_image_count = dx.DXGI_MAX_SWAP_CHAIN_BUFFERS,
+            .min_extent = .{ .width = 1, .height = 1 },
+            .max_extent = .{
+                .width = dx.D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION,
+                .height = dx.D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION,
+            },
+        };
     }
 
-    pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Adapter {
-        const self = try allocator.create(Dx12Adapter);
-        self.* = .{};
+    fn allowsTearing(self: *Dx12Adapter) bool {
+        var factory5 = self.factory.as(dx.IDXGIFactory5, &dx.IID_IDXGIFactory5) catch return false;
+        defer factory5.deinit();
+        var allow: dx.BOOL = dx.FALSE;
+        const hr = factory5.unwrap().lpVtbl.*.CheckFeatureSupport.?(
+            factory5.unwrap(),
+            dx.DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &allow,
+            @sizeOf(dx.BOOL),
+        );
+        return hr >= 0 and allow != dx.FALSE;
+    }
 
-        var hr: c_long = 0;
+    pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, _: AdapterDescriptor) !Adapter {
+        const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
+        const self = try allocator.create(Dx12Adapter);
+        self.* = .{ .instance = instance, .factory = instance.factory.clone() };
+
         errdefer {
             self.adapter.deinit();
             self.factory.deinit();
-            self.debug_ctrl.deinit();
             allocator.destroy(self);
         }
 
-        // create debug layer
-        switch (config.validation) {
-            .core, .extended, .gpu_based => {
-                self.debug_ctrl = debug.Dx12DebugController.init(config.validation);
-            },
-            .none => {},
-        }
-
-        // create factory
-        var raw_factory: ?*anyopaque = null;
-        hr = dx.CreateDXGIFactory1(&dx.IID_IDXGIFactory4, &raw_factory);
-        if (hr < 0) {
-            log.err("initialisation of IDXGIFactory4 failed? {}", .{hr});
-            return error.HrFailed;
-        }
-        if (raw_factory) |raw| {
-            const p: *dx.IDXGIFactory4 = @ptrCast(@alignCast(raw));
-            self.factory = .attach(p);
-        }
-        log.debug("IDXGIFactory4 successfully initialised", .{});
-
-        // adapter init
         log.debug("selecting DX12 hardware adapter", .{});
         self.adapter = getHardwareAdapter(self.factory.get()) catch |err| fallback: {
             log.warn("hardware adapter unavailable ({}); falling back to WARP", .{err});
@@ -196,9 +353,9 @@ pub const Dx12Adapter = struct {
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
 
+        self.query_device.deinit();
         self.adapter.deinit();
         self.factory.deinit();
-        self.debug_ctrl.deinit();
 
         allocator.destroy(self);
     }
