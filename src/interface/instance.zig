@@ -31,7 +31,7 @@ pub const Instance = struct {
         for (order.slice()) |backend| {
             var instance = switch (backend) {
                 .dx12 => @import("../backends/dx12/instance.zig").Dx12Instance.init(allocator, config),
-                .vulkan => error.VulkanNotImplemented,
+                .vulkan => @import("../backends/vulkan/instance.zig").vkInstance.init(allocator, config),
                 .metal => error.MetalNotImplemented,
                 .custom => unreachable, // custom backends never enter the built-in fallback order
             } catch |err| {

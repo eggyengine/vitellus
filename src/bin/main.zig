@@ -34,7 +34,10 @@ pub fn main(init: std.process.Init) !void {
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
     const instance = try vit.Instance.init(init.gpa, .{
-        .backend = .{ .dx12 = true },
+        .backend = .{
+            .dx12 = false,
+            .vulkan = true,
+        },
         .validation = .core,
     });
     defer instance.deinit();

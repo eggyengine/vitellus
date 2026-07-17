@@ -19,14 +19,16 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    mod.addImport("candler", candler.module("candler"));
+
+    // todo: make the sdl windowing stuff separate to vitellus core
     const sdl = b.dependency("sdl3", .{
         .target = target,
         .optimize = optimize,
     });
-
-    mod.addImport("candler", candler.module("candler"));
     mod.addImport("sdl3", sdl.module("sdl3"));
 
+    // directx
     if (enable_dx12) {
         if (b.lazyDependency("directx-headers", .{})) |dep| {
             mod.addIncludePath(dep.path("include/directx"));
@@ -59,6 +61,7 @@ pub fn build(b: *std.Build) void {
         mod.linkSystemLibrary("d3d12", .{});
     }
 
+    // vulkan
     if (enable_vk) {
         const vulkan = b.lazyDependency("vulkan", .{
             .registry = b.lazyDependency("vulkan_headers", .{}).?.path("registry/vk.xml"),
@@ -66,64 +69,91 @@ pub fn build(b: *std.Build) void {
         mod.addImport("vulkan", vulkan);
     }
 
-    const exe = b.addExecutable(.{
-        .name = "vitellus",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/bin/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "vitellus", .module = mod },
-            },
-        }),
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/bin/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{ .{ .name = "vitellus", .module = mod }, .{ .name = "sdl3", .module = sdl.module("sdl3") } },
     });
 
-    exe.root_module.addImport("sdl3", sdl.module("sdl3"));
+    // run step
+    {
+        const exe = b.addExecutable(.{
+            .name = "vitellus",
+            .root_module = exe_mod,
+        });
 
-    b.installArtifact(exe);
+        b.installArtifact(exe);
+        const run_step = b.step("run", "Run the app");
 
-    const run_step = b.step("run", "Run the app");
+        const run_cmd = b.addRunArtifact(exe);
+        if (dxc_bin_dir) |dir| run_cmd.addPathDir(dir.getPath(b));
+        run_step.dependOn(&run_cmd.step);
 
-    const run_cmd = b.addRunArtifact(exe);
-    if (dxc_bin_dir) |dir| run_cmd.addPathDir(dir.getPath(b));
-    run_step.dependOn(&run_cmd.step);
+        run_cmd.step.dependOn(b.getInstallStep());
 
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
     }
 
-    const triangle = b.addExecutable(.{
-        .name = "vitellus-triangle",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/triangle.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "vitellus", .module = mod },
-                .{ .name = "sdl3", .module = sdl.module("sdl3") },
-            },
-        }),
-    });
-    const triangle_step = b.step("triangle", "Build the triangle example");
-    triangle_step.dependOn(&triangle.step);
+    // check step
+    // required by zls
+    {
+        const exe_check = b.addExecutable(.{
+            .name = "vitellus",
+            .root_module = exe_mod,
+        });
+        const check = b.step("check", "Check if vitellus compiles");
+        check.dependOn(&exe_check.step);
+    }
 
-    const mod_tests = b.addTest(.{
-        .root_module = mod,
-    });
+    // triangle example in [example/] folder
+    // might need to remove (its not really necessary)
+    {
+        const triangle = b.addExecutable(.{
+            .name = "vitellus-triangle",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("examples/triangle.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "vitellus", .module = mod },
+                    .{ .name = "sdl3", .module = sdl.module("sdl3") },
+                },
+            }),
+        });
+        const triangle_step = b.step("triangle", "Build the triangle example");
+        triangle_step.dependOn(&triangle.step);
+    }
 
-    const run_mod_tests = b.addRunArtifact(mod_tests);
-    if (dxc_bin_dir) |dir| run_mod_tests.addPathDir(dir.getPath(b));
+    // tests
+    {
+        const test_runner: std.Build.Step.Compile.TestRunner = .{
+            .path = .{ .cwd_relative = b.graph.zig_lib_directory.join(
+                b.allocator,
+                &.{ "compiler", "test_runner.zig" },
+            ) catch @panic("OOM") },
+            .mode = .simple,
+        };
+        const mod_tests = b.addTest(.{
+            .root_module = mod,
+            .test_runner = test_runner,
+        });
 
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
+        const run_mod_tests = b.addRunArtifact(mod_tests);
+        if (dxc_bin_dir) |dir| run_mod_tests.addPathDir(dir.getPath(b));
 
-    const run_exe_tests = b.addRunArtifact(exe_tests);
-    if (dxc_bin_dir) |dir| run_exe_tests.addPathDir(dir.getPath(b));
+        const exe_tests = b.addTest(.{
+            .root_module = exe_mod,
+            .test_runner = test_runner,
+        });
 
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_mod_tests.step);
-    test_step.dependOn(&run_exe_tests.step);
+        const run_exe_tests = b.addRunArtifact(exe_tests);
+        if (dxc_bin_dir) |dir| run_exe_tests.addPathDir(dir.getPath(b));
+
+        const test_step = b.step("test", "Run tests");
+        test_step.dependOn(&run_mod_tests.step);
+        test_step.dependOn(&run_exe_tests.step);
+    }
 }

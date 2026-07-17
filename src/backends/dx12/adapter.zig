@@ -88,45 +88,48 @@ pub const Dx12Adapter = struct {
     /// fixed limits come from the D3D12 constants in `d3d12.h`; hardware-
     /// dependent values are refined by `capabilitiesImpl`.
     fn featureLevel11Capabilities() adapter_interface.AdapterCapabilities {
-        return .{ .features = .{
-            // Guaranteed by D3D12 at feature level 11_0.
-            .timestamp_query = true,
-            .occlusion_query = true,
-            .indirect_first_instance = true,
-            .depth_clip_control = true,
-            .wireframe = true,
-            .anisotropic_filtering = true,
-            .bc_compression = true,
-        }, .limits = .{
-            .max_buffer_size = std.math.maxInt(u32),
-            .max_texture_dimension_1d = dx.D3D12_REQ_TEXTURE1D_U_DIMENSION,
-            .max_texture_dimension_2d = dx.D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION,
-            .max_texture_dimension_3d = dx.D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION,
-            .max_texture_array_layers = dx.D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION,
-            .max_bind_groups = 8,
-            .max_bindings_per_group = 64,
-            .max_uniform_buffer_binding_size = dx.D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16,
-            .max_storage_buffer_binding_size = std.math.maxInt(u32),
-            .min_uniform_buffer_offset_alignment = dx.D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
-            .min_storage_buffer_offset_alignment = dx.D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT,
-            .max_vertex_buffers = dx.D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT,
-            .max_vertex_attributes = dx.D3D12_IA_VERTEX_INPUT_STRUCTURE_ELEMENT_COUNT,
-            .max_vertex_stride = 2048,
-            .max_color_attachments = dx.D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT,
-            .max_compute_workgroup_storage = dx.D3D12_CS_TGSM_REGISTER_COUNT * 4,
-            .max_compute_invocations = dx.D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP,
-            .max_compute_workgroup_size = .{
-                dx.D3D12_CS_THREAD_GROUP_MAX_X,
-                dx.D3D12_CS_THREAD_GROUP_MAX_Y,
-                dx.D3D12_CS_THREAD_GROUP_MAX_Z,
+        return .{
+            .features = .{
+                // Guaranteed by D3D12 at feature level 11_0.
+                .timestamp_query = true,
+                .occlusion_query = true,
+                .indirect_first_instance = true,
+                .depth_clip_control = true,
+                .wireframe = true,
+                .anisotropic_filtering = true,
+                .bc_compression = true,
             },
-            .max_compute_workgroups = .{
-                dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
-                dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
-                dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
+            .limits = .{
+                .max_buffer_size = std.math.maxInt(u32),
+                .max_texture_dimension_1d = dx.D3D12_REQ_TEXTURE1D_U_DIMENSION,
+                .max_texture_dimension_2d = dx.D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION,
+                .max_texture_dimension_3d = dx.D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION,
+                .max_texture_array_layers = dx.D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION,
+                .max_bind_groups = 8,
+                .max_bindings_per_group = 64,
+                .max_uniform_buffer_binding_size = dx.D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16,
+                .max_storage_buffer_binding_size = std.math.maxInt(u32),
+                .min_uniform_buffer_offset_alignment = dx.D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT,
+                .min_storage_buffer_offset_alignment = dx.D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT,
+                .max_vertex_buffers = dx.D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT,
+                .max_vertex_attributes = dx.D3D12_IA_VERTEX_INPUT_STRUCTURE_ELEMENT_COUNT,
+                .max_vertex_stride = 2048,
+                .max_color_attachments = dx.D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT,
+                .max_compute_workgroup_storage = dx.D3D12_CS_TGSM_REGISTER_COUNT * 4,
+                .max_compute_invocations = dx.D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP,
+                .max_compute_workgroup_size = .{
+                    dx.D3D12_CS_THREAD_GROUP_MAX_X,
+                    dx.D3D12_CS_THREAD_GROUP_MAX_Y,
+                    dx.D3D12_CS_THREAD_GROUP_MAX_Z,
+                },
+                .max_compute_workgroups = .{
+                    dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
+                    dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
+                    dx.D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION,
+                },
+                .max_sampler_anisotropy = dx.D3D12_MAX_MAXANISOTROPY,
             },
-            .max_sampler_anisotropy = dx.D3D12_MAX_MAXANISOTROPY,
-        } };
+        };
     }
 
     fn formatCapabilitiesImpl(ptr: *anyopaque, format: resource.Format) adapter_interface.FormatCapabilities {
@@ -353,13 +356,13 @@ pub const Dx12Adapter = struct {
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
 
-    self.query_device.deinit();
-    self.adapter.deinit();
-    self.factory.deinit();
+        self.query_device.deinit();
+        self.adapter.deinit();
+        self.factory.deinit();
 
-    log.debug("destroyed DX12 adapter", .{});
-    allocator.destroy(self);
-}
+        log.debug("destroyed DX12 adapter", .{});
+        allocator.destroy(self);
+    }
 
     fn infoImpl(ptr: *anyopaque) AdapterInfo {
         const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
