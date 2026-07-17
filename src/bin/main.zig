@@ -35,8 +35,8 @@ pub fn main(init: std.process.Init) !void {
 
     const instance = try vit.Instance.init(init.gpa, .{
         .backend = .{
-            .dx12 = false,
-            .vulkan = true,
+            .dx12 = true,
+            .vulkan = false,
         },
         .validation = .core,
     });
@@ -51,13 +51,18 @@ pub fn main(init: std.process.Init) !void {
     const queue = try vit.Queue.init(device, .{ .kind = .graphics });
     defer queue.deinit();
 
+    const caps = try adapter.surfaceCapabilities(instance.allocator, try window_adapter.asWindow());
+    defer caps.deinit();
+    printStartupInfo(adapter.info(), caps);
+
     const swapchain = try vit.Swapchain.init(adapter, .{
         .window = try window_adapter.asWindow(),
         .queue = queue,
         .extent = .{ .width = width, .height = height },
-        .format = .bgra8_unorm,
-        .present_mode = .fifo,
-        .image_count = 2,
+        .format = caps.formats[0],
+        .present_mode = caps.present_modes[0],
+        .image_count = caps.max_image_count,
+        .composite_alpha = caps.composite_alpha[0],
     });
     defer swapchain.deinit();
 
@@ -215,4 +220,59 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try queue.waitIdle();
+}
+
+fn printStartupInfo(info: vit.AdapterInfo, caps: vit.hal.adapter.SurfaceCapabilities) void {
+    std.debug.print(
+        \\================
+        \\vitellus, built with love by eggyengine <3
+        \\================
+        \\
+        \\info:
+        \\  name: {s}
+        \\  vendor: {s}
+        \\  kind: {s}
+        \\  dedicated VRAM: {} MiB ({} bytes)
+        \\surface capabilities:
+        \\  image count: {}..
+    , .{
+        info.nameSlice(),
+        @tagName(info.vendor),
+        @tagName(info.kind),
+        info.dedicated_vram / (1024 * 1024),
+        info.dedicated_vram,
+        caps.min_image_count,
+    });
+    if (caps.max_image_count == 0) {
+        std.debug.print("unbounded\n", .{});
+    } else {
+        std.debug.print("{}\n", .{caps.max_image_count});
+    }
+    std.debug.print(
+        \\  extent: {}x{}..{}x{}
+        \\  formats: 
+    , .{
+        caps.min_extent.width,
+        caps.min_extent.height,
+        caps.max_extent.width,
+        caps.max_extent.height,
+    });
+    printEnumList(caps.formats);
+    std.debug.print("  present modes: ", .{});
+    printEnumList(caps.present_modes);
+    std.debug.print("  composite alpha: ", .{});
+    printEnumList(caps.composite_alpha);
+    std.debug.print("\n", .{});
+}
+
+fn printEnumList(values: anytype) void {
+    if (values.len == 0) {
+        std.debug.print("(none)\n", .{});
+        return;
+    }
+
+    for (values, 0..) |value, index| {
+        std.debug.print("{s}{s}", .{ if (index == 0) "" else ", ", @tagName(value) });
+    }
+    std.debug.print("\n", .{});
 }
