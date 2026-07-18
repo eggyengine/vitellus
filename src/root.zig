@@ -64,18 +64,29 @@ pub const Texture = hal.resource.Texture;
 pub const TextureView = hal.resource.TextureView;
 pub const Sampler = hal.resource.Sampler;
 pub const TextureDescriptor = hal.resource.TextureDescriptor;
+pub const TextureViewDescriptor = hal.resource.TextureViewDescriptor;
+pub const SamplerDescriptor = hal.resource.SamplerDescriptor;
 pub const Format = hal.resource.Format;
 pub const GraphicsPipeline = hal.pipeline.GraphicsPipeline;
 pub const ComputePipeline = hal.pipeline.ComputePipeline;
 pub const PipelineLayout = hal.pipeline.PipelineLayout;
 pub const GraphicsPipelineDescriptor = hal.pipeline.GraphicsPipelineDescriptor;
+pub const ComputePipelineDescriptor = hal.pipeline.ComputePipelineDescriptor;
+pub const PipelineLayoutDescriptor = hal.pipeline.PipelineLayoutDescriptor;
 pub const CommandPool = hal.command.CommandPool;
 pub const CommandBuffer = hal.command.CommandBuffer;
+pub const CommandPoolDescriptor = hal.command.CommandPoolDescriptor;
+pub const CommandBufferDescriptor = hal.command.CommandBufferDescriptor;
 pub const QuerySet = hal.command.QuerySet;
+pub const QuerySetDescriptor = hal.command.QuerySetDescriptor;
 pub const BindGroupLayout = hal.binding.BindGroupLayout;
 pub const BindGroup = hal.binding.BindGroup;
+pub const BindGroupLayoutDescriptor = hal.binding.BindGroupLayoutDescriptor;
+pub const BindGroupDescriptor = hal.binding.BindGroupDescriptor;
 pub const Fence = hal.sync.Fence;
 pub const Semaphore = hal.sync.Semaphore;
+pub const FenceDescriptor = hal.sync.FenceDescriptor;
+pub const SemaphoreDescriptor = hal.sync.SemaphoreDescriptor;
 pub const RenderPassDescriptor = hal.command.RenderPassDescriptor;
 pub const SubmitDescriptor = hal.sync.SubmitDescriptor;
 
@@ -263,7 +274,7 @@ test "DX12 indexed draw binds uniforms and a sampled texture" {
     defer target_view.deinit();
     const pool = try CommandPool.init(device, .{});
     defer pool.deinit();
-    const commands = try CommandBuffer.init(pool);
+    const commands = try CommandBuffer.init(pool, .{});
     try commands.barrier(&.{
         .{ .texture = .{ .texture = target, .before = .common, .after = .color_attachment } },
         .{ .texture = .{ .texture = sampled_texture, .before = .common, .after = .sampled } },
@@ -355,7 +366,7 @@ test "DX12 command transfers copy buffers and textures" {
 
     const pool = try CommandPool.init(device, .{});
     defer pool.deinit();
-    const commands = try CommandBuffer.init(pool);
+    const commands = try CommandBuffer.init(pool, .{});
     commands.beginDebugGroup("transfer test");
     try commands.barrier(&.{.{ .buffer = .{ .buffer = local, .before = .common, .after = .copy_destination } }});
     try commands.copyBuffer(.{ .source = upload, .destination = local, .size = expected.len });
@@ -411,11 +422,11 @@ test "DX12 submission signals timeline fences asynchronously" {
     defer device.deinit();
     const queue = try Queue.init(device, .{ .kind = .graphics });
     defer queue.deinit();
-    const fence = try hal.sync.Fence.init(device, 0);
+    const fence = try hal.sync.Fence.init(device, .{});
     defer fence.deinit();
     const pool = try CommandPool.init(device, .{});
     defer pool.deinit();
-    const commands = try CommandBuffer.init(pool);
+    const commands = try CommandBuffer.init(pool, .{});
     try commands.finish();
     try queue.submit(.{ .command_buffers = &.{commands}, .signal_fences = &.{.{ .fence = fence, .value = 1 }} });
     try std.testing.expect(try fence.wait(1, 5 * std.time.ns_per_s));

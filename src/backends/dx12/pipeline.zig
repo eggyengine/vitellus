@@ -63,6 +63,7 @@ pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) an
     errdefer device.allocator.destroy(self);
     for (desc.bind_group_layouts, 0..) |layout, i| self.bind_group_layouts[i] = try binding.Dx12BindGroupLayout.fromHandle(layout);
     self.root_signature = try makeRootSignature(device, self.bind_group_layouts[0..self.bind_group_count], &self.bind_group_roots);
+    utils.setD3D12Name(device.allocator, self.root_signature.unwrap(), desc.label);
     log.debug("created DX12 pipeline layout bind-groups={}", .{self.bind_group_count});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
@@ -140,6 +141,7 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
     );
     if (hr < 0) device.debug_device.logMessages();
     try checkHr(hr);
+    utils.setD3D12Name(device.allocator, self.state.unwrap(), desc.label);
     log.debug("created DX12 graphics pipeline vertex-buffers={} color-targets={} topology={s}", .{ desc.vertex_buffers.len, desc.color_targets.len, @tagName(desc.topology) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &graphics_vtable };
 }
@@ -244,6 +246,7 @@ pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) 
     const raw = device.device.unwrap();
     const state_desc = dx.D3D12_COMPUTE_PIPELINE_STATE_DESC{ .pRootSignature = layout.root_signature.unwrap(), .CS = bytecode(compute), .NodeMask = 0, .CachedPSO = .{ .pCachedBlob = null, .CachedBlobSizeInBytes = 0 }, .Flags = dx.D3D12_PIPELINE_STATE_FLAG_NONE };
     try checkHr(raw.lpVtbl.*.CreateComputePipelineState.?(raw, &state_desc, &dx.IID_ID3D12PipelineState, @ptrCast(self.state.put())));
+    utils.setD3D12Name(device.allocator, self.state.unwrap(), desc.label);
     log.debug("created DX12 compute pipeline", .{});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &compute_vtable };
 }

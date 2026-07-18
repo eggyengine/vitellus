@@ -130,6 +130,7 @@ pub const TextureDescriptor = struct {
 };
 /// Texture subresource range exposed by a view.
 pub const TextureViewDescriptor = struct {
+    label: ?[]const u8 = null,
     texture: Texture,
     format: ?Format = null,
     dimension: ?TextureViewDimension = null,

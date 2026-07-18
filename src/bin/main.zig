@@ -34,21 +34,18 @@ pub fn main(init: std.process.Init) !void {
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
     const instance = try vit.Instance.init(init.gpa, .{
-        .backend = .{
-            .dx12 = true,
-            .vulkan = false,
-        },
+        .backend = .all(),
         .validation = .core,
     });
     defer instance.deinit();
 
-    const adapter = try vit.Adapter.init(instance, .{});
+    const adapter = try vit.Adapter.init(instance, .{ .label = "vitellus adapter" });
     defer adapter.deinit();
 
-    const device = try vit.Device.init(adapter, .{});
+    const device = try vit.Device.init(adapter, .{ .label = "vitellus device" });
     defer device.deinit();
 
-    const queue = try vit.Queue.init(device, .{ .kind = .graphics });
+    const queue = try vit.Queue.init(device, .{ .label = "vitellus graphics queue", .kind = .graphics });
     defer queue.deinit();
 
     const caps = try adapter.surfaceCapabilities(instance.allocator, try window_adapter.asWindow());
@@ -56,12 +53,13 @@ pub fn main(init: std.process.Init) !void {
     printStartupInfo(adapter.info(), caps);
 
     const swapchain = try vit.Swapchain.init(adapter, .{
+        .label = "vitellus swapchain",
         .window = try window_adapter.asWindow(),
         .queue = queue,
         .extent = .{ .width = width, .height = height },
         .format = caps.formats[0],
         .present_mode = caps.present_modes[0],
-        .image_count = caps.max_image_count,
+        .image_count = 2,
         .composite_alpha = caps.composite_alpha[0],
     });
     defer swapchain.deinit();
@@ -160,15 +158,16 @@ pub fn main(init: std.process.Init) !void {
     defer pipeline.deinit();
 
     const command_pool = try vit.CommandPool.init(device, .{
+        .label = "vitellus command pool",
         .transient = false,
         .reset_individually = true,
     });
     defer command_pool.deinit();
-    const frame_fence = try vit.Fence.init(device, 0);
+    const frame_fence = try vit.Fence.init(device, .{ .label = "vitellus frame fence" });
     defer frame_fence.deinit();
     var frame_value: u64 = 0;
 
-    const setup_commands = try vit.CommandBuffer.init(command_pool);
+    const setup_commands = try vit.CommandBuffer.init(command_pool, .{ .label = "vitellus setup commands" });
     try setup_commands.barrier(&.{
         .{ .buffer = .{ .buffer = vertex_buffer, .before = .common, .after = .vertex } },
         .{ .buffer = .{ .buffer = index_buffer, .before = .common, .after = .index } },
@@ -188,7 +187,7 @@ pub fn main(init: std.process.Init) !void {
 
         const acquired = try swapchain.acquireNextImage(null);
         const back_buffer = acquired.view;
-        const commands = try vit.CommandBuffer.init(command_pool);
+        const commands = try vit.CommandBuffer.init(command_pool, .{ .label = "vitellus frame commands" });
         try commands.barrier(&.{.{ .texture_view = .{ .view = back_buffer, .before = .present, .after = .color_attachment } }});
 
         const color_attachments = [_]vit.hal.command.ColorAttachment{.{

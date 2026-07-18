@@ -56,6 +56,8 @@ pub const Dx12Queue = struct {
             &dx.IID_ID3D12Fence,
             @ptrCast(self.fence.put()),
         ));
+        utils.setD3D12Name(allocator, self.queue.unwrap(), desc.label);
+        utils.setD3D12DerivedName(allocator, self.fence.unwrap(), desc.label, "idle fence");
         log.debug("successfully initialised ID3D12CommandQueue", .{});
 
         return Queue{ .ptr = self, .vtable = &vtable, .allocator = allocator };

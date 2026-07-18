@@ -27,7 +27,9 @@ pub const DepthStencilAttachment = struct {
 pub const RenderPassDescriptor = struct { label: ?[]const u8 = null, color_attachments: []const ColorAttachment = &.{}, depth_stencil_attachment: ?DepthStencilAttachment = null };
 /// Allocation and reset hints for a command pool.
 pub const CommandPoolKind = enum { graphics, compute, copy };
-pub const CommandPoolDescriptor = struct { kind: CommandPoolKind = .graphics, transient: bool = false, reset_individually: bool = true };
+pub const CommandPoolDescriptor = struct { label: ?[]const u8 = null, kind: CommandPoolKind = .graphics, transient: bool = false, reset_individually: bool = true };
+/// Parameters used to allocate a command buffer from a pool.
+pub const CommandBufferDescriptor = struct { label: ?[]const u8 = null };
 /// Opaque backend command-pool handle.
 pub const CommandPool = struct {
     handle: u64 = 0,
@@ -36,7 +38,7 @@ pub const CommandPool = struct {
     pub const VTable = struct {
         deinitFn: *const fn (CommandPool) void,
         resetFn: *const fn (CommandPool) anyerror!void,
-        createCommandBufferFn: *const fn (CommandPool) anyerror!CommandBuffer,
+        createCommandBufferFn: *const fn (CommandPool, CommandBufferDescriptor) anyerror!CommandBuffer,
     };
 
     pub fn init(device: anytype, desc: CommandPoolDescriptor) !CommandPool {
@@ -187,8 +189,8 @@ pub const CommandBuffer = struct {
         insertDebugMarkerFn: *const fn (*anyopaque, []const u8) void,
         finishFn: *const fn (*anyopaque) anyerror!void,
     };
-    pub fn init(pool: CommandPool) !CommandBuffer {
-        return pool.vtable.createCommandBufferFn(pool);
+    pub fn init(pool: CommandPool, desc: CommandBufferDescriptor) !CommandBuffer {
+        return pool.vtable.createCommandBufferFn(pool, desc);
     }
     pub fn deinit(self: CommandBuffer) void {
         self.vtable.deinitFn(self.ptr);

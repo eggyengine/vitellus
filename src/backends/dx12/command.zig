@@ -14,6 +14,10 @@ const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
 const log = std.log.scoped(.dx12_command);
 
+// Legacy PIX metadata value 1 identifies an 8-bit string payload. Value 0 is
+// UTF-16 and causes pairs of UTF-8/ASCII bytes to be decoded as CJK glyphs.
+const pix_event_utf8_metadata: dx.UINT = 1;
+
 pub const Dx12QuerySet = struct {
     allocator: std.mem.Allocator,
     heap: ComPtr(dx.ID3D12QueryHeap) = .{},
@@ -42,6 +46,8 @@ pub const Dx12CommandBuffer = struct {
     discard_depth_at_end: bool = false,
     in_render_pass: bool = false,
     in_compute_pass: bool = false,
+    render_pass_label: bool = false,
+    compute_pass_label: bool = false,
     draw_signature: ComPtr(dx.ID3D12CommandSignature) = .{},
     draw_indexed_signature: ComPtr(dx.ID3D12CommandSignature) = .{},
     dispatch_signature: ComPtr(dx.ID3D12CommandSignature) = .{},
@@ -59,6 +65,7 @@ const Dx12CommandPool = struct {
     device: *dx.ID3D12Device,
     kind: command.CommandPoolKind,
     live_buffers: usize = 0,
+    label: ?[]u8 = null,
 
     fn fromHandle(value: command.CommandPool) !*Dx12CommandPool {
         if (value.handle == 0) return error.InvalidCommandPool;
@@ -122,12 +129,16 @@ pub fn createPool(ptr: *anyopaque, desc: command.CommandPoolDescriptor) anyerror
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12CommandPool);
     self.* = .{ .allocator = device.allocator, .owner = device, .device = device.device.unwrap(), .kind = desc.kind };
-    errdefer device.allocator.destroy(self);
+    errdefer {
+        if (self.label) |label| device.allocator.free(label);
+        device.allocator.destroy(self);
+    }
+    self.label = if (desc.label) |label| try device.allocator.dupe(u8, label) else null;
     log.debug("created DX12 command pool kind={s}", .{@tagName(desc.kind)});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &pool_vtable };
 }
 
-pub fn createBuffer(value: command.CommandPool) anyerror!command.CommandBuffer {
+pub fn createBuffer(value: command.CommandPool, desc: command.CommandBufferDescriptor) anyerror!command.CommandBuffer {
     const pool = try Dx12CommandPool.fromHandle(value);
     const self = try pool.allocator.create(Dx12CommandBuffer);
     self.* = .{ .allocator = pool.allocator, .pool = pool, .device = pool.owner };
@@ -136,6 +147,9 @@ pub fn createBuffer(value: command.CommandPool) anyerror!command.CommandBuffer {
     try checkHr(pool.device.lpVtbl.*.CreateCommandAllocator.?(pool.device, list_type, &dx.IID_ID3D12CommandAllocator, @ptrCast(self.command_allocator.put())));
     errdefer self.command_allocator.deinit();
     try checkHr(pool.device.lpVtbl.*.CreateCommandList.?(pool.device, 0, list_type, self.command_allocator.unwrap(), null, &dx.IID_ID3D12GraphicsCommandList, @ptrCast(self.list.put())));
+    const label = desc.label orelse pool.label;
+    utils.setD3D12Name(pool.allocator, self.list.unwrap(), label);
+    utils.setD3D12DerivedName(pool.allocator, self.command_allocator.unwrap(), label, "allocator");
     pool.live_buffers += 1;
     return .{ .ptr = self, .vtable = &command_buffer_vtable };
 }
@@ -144,6 +158,7 @@ pub fn destroyPool(value: command.CommandPool) void {
     const self = Dx12CommandPool.fromHandle(value) catch return;
     const allocator = self.allocator;
     if (self.live_buffers != 0) return;
+    if (self.label) |label| allocator.free(label);
     log.debug("destroyed DX12 command pool", .{});
     allocator.destroy(self);
 }
@@ -177,6 +192,7 @@ pub fn createQuerySet(ptr: *anyopaque, desc: command.QuerySetDescriptor) anyerro
         .NodeMask = 0,
     };
     try checkHr(device.device.unwrap().lpVtbl.*.CreateQueryHeap.?(device.device.unwrap(), &heap_desc, &dx.IID_ID3D12QueryHeap, @ptrCast(self.heap.put())));
+    utils.setD3D12Name(device.allocator, self.heap.unwrap(), desc.label);
     log.debug("created DX12 query set kind={s} count={}", .{ @tagName(desc.kind), desc.count });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &query_set_vtable };
 }
@@ -242,6 +258,10 @@ fn beginRenderPass(ptr: *anyopaque, desc: command.RenderPassDescriptor) anyerror
     const scissor = dx.D3D12_RECT{ .left = 0, .top = 0, .right = @intCast(first.width), .bottom = @intCast(first.height) };
     list.lpVtbl.*.RSSetViewports.?(list, 1, &viewport);
     list.lpVtbl.*.RSSetScissorRects.?(list, 1, &scissor);
+    if (desc.label) |label| {
+        beginDebugGroup(ptr, label);
+        self.render_pass_label = true;
+    }
 }
 
 fn setGraphicsPipeline(ptr: *anyopaque, value: pipeline.GraphicsPipeline) void {
@@ -259,7 +279,10 @@ fn beginComputePass(ptr: *anyopaque, label: ?[]const u8) anyerror!void {
     if (self.pool.kind == .copy) return error.InvalidCommandPoolKind;
     if (self.in_render_pass or self.in_compute_pass) return error.PassAlreadyActive;
     self.in_compute_pass = true;
-    if (label) |value| beginDebugGroup(ptr, value);
+    if (label) |value| {
+        beginDebugGroup(ptr, value);
+        self.compute_pass_label = true;
+    }
 }
 
 fn setComputePipeline(ptr: *anyopaque, value: pipeline.ComputePipeline) void {
@@ -432,6 +455,8 @@ fn dispatchIndirect(ptr: *anyopaque, value: resource_interface.Buffer, offset: u
 fn dispatch(ptr: *anyopaque, x: u32, y: u32, z: u32) void {
     const self: *Dx12CommandBuffer = @ptrCast(@alignCast(ptr));
     if (!self.in_compute_pass) return;
+    if (self.compute_pass_label) endDebugGroup(ptr);
+    self.compute_pass_label = false;
     self.list.unwrap().lpVtbl.*.Dispatch.?(self.list.unwrap(), x, y, z);
 }
 
@@ -489,6 +514,8 @@ fn endRenderPass(ptr: *anyopaque) void {
     if (self.depth_attachment) |view| if (self.discard_depth_at_end) self.list.unwrap().lpVtbl.*.DiscardResource.?(self.list.unwrap(), view.resource, null);
     self.attachment_count = 0;
     self.depth_attachment = null;
+    if (self.render_pass_label) endDebugGroup(ptr);
+    self.render_pass_label = false;
     self.in_render_pass = false;
 }
 
@@ -602,7 +629,7 @@ fn barrier(ptr: *anyopaque, values: []const command.ResourceBarrier) anyerror!vo
 
 fn beginDebugGroup(ptr: *anyopaque, label: []const u8) void {
     const self: *Dx12CommandBuffer = @ptrCast(@alignCast(ptr));
-    self.list.unwrap().lpVtbl.*.BeginEvent.?(self.list.unwrap(), 0, debugData(label), @intCast(label.len));
+    self.list.unwrap().lpVtbl.*.BeginEvent.?(self.list.unwrap(), pix_event_utf8_metadata, debugData(label), @intCast(label.len));
 }
 
 fn endDebugGroup(ptr: *anyopaque) void {
@@ -612,7 +639,7 @@ fn endDebugGroup(ptr: *anyopaque) void {
 
 fn insertDebugMarker(ptr: *anyopaque, label: []const u8) void {
     const self: *Dx12CommandBuffer = @ptrCast(@alignCast(ptr));
-    self.list.unwrap().lpVtbl.*.SetMarker.?(self.list.unwrap(), 0, debugData(label), @intCast(label.len));
+    self.list.unwrap().lpVtbl.*.SetMarker.?(self.list.unwrap(), pix_event_utf8_metadata, debugData(label), @intCast(label.len));
 }
 
 fn finish(ptr: *anyopaque) anyerror!void {

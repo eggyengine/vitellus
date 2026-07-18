@@ -12,6 +12,7 @@ pub const Dx12Shader = struct {
     allocator: std.mem.Allocator,
     bytecode: []u8,
     stage: shader.ShaderStage,
+    label: ?[]u8 = null,
 
     pub fn fromHandle(value: shader.Shader) !*Dx12Shader {
         if (value.handle == 0) return error.InvalidShader;
@@ -32,10 +33,14 @@ pub fn create(_: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDe
     if (!compiled.format.eql(.dxil)) return error.UnsupportedShaderFormat;
 
     const dx_shader = try allocator.create(Dx12Shader);
+    errdefer allocator.destroy(dx_shader);
+    const label = if (desc.label) |value| try allocator.dupe(u8, value) else null;
+    errdefer if (label) |value| allocator.free(value);
     dx_shader.* = .{
         .allocator = allocator,
         .bytecode = compiled.bytes,
         .stage = desc.stage,
+        .label = label,
     };
 
     log.debug("created DX12 {s} shader with {} bytes of DXIL", .{
@@ -49,6 +54,7 @@ pub fn destroy(value: shader.Shader) void {
     const dx_shader = Dx12Shader.fromHandle(value) catch return;
     const allocator = dx_shader.allocator;
     allocator.free(dx_shader.bytecode);
+    if (dx_shader.label) |label| allocator.free(label);
     log.debug("destroyed DX12 {s} shader", .{@tagName(dx_shader.stage)});
     allocator.destroy(dx_shader);
 }

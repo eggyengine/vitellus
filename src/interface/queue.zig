@@ -12,6 +12,8 @@ pub const QueueKind = enum {
 
 /// Queue capability and backend scheduling hints.
 pub const QueueDescriptor = struct {
+    /// Optional name shown for the queue in graphics debuggers.
+    label: ?[]const u8 = null,
     /// Required command capability.
     kind: QueueKind = .graphics,
     /// Backend scheduling hint; `0` is the normal/default priority.

@@ -42,6 +42,27 @@ pub const Dx12Adapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
+    pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
+        const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
+        const self = try allocator.create(Dx12Adapter);
+        self.* = .{ .instance = instance, .factory = instance.factory.clone() };
+
+        errdefer {
+            self.adapter.deinit();
+            self.factory.deinit();
+            allocator.destroy(self);
+        }
+
+        log.debug("selecting DX12 hardware adapter", .{});
+        self.adapter = getHardwareAdapter(self.factory.get()) catch |err| fallback: {
+            log.warn("hardware adapter unavailable ({}); falling back to WARP", .{err});
+            break :fallback try getWarpAdapter(self.factory.get());
+        };
+
+        utils.setDxgiName(self.adapter.unwrap(), desc.label);
+        return Adapter{ .ptr = self, .vtable = &vtable, .allocator = allocator };
+    }
+
     fn capabilitiesImpl(ptr: *anyopaque) adapter_interface.AdapterCapabilities {
         const self: *Dx12Adapter = @ptrCast(@alignCast(ptr));
         const device = self.queryDevice() catch |err| {
@@ -264,26 +285,6 @@ pub const Dx12Adapter = struct {
             @sizeOf(dx.BOOL),
         );
         return hr >= 0 and allow != dx.FALSE;
-    }
-
-    pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, _: AdapterDescriptor) !Adapter {
-        const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
-        const self = try allocator.create(Dx12Adapter);
-        self.* = .{ .instance = instance, .factory = instance.factory.clone() };
-
-        errdefer {
-            self.adapter.deinit();
-            self.factory.deinit();
-            allocator.destroy(self);
-        }
-
-        log.debug("selecting DX12 hardware adapter", .{});
-        self.adapter = getHardwareAdapter(self.factory.get()) catch |err| fallback: {
-            log.warn("hardware adapter unavailable ({}); falling back to WARP", .{err});
-            break :fallback try getWarpAdapter(self.factory.get());
-        };
-
-        return Adapter{ .ptr = self, .vtable = &vtable, .allocator = allocator };
     }
 
     /// Returns hardware adapters, or WARP if no compatible hardware adapter exists.

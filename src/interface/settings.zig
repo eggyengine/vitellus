@@ -7,6 +7,8 @@ const Adapter = @import("adapter.zig").Adapter;
 
 /// Top-level configuration used while selecting an adapter.
 pub const VitellusConfig = struct {
+    /// Optional name shown for the backend instance in graphics debuggers.
+    label: ?[]const u8 = null,
     /// Optional set of built-in backends the caller is willing to use.
     ///
     /// If null, Vitellus uses the current platform's preferred fallback chain:

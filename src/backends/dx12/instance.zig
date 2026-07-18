@@ -7,12 +7,14 @@ const Dx12Adapter = @import("adapter.zig").Dx12Adapter;
 const dx = @import("dx.zig").c;
 const ComPtr = @import("utils.zig").ComPtr;
 const checkHr = @import("utils.zig").checkHr;
+const setDxgiName = @import("utils.zig").setDxgiName;
 const debug = @import("debug.zig");
 const log = std.log.scoped(.dx12_instance);
 
 pub const Dx12Instance = struct {
     debug_ctrl: debug.Dx12DebugController = .{},
     factory: ComPtr(dx.IDXGIFactory4) = .{},
+    config: VitellusConfig = undefined,
 
     const vtable: Instance.VTable = .{
         .deinitFn = deinitImpl,
@@ -30,9 +32,12 @@ pub const Dx12Instance = struct {
         if (config.validation != .none)
             self.debug_ctrl = debug.Dx12DebugController.init(config.validation);
 
+        self.config = config;
+
         var raw_factory: ?*anyopaque = null;
         try checkHr(dx.CreateDXGIFactory1(&dx.IID_IDXGIFactory4, &raw_factory));
         self.factory = .attach(@ptrCast(@alignCast(raw_factory orelse return error.HrFailed)));
+        setDxgiName(self.factory.unwrap(), config.label);
 
         return .{ .ptr = self, .vtable = &vtable, .allocator = allocator };
     }

@@ -15,7 +15,10 @@ const resource = @import("resource.zig");
 const Window = @import("../windowing/windowing.zig").Window;
 
 pub const PowerPreference = enum { low_power, high_performance };
-pub const AdapterDescriptor = struct {};
+pub const AdapterDescriptor = struct {
+    /// Optional name shown for the selected physical adapter in graphics debuggers.
+    label: ?[]const u8 = null,
+};
 pub const FeatureSet = settings_mod.FeatureSet;
 pub const Limits = struct {
     max_buffer_size: u64 = 0,

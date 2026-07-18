@@ -38,13 +38,14 @@ const fence_vtable: sync.Fence.VTable = .{
 };
 const semaphore_vtable: sync.Semaphore.VTable = .{ .deinitFn = destroySemaphore };
 
-pub fn createFence(ptr: *anyopaque, initial_value: u64) anyerror!sync.Fence {
+pub fn createFence(ptr: *anyopaque, desc: sync.FenceDescriptor) anyerror!sync.Fence {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12Fence);
     self.* = .{ .allocator = device.allocator };
     errdefer device.allocator.destroy(self);
-    try checkHr(device.device.unwrap().lpVtbl.*.CreateFence.?(device.device.unwrap(), initial_value, dx.D3D12_FENCE_FLAG_NONE, &dx.IID_ID3D12Fence, @ptrCast(self.fence.put())));
-    log.debug("created DX12 fence initial-value={}", .{initial_value});
+    try checkHr(device.device.unwrap().lpVtbl.*.CreateFence.?(device.device.unwrap(), desc.initial_value, dx.D3D12_FENCE_FLAG_NONE, &dx.IID_ID3D12Fence, @ptrCast(self.fence.put())));
+    utils.setD3D12Name(device.allocator, self.fence.unwrap(), desc.label);
+    log.debug("created DX12 fence initial-value={}", .{desc.initial_value});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &fence_vtable };
 }
 
@@ -56,12 +57,13 @@ pub fn destroyFence(value: sync.Fence) void {
     allocator.destroy(self);
 }
 
-pub fn createSemaphore(ptr: *anyopaque) anyerror!sync.Semaphore {
+pub fn createSemaphore(ptr: *anyopaque, desc: sync.SemaphoreDescriptor) anyerror!sync.Semaphore {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12Semaphore);
     self.* = .{ .allocator = device.allocator };
     errdefer device.allocator.destroy(self);
     try checkHr(device.device.unwrap().lpVtbl.*.CreateFence.?(device.device.unwrap(), 0, dx.D3D12_FENCE_FLAG_NONE, &dx.IID_ID3D12Fence, @ptrCast(self.fence.put())));
+    utils.setD3D12Name(device.allocator, self.fence.unwrap(), desc.label);
     log.debug("created DX12 semaphore", .{});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &semaphore_vtable };
 }

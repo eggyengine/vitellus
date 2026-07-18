@@ -31,6 +31,7 @@ pub const Dx12Swapchain = struct {
     dx_desc: dx.DXGI_SWAP_CHAIN_DESC1,
     present_mode: PresentMode,
     queue: *Dx12Queue,
+    label: ?[]u8 = null,
 
     const vtable: Swapchain.VTable = .{
         .deinitFn = deinitImpl,
@@ -65,8 +66,10 @@ pub const Dx12Swapchain = struct {
             self.releaseBuffers();
             self.swapchain.deinit();
             self.factory.deinit();
+            if (self.label) |label| allocator.free(label);
             allocator.destroy(self);
         }
+        self.label = if (desc.label) |label| try allocator.dupe(u8, label) else null;
 
         var swapchain1: ComPtr(dx.IDXGISwapChain1) = .{};
         defer swapchain1.deinit();
@@ -83,6 +86,7 @@ pub const Dx12Swapchain = struct {
         ));
 
         self.swapchain = try swapchain1.as(dx.IDXGISwapChain3, &dx.IID_IDXGISwapChain3);
+        utils.setDxgiName(self.swapchain.unwrap(), self.label);
         try self.createViews(queue);
 
         log.debug("created DX12 swapchain for HWND={} buffers={} size={}x{}", .{
@@ -99,6 +103,7 @@ pub const Dx12Swapchain = struct {
         self.releaseBuffers();
         self.swapchain.deinit();
         self.factory.deinit();
+        if (self.label) |label| allocator.free(label);
         log.debug("destroyed DX12 swapchain", .{});
         allocator.destroy(self);
     }
@@ -178,6 +183,7 @@ pub const Dx12Swapchain = struct {
             &dx.IID_ID3D12DescriptorHeap,
             @ptrCast(self.rtv_heap.put()),
         ));
+        utils.setD3D12DerivedName(self.allocator, self.rtv_heap.unwrap(), self.label, "back-buffer RTVs");
         const stride = device.lpVtbl.*.GetDescriptorHandleIncrementSize.?(device, dx.D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         var handle: dx.D3D12_CPU_DESCRIPTOR_HANDLE = undefined;
         _ = self.rtv_heap.unwrap().lpVtbl.*.GetCPUDescriptorHandleForHeapStart.?(self.rtv_heap.unwrap(), &handle);
@@ -188,6 +194,13 @@ pub const Dx12Swapchain = struct {
                 &dx.IID_ID3D12Resource,
                 @ptrCast(buffer.put()),
             ));
+            if (self.label) |label| {
+                const name = std.fmt.allocPrint(self.allocator, "{s} back buffer {}", .{ label, i }) catch null;
+                if (name) |value| {
+                    defer self.allocator.free(value);
+                    utils.setD3D12Name(self.allocator, buffer.unwrap(), value);
+                }
+            }
             device.lpVtbl.*.CreateRenderTargetView.?(device, buffer.unwrap(), null, handle);
             self.views[i] = .{
                 .owner = null,
