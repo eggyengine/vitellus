@@ -294,11 +294,28 @@ pub const Dx12Adapter = struct {
         var factory = try createFactory();
         defer factory.deinit();
 
+        return enumerateWithFactory(null, allocator, factory);
+    }
+
+    /// Returns adapters owned by an existing DX12 instance. The adapters keep
+    /// their own factory reference, but the instance must outlive them because
+    /// device creation reads its configuration.
+    pub fn enumerateForInstance(instance_ptr: *anyopaque, allocator: std.mem.Allocator) !@import("../../interface/instance.zig").Adapters {
+        const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
+        log.debug("enumerating adapters from DX12 instance", .{});
+
+        return .{
+            .inner = try enumerateWithFactory(instance, allocator, instance.factory),
+            .alloc = allocator,
+        };
+    }
+
+    fn enumerateWithFactory(instance: ?*Dx12Instance, allocator: std.mem.Allocator, factory: ComPtr(dx.IDXGIFactory4)) ![]Adapter {
         const adapter_count = try countHardwareAdapters(factory.get());
         log.debug("found {} compatible DX12 hardware adapter(s)", .{adapter_count});
         if (adapter_count == 0) {
             log.warn("no compatible DX12 hardware adapters found; enumerating WARP fallback", .{});
-            return enumerateWarpFallback(allocator, factory);
+            return enumerateWarpFallback(instance, allocator, factory);
         }
 
         const adapters = try allocator.alloc(Adapter, adapter_count);
@@ -338,6 +355,7 @@ pub const Dx12Adapter = struct {
                 return err;
             };
             self.* = .{
+                .instance = instance,
                 .factory = factory.clone(),
                 .adapter = adapter,
             };
@@ -452,7 +470,7 @@ fn countHardwareAdapters(factory: ?*dx.IDXGIFactory4) !usize {
     return count;
 }
 
-fn enumerateWarpFallback(allocator: std.mem.Allocator, factory: ComPtr(dx.IDXGIFactory4)) ![]Adapter {
+fn enumerateWarpFallback(instance: ?*Dx12Instance, allocator: std.mem.Allocator, factory: ComPtr(dx.IDXGIFactory4)) ![]Adapter {
     log.debug("creating WARP adapter enumeration result", .{});
 
     const adapters = try allocator.alloc(Adapter, 1);
@@ -468,6 +486,7 @@ fn enumerateWarpFallback(allocator: std.mem.Allocator, factory: ComPtr(dx.IDXGIF
 
     const self = try allocator.create(Dx12Adapter);
     self.* = .{
+        .instance = instance,
         .factory = factory.clone(),
         .adapter = warp_adapter,
     };

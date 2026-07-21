@@ -23,6 +23,7 @@ pub const vkInstance = struct {
     const vtable: Instance.VTable = .{
         .deinitFn = deinitImpl,
         .createAdapterFn = createAdapterImpl,
+        .enumerateAdaptersFn = enumerateAdaptersImpl,
     };
 
     pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Instance {
@@ -153,6 +154,10 @@ pub const vkInstance = struct {
 
     fn createAdapterImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
         return vkAdapter.init(ptr, allocator, desc);
+    }
+
+    fn enumerateAdaptersImpl(ptr: *anyopaque, allocator: std.mem.Allocator) !@import("../../interface/instance.zig").Adapters {
+        return vkAdapter.enumerate(ptr, allocator);
     }
 };
 

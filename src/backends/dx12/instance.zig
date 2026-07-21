@@ -19,6 +19,7 @@ pub const Dx12Instance = struct {
     const vtable: Instance.VTable = .{
         .deinitFn = deinitImpl,
         .createAdapterFn = createAdapterImpl,
+        .enumerateAdaptersFn = enumerateAdaptersImpl,
     };
 
     pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Instance {
@@ -52,5 +53,9 @@ pub const Dx12Instance = struct {
 
     fn createAdapterImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
         return Dx12Adapter.init(ptr, allocator, desc);
+    }
+
+    fn enumerateAdaptersImpl(ptr: *anyopaque, allocator: std.mem.Allocator) !@import("../../interface/instance.zig").Adapters {
+        return Dx12Adapter.enumerateForInstance(ptr, allocator);
     }
 };

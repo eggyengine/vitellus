@@ -34,7 +34,8 @@ pub fn main(init: std.process.Init) !void {
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
     const instance = try vit.Instance.init(init.gpa, .{
-        .backend = .all(),
+        // .backend = .all(),
+        .backend = .{ .vulkan = true },
         .validation = .core,
     });
     defer instance.deinit();
@@ -50,7 +51,7 @@ pub fn main(init: std.process.Init) !void {
 
     const caps = try adapter.surfaceCapabilities(instance.allocator, try window_adapter.asWindow());
     defer caps.deinit();
-    printStartupInfo(adapter.info(), caps);
+    printStartupInfo(adapter.info(), instance.backend(), caps);
 
     const swapchain = try vit.Swapchain.init(adapter, .{
         .label = "vitellus swapchain",
@@ -221,7 +222,7 @@ pub fn main(init: std.process.Init) !void {
     try queue.waitIdle();
 }
 
-fn printStartupInfo(info: vit.AdapterInfo, caps: vit.hal.adapter.SurfaceCapabilities) void {
+fn printStartupInfo(info: vit.AdapterInfo, backend: vit.Backend, caps: vit.hal.adapter.SurfaceCapabilities) void {
     std.debug.print(
         \\================
         \\vitellus, built with love by eggyengine <3
@@ -232,6 +233,7 @@ fn printStartupInfo(info: vit.AdapterInfo, caps: vit.hal.adapter.SurfaceCapabili
         \\  vendor: {s}
         \\  kind: {s}
         \\  dedicated VRAM: {} MiB ({} bytes)
+        \\  backend: {s}
         \\surface capabilities:
         \\  image count: {}..
     , .{
@@ -240,6 +242,7 @@ fn printStartupInfo(info: vit.AdapterInfo, caps: vit.hal.adapter.SurfaceCapabili
         @tagName(info.kind),
         info.dedicated_vram / (1024 * 1024),
         info.dedicated_vram,
+        backend.name(),
         caps.min_image_count,
     });
     if (caps.max_image_count == 0) {
