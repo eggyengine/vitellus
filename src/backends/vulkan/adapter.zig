@@ -16,6 +16,8 @@ const log = std.log.scoped(.vk_adapter);
 
 pub const QueueAllocation = struct {
     graphics_family: u32,
+    compute_family: ?u32,
+    copy_family: u32,
 };
 
 const DeviceCandidate = struct {
@@ -62,6 +64,13 @@ pub const vkAdapter = struct {
         };
     }
 
+    pub fn enumerateStandalone(allocator: std.mem.Allocator) ![]Adapter {
+        const instance = try vkInstance.init(allocator, .{ .backend = .{ .vulkan = true }, .validation = .none });
+        const backend: *vkInstance = @ptrCast(@alignCast(instance.ptr));
+        defer instance.deinit();
+        return enumerateSlice(backend, allocator);
+    }
+
     fn enumerateSlice(instance_ptr: *anyopaque, allocator: std.mem.Allocator) ![]Adapter {
         const instance: *vkInstance = @ptrCast(@alignCast(instance_ptr));
         const pdevs = try instance.wrapper.enumeratePhysicalDevicesAlloc(instance.instance, allocator);
@@ -78,6 +87,7 @@ pub const vkAdapter = struct {
             const candidate = try checkSuitable(instance, pdev, allocator) orelse continue;
             const self = try allocator.create(vkAdapter);
             self.* = fromCandidate(instance, candidate);
+            instance.retain();
             adapters[initialized] = .{ .ptr = self, .vtable = &vtable, .allocator = allocator };
             initialized += 1;
         }
@@ -125,17 +135,36 @@ pub const vkAdapter = struct {
         const families = try instance.wrapper.getPhysicalDeviceQueueFamilyPropertiesAlloc(pdev, allocator);
         defer allocator.free(families);
 
+        var graphics: ?u32 = null;
+        var compute: ?u32 = null;
+        var dedicated_compute: ?u32 = null;
+        var copy: ?u32 = null;
+        var dedicated_copy: ?u32 = null;
         for (families, 0..) |family, index| {
-            if (family.queue_count > 0 and family.queue_flags.graphics_bit) {
-                return .{ .graphics_family = @intCast(index) };
-            }
+            if (family.queue_count == 0) continue;
+            const family_index: u32 = @intCast(index);
+            if (graphics == null and family.queue_flags.graphics_bit) graphics = family_index;
+            if (compute == null and family.queue_flags.compute_bit) compute = family_index;
+            if (dedicated_compute == null and family.queue_flags.compute_bit and !family.queue_flags.graphics_bit)
+                dedicated_compute = family_index;
+            if (copy == null and family.queue_flags.transfer_bit) copy = family_index;
+            if (dedicated_copy == null and family.queue_flags.transfer_bit and
+                !family.queue_flags.graphics_bit and !family.queue_flags.compute_bit)
+                dedicated_copy = family_index;
         }
-        return null;
+        const graphics_family = graphics orelse return null;
+        return .{
+            .graphics_family = graphics_family,
+            .compute_family = dedicated_compute orelse compute,
+            .copy_family = dedicated_copy orelse copy orelse graphics_family,
+        };
     }
 
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *vkAdapter = @ptrCast(@alignCast(ptr));
+        const instance = self.instance;
         allocator.destroy(self);
+        instance.release(allocator);
         log.debug("destroyed Vulkan adapter", .{});
     }
 
@@ -229,16 +258,20 @@ pub const vkAdapter = struct {
         };
     }
 
-    fn surfaceCapabilitiesImpl(_: *anyopaque, _: std.mem.Allocator, _: Window) !adapter_interface.SurfaceCapabilities {
-        return error.VulkanSurfaceCapabilitiesNotImplemented;
+    fn surfaceCapabilitiesImpl(ptr: *anyopaque, allocator: std.mem.Allocator, window: Window) !adapter_interface.SurfaceCapabilities {
+        const self: *vkAdapter = @ptrCast(@alignCast(ptr));
+        const surface_impl = @import("surface.zig");
+        const surface = try surface_impl.create(self.instance, window);
+        defer self.instance.wrapper.destroySurfaceKHR(self.instance.instance, surface, null);
+        return surface_impl.query(self.instance, self.physical_device, allocator, surface);
     }
 
-    fn createDeviceImpl(_: *anyopaque, _: std.mem.Allocator, _: DeviceDescriptor) anyerror!Device {
-        return error.VulkanDeviceNotImplemented;
+    fn createDeviceImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: DeviceDescriptor) anyerror!Device {
+        return @import("device.zig").vkDevice.init(ptr, allocator, desc);
     }
 
-    fn createSwapchainImpl(_: *anyopaque, _: std.mem.Allocator, _: SwapchainDescriptor) anyerror!Swapchain {
-        return error.VulkanSwapchainNotImplemented;
+    fn createSwapchainImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: SwapchainDescriptor) anyerror!Swapchain {
+        return @import("swapchain.zig").vkSwapchain.init(ptr, allocator, desc);
     }
 };
 
@@ -267,7 +300,7 @@ fn kindFromVk(device_type: vk.PhysicalDeviceType) adapter_interface.Kind {
     };
 }
 
-fn toVkFormat(format: resource.Format) vk.Format {
+pub fn toVkFormat(format: resource.Format) vk.Format {
     return switch (format) {
         .undefined => .undefined,
         .r8_unorm => .r8_unorm,

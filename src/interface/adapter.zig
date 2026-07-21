@@ -144,7 +144,7 @@ pub const Adapter = struct {
     fn enumerateBackend(backend: Backend, allocator: std.mem.Allocator) ![]Adapter {
         return switch (backend) {
             .dx12 => @import("../backends/dx12/adapter.zig").Dx12Adapter.enumerate(allocator),
-            .vulkan => error.VulkanNotImplemented,
+            .vulkan => @import("../backends/vulkan/adapter.zig").vkAdapter.enumerateStandalone(allocator),
             .metal => error.MetalNotImplemented,
             .custom => unreachable, // custom backends never enter the built-in fallback order
         };

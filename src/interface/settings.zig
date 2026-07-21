@@ -102,6 +102,16 @@ pub const BackendType = packed struct(u32) {
     _pad: u29 = 0,
 
     /// Returns a set containing every known backend.
+    ///
+    /// Currently the rules are:
+    /// - Windows:
+    ///     - DirectX 12
+    ///     - Vulkan
+    /// - Linux:
+    ///     - Vulkan
+    /// - macOS:
+    ///     - Metal
+    ///     - Vulkan
     pub fn all() BackendType {
         return .{ .vulkan = true, .dx12 = true, .metal = true };
     }

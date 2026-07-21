@@ -133,6 +133,15 @@ pub const ShaderModule = struct {
 };
 
 /// A convenient module for already compiled backend-specific shader code.
+///
+/// Currently supports all in `ShaderBinaryFormat`, which includes:
+/// - `dxil` DirectX Intermediate Representation Language
+/// - `spirv` SPIR-V
+/// - `metallib` Metal Intermediate Representation Language
+///
+/// Cross-compilation is not supported. If you do want to do cross-compilation, you should
+/// use another shader compiler type such as `HLSLShaderCompiler` or `SPIRVShaderCompiler`.
+///
 pub const BinaryShaderModule = struct {
     /// Borrowed precompiled shader data and its target backend.
     pub const Descriptor = struct {

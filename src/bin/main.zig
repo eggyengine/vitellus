@@ -34,8 +34,8 @@ pub fn main(init: std.process.Init) !void {
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
     const instance = try vit.Instance.init(init.gpa, .{
-        // .backend = .all(),
-        .backend = .{ .vulkan = true },
+        .backend = .all(),
+        // .backend = .{ .dx12 = true },
         .validation = .core,
     });
     defer instance.deinit();
@@ -68,10 +68,20 @@ pub fn main(init: std.process.Init) !void {
     const vertex_shader = try vit.Shader.init(device, .{
         .label = "triangle vertex shader",
         .stage = .vertex,
-        .source = vit.HLSLShaderModule.init(.{
-            .code = @embedFile("compiled/triangle.vsMain.hlsl"),
+        // .source = vit.HLSLShaderModule.init(.{
+        //     .code = @embedFile("compiled/triangle.vsMain.hlsl"),
+        //     .entry_point = "vsMain",
+        //     .profile = .vs_6_7,
+        // }),
+        // .source = vit.SPIRVShaderModule.init(.{
+        //     .code = @embedFile("compiled/triangle.vsMain.spv"),
+        //     .entry_point = "vsMain",
+        // }),
+        .source = vit.BinaryShaderModule.init(.{
+            .format = .dxil,
+            .backend = .dx12,
+            .bytes = @embedFile("compiled/triangle.vsMain.dxil"),
             .entry_point = "vsMain",
-            .profile = .vs_6_7,
         }),
     });
     defer vertex_shader.deinit();
@@ -79,12 +89,23 @@ pub fn main(init: std.process.Init) !void {
     const fragment_shader = try vit.Shader.init(device, .{
         .label = "triangle fragment shader",
         .stage = .fragment,
-        .source = vit.HLSLShaderModule.init(.{
-            .code = @embedFile("compiled/triangle.psMain.hlsl"),
+        // .source = vit.HLSLShaderModule.init(.{
+        //     .code = @embedFile("compiled/triangle.psMain.hlsl"),
+        //     .entry_point = "psMain",
+        //     .profile = .ps_6_7,
+        // }),
+        // .source = vit.SPIRVShaderModule.init(.{
+        //     .code = @embedFile("compiled/triangle.psMain.spv"),
+        //     .entry_point = "psMain",
+        // }),
+        .source = vit.BinaryShaderModule.init(.{
+            .format = .dxil,
+            .backend = .dx12,
+            .bytes = @embedFile("compiled/triangle.psMain.dxil"),
             .entry_point = "psMain",
-            .profile = .ps_6_7,
         }),
     });
+
     defer fragment_shader.deinit();
 
     const vertex_buffer = try vit.Buffer.init(device, .{

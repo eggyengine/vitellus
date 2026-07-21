@@ -3,4 +3,4 @@
 > [!NOTE]
 > Did you compile the shader? 
 > 
-> `python compile_shader.py -hlsl|-spirv <file>.slang`
+> `python compile_shader.py -hlsl|-dxil|-spirv <file>.slang`

@@ -52,6 +52,7 @@ pub const Shader = hal.shader.Shader;
 pub const ShaderModule = hal.shader.ShaderModule;
 pub const HLSLShaderModule = backends.dx12.HLSLShaderModule;
 pub const HLSLProfile = backends.dx12.HLSLProfile;
+pub const SPIRVShaderModule = backends.vk.SPIRVShaderModule;
 pub const BinaryShaderModule = hal.shader.BinaryShaderModule;
 pub const CompiledShader = hal.shader.CompiledShader;
 pub const ShaderCompileRequest = hal.shader.ShaderCompileRequest;
@@ -171,7 +172,7 @@ test "DX12 buffers cover upload, device, and readback memory" {
 
 test "DX12 indexed draw binds uniforms and a sampled texture" {
     const std = @import("std");
-    if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
+    if (!@import("shader_options").enable_dxc or @import("builtin").target.os.tag != .windows) return error.SkipZigTest;
 
     const instance = try Instance.init(std.testing.allocator, .{
         .backend = .{ .dx12 = true },

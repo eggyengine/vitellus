@@ -21,17 +21,17 @@ const IUnknownLayout = extern struct {
 /// Zig equivalent of `Microsoft::WRL::ComPtr<T>`.
 ///
 /// Manages the lifetime of a COM interface pointer via reference counting.
-/// `T` should be a COM interface type — an `extern struct` whose first field
+/// `T` should be a COM interface type - an `extern struct` whose first field
 /// is a vtable pointer beginning with the three `IUnknown` slots
 /// (`QueryInterface`, `AddRef`, `Release`).
 ///
 /// **Ownership semantics**
-/// - `ComPtr(T){}` — empty (null); no resource held.
-/// - `ComPtr(T).attach(raw)` — takes ownership of `raw` without `AddRef`.
+/// - `ComPtr(T){}` - empty (null); no resource held.
+/// - `ComPtr(T).attach(raw)` - takes ownership of `raw` without `AddRef`.
 ///   Use this immediately after a factory function that already returned a
 ///   new reference.
-/// - `.clone()` — increments the reference count and returns a new owner.
-/// - `.deinit()` — decrements the reference count and nulls the pointer.
+/// - `.clone()` - increments the reference count and returns a new owner.
+/// - `.deinit()` - decrements the reference count and nulls the pointer.
 ///   Safe to call on a null `ComPtr`; idempotent.
 ///
 /// **Common factory pattern**
@@ -80,7 +80,7 @@ pub fn ComPtr(comptime T: type) type {
         }
 
         /// Calls `Release` on the managed pointer (if non-null) and nulls it.
-        /// Idempotent — safe to call multiple times or on an empty `ComPtr`.
+        /// Idempotent - safe to call multiple times or on an empty `ComPtr`.
         pub fn deinit(self: *Self) void {
             if (self.ptr) |p| {
                 const unk: *IUnknownLayout = @ptrCast(@alignCast(p));

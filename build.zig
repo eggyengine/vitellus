@@ -6,6 +6,8 @@ pub fn build(b: *std.Build) void {
 
     const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
     const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
+    const enable_dxc = b.option(bool, "enable_dxc", "Enable runtime HLSL compilation with DXC") orelse false;
+    const enable_spirv_cross = b.option(bool, "enable_spirv-cross", "Enable SPIRV-Cross shader translation") orelse false;
     var dxc_bin_dir: ?std.Build.LazyPath = null;
 
     const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse true;
@@ -14,6 +16,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
     });
+    const shader_options = b.addOptions();
+    shader_options.addOption(bool, "enable_dxc", enable_dxc);
+    shader_options.addOption(bool, "enable_spirv_cross", enable_spirv_cross);
+    mod.addOptions("shader_options", shader_options);
 
     const candler = b.dependency("candler", .{
         .target = target,
@@ -33,6 +39,13 @@ pub fn build(b: *std.Build) void {
         if (b.lazyDependency("directx-headers", .{})) |dep| {
             mod.addIncludePath(dep.path("include/directx"));
         }
+        mod.linkSystemLibrary("dxgi", .{});
+        mod.linkSystemLibrary("d3d12", .{});
+    }
+
+    // directx shader compiler
+    if (enable_dxc) {
+        if (target.result.os.tag != .windows) @panic("the bundled DXC dependency only supports Windows");
         if (b.lazyDependency("directx-shader-compiler", .{})) |dep| {
             const dxc_arch = switch (target.result.cpu.arch) {
                 .x86 => "x86",
@@ -42,23 +55,38 @@ pub fn build(b: *std.Build) void {
             };
             const bin_dir = dep.path(b.fmt("bin/{s}", .{dxc_arch}));
             dxc_bin_dir = bin_dir;
-            mod.addIncludePath(dep.path("inc"));
             mod.addLibraryPath(dep.path(b.fmt("lib/{s}", .{dxc_arch})));
             mod.linkSystemLibrary("dxcompiler", .{});
-
-            const install_dxcompiler = b.addInstallFile(
-                dep.path(b.fmt("bin/{s}/dxcompiler.dll", .{dxc_arch})),
-                "bin/dxcompiler.dll",
-            );
-            const install_dxil = b.addInstallFile(
-                dep.path(b.fmt("bin/{s}/dxil.dll", .{dxc_arch})),
-                "bin/dxil.dll",
-            );
-            b.getInstallStep().dependOn(&install_dxcompiler.step);
-            b.getInstallStep().dependOn(&install_dxil.step);
+            b.getInstallStep().dependOn(&b.addInstallFile(dep.path(b.fmt("bin/{s}/dxcompiler.dll", .{dxc_arch})), "bin/dxcompiler.dll").step);
+            b.getInstallStep().dependOn(&b.addInstallFile(dep.path(b.fmt("bin/{s}/dxil.dll", .{dxc_arch})), "bin/dxil.dll").step);
         }
-        mod.linkSystemLibrary("dxgi", .{});
-        mod.linkSystemLibrary("d3d12", .{});
+    }
+
+    // spirv-cross compilation
+    if (enable_spirv_cross) {
+        if (b.lazyDependency("spirv-cross", .{})) |dep| {
+            const spirv_cross = b.addLibrary(.{
+                .name = "spirv-cross",
+                .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libcpp = true }),
+            });
+            spirv_cross.root_module.addCSourceFiles(.{
+                .root = dep.path(""),
+                .files = &.{
+                    "spirv_cross.cpp",
+                    "spirv_parser.cpp",
+                    "spirv_cross_parsed_ir.cpp",
+                    "spirv_cfg.cpp",
+                    "spirv_glsl.cpp",
+                    "spirv_hlsl.cpp",
+                    "spirv_msl.cpp",
+                    "spirv_cross_c.cpp",
+                },
+                .flags = &.{ "-std=c++11", "-DSPIRV_CROSS_C_API_GLSL=1", "-DSPIRV_CROSS_C_API_HLSL=1", "-DSPIRV_CROSS_C_API_MSL=1" },
+            });
+            spirv_cross.root_module.addIncludePath(dep.path(""));
+            mod.addIncludePath(dep.path(""));
+            mod.linkLibrary(spirv_cross);
+        }
     }
 
     // vulkan

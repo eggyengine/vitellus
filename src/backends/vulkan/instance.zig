@@ -7,6 +7,7 @@ const Instance = @import("../../interface/instance.zig").Instance;
 const Adapter = @import("../../interface/adapter.zig").Adapter;
 const AdapterDescriptor = @import("../../interface/adapter.zig").AdapterDescriptor;
 const VitellusConfig = @import("../../interface/settings.zig").VitellusConfig;
+const ValidationLevel = @import("../../interface/settings.zig").ValidationLevel;
 
 const vkAdapter = @import("adapter.zig").vkAdapter;
 
@@ -19,6 +20,10 @@ pub const vkInstance = struct {
     instance: vk.Instance,
     wrapper: vk.InstanceWrapper,
     debug_messenger: vk.DebugUtilsMessengerEXT = .null_handle,
+    validation_level: ValidationLevel,
+    validation_layer_enabled: bool,
+    debug_utils_enabled: bool,
+    ref_count: usize = 1,
 
     const vtable: Instance.VTable = .{
         .deinitFn = deinitImpl,
@@ -41,7 +46,7 @@ pub const vkInstance = struct {
 
         var enabled_layers: [1][*:0]const u8 = undefined;
         var enabled_layer_count: u32 = 0;
-        var enabled_extensions: [3][*:0]const u8 = undefined;
+        var enabled_extensions: [8][*:0]const u8 = undefined;
         var enabled_extension_count: u32 = 0;
 
         const validation_enabled = config.validation != .none and
@@ -54,13 +59,52 @@ pub const vkInstance = struct {
             enabled_layer_count += 1;
         }
 
-        const debug_utils_enabled = validation_enabled and
+        // Debug utils is also used for object names, so enable it whenever the
+        // application requests validation, even if the SDK validation layer is
+        // not installed on the current machine.
+        const debug_utils_enabled = config.validation != .none and
             try hasInstanceExtension(base, allocator, null, vk.extensions.ext_debug_utils.name);
         if (debug_utils_enabled) {
             enabled_extensions[enabled_extension_count] = vk.extensions.ext_debug_utils.name.ptr;
             enabled_extension_count += 1;
-        } else if (validation_enabled) {
-            log.warn("Vulkan validation enabled without {s}; messages will not be captured", .{vk.extensions.ext_debug_utils.name});
+        } else if (config.validation != .none) {
+            log.warn("Vulkan validation requested without {s}; messages and object names are unavailable", .{vk.extensions.ext_debug_utils.name});
+        }
+
+        if (!try hasInstanceExtension(base, allocator, null, vk.extensions.khr_surface.name))
+            return error.VulkanSurfaceExtensionUnavailable;
+        enabled_extensions[enabled_extension_count] = vk.extensions.khr_surface.name.ptr;
+        enabled_extension_count += 1;
+
+        switch (builtin.target.os.tag) {
+            .windows => {
+                if (!try hasInstanceExtension(base, allocator, null, vk.extensions.khr_win_32_surface.name))
+                    return error.VulkanPlatformSurfaceExtensionUnavailable;
+                enabled_extensions[enabled_extension_count] = vk.extensions.khr_win_32_surface.name.ptr;
+                enabled_extension_count += 1;
+            },
+            .linux => {
+                var platform_extension_count: u32 = 0;
+                inline for (.{
+                    vk.extensions.khr_wayland_surface.name,
+                    vk.extensions.khr_xcb_surface.name,
+                    vk.extensions.khr_xlib_surface.name,
+                }) |extension| {
+                    if (try hasInstanceExtension(base, allocator, null, extension)) {
+                        enabled_extensions[enabled_extension_count] = extension.ptr;
+                        enabled_extension_count += 1;
+                        platform_extension_count += 1;
+                    }
+                }
+                if (platform_extension_count == 0) return error.VulkanPlatformSurfaceExtensionUnavailable;
+            },
+            .macos => {
+                if (!try hasInstanceExtension(base, allocator, null, vk.extensions.ext_metal_surface.name))
+                    return error.VulkanPlatformSurfaceExtensionUnavailable;
+                enabled_extensions[enabled_extension_count] = vk.extensions.ext_metal_surface.name.ptr;
+                enabled_extension_count += 1;
+            },
+            else => return error.VulkanUnsupportedPlatform,
         }
 
         const portability_enabled = try hasInstanceExtension(
@@ -135,14 +179,48 @@ pub const vkInstance = struct {
             .instance = instance,
             .wrapper = wrapper,
             .debug_messenger = debug_messenger,
+            .validation_level = config.validation,
+            .validation_layer_enabled = validation_enabled,
+            .debug_utils_enabled = debug_utils_enabled,
         };
 
         log.debug("initialised Vulkan instance", .{});
         return .{ .ptr = self, .vtable = &vtable, .allocator = allocator };
     }
 
+    /// Names a device-owned Vulkan object when validation was requested and
+    /// `VK_EXT_debug_utils` is available. Naming is diagnostic-only and never
+    /// makes object creation fail.
+    pub fn nameObject(
+        self: *const vkInstance,
+        allocator: std.mem.Allocator,
+        device: vk.DeviceProxy,
+        object_type: vk.ObjectType,
+        object_handle: u64,
+        label: ?[]const u8,
+    ) void {
+        if (self.validation_level == .none or !self.debug_utils_enabled) return;
+        const value = label orelse return;
+        const terminated = allocator.dupeZ(u8, value) catch |err| {
+            log.warn("could not allocate Vulkan debug name: {}", .{err});
+            return;
+        };
+        defer allocator.free(terminated);
+        @import("debug.zig").nameVkObj(device, object_type, object_handle, terminated) catch |err| {
+            log.warn("could not name Vulkan {s}: {}", .{ @tagName(object_type), err });
+        };
+    }
+
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *vkInstance = @ptrCast(@alignCast(ptr));
+
+        self.release(allocator);
+    }
+
+    pub fn retain(self: *vkInstance) void { self.ref_count += 1; }
+    pub fn release(self: *vkInstance, allocator: std.mem.Allocator) void {
+        self.ref_count -= 1;
+        if (self.ref_count != 0) return;
 
         if (self.debug_messenger != .null_handle)
             self.wrapper.destroyDebugUtilsMessengerEXT(self.instance, self.debug_messenger, null);
@@ -277,5 +355,34 @@ test "Vulkan instance lifecycle" {
         error.FileNotFound => return error.SkipZigTest,
         else => return err,
     };
+    const backend: *vkInstance = @ptrCast(@alignCast(instance.ptr));
+    try std.testing.expectEqual(ValidationLevel.extended, backend.validation_level);
+    if (!backend.debug_utils_enabled) {
+        try std.testing.expectEqual(vk.DebugUtilsMessengerEXT.null_handle, backend.debug_messenger);
+    }
     instance.deinit();
+}
+
+test "Vulkan validation none disables diagnostics" {
+    if (builtin.target.os.tag != .windows and
+        builtin.target.os.tag != .linux and
+        builtin.target.os.tag != .macos)
+    {
+        return error.SkipZigTest;
+    }
+
+    const instance = vkInstance.init(std.testing.allocator, .{
+        .backend = .{ .vulkan = true },
+        .validation = .none,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return error.SkipZigTest,
+        else => return err,
+    };
+    defer instance.deinit();
+
+    const backend: *vkInstance = @ptrCast(@alignCast(instance.ptr));
+    try std.testing.expectEqual(ValidationLevel.none, backend.validation_level);
+    try std.testing.expect(!backend.validation_layer_enabled);
+    try std.testing.expect(!backend.debug_utils_enabled);
+    try std.testing.expectEqual(vk.DebugUtilsMessengerEXT.null_handle, backend.debug_messenger);
 }

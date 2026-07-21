@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Compile annotated Slang shader entry points to HLSL or SPIR-V.
+Compile annotated Slang shader entry points to HLSL, DXIL, or SPIR-V.
 
 Examples:
     python compile_shader.py -hlsl triangle.slang
+    python compile_shader.py -dxil triangle.slang
     python compile_shader.py -spirv triangle.slang
     python compile_shader.py -spirv --out-dir build/shaders triangle.slang
     python compile_shader.py -spirv --slangc C:/SDK/slang/bin/slangc.exe triangle.slang
@@ -272,7 +273,7 @@ def discover_entry_points(shader_path: Path) -> list[EntryPoint]:
 
 
 def output_extension(target: str) -> str:
-    return ".spv" if target == "spirv" else ".hlsl"
+    return {"hlsl": ".hlsl", "dxil": ".dxil", "spirv": ".spv"}[target]
 
 
 def compile_entry_point(
@@ -321,6 +322,13 @@ def parse_args() -> argparse.Namespace:
         help="Generate HLSL source files",
     )
     target_group.add_argument(
+        "-dxil",
+        action="store_const",
+        const="dxil",
+        dest="target",
+        help="Generate DirectX 12 DXIL binaries",
+    )
+    target_group.add_argument(
         "-spirv",
         action="store_const",
         const="spirv",
@@ -339,7 +347,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        help="Override the default profile (HLSL: sm_6_6, SPIR-V: glsl_450)",
+        help="Override the default profile (HLSL/DXIL: sm_6_6, SPIR-V: glsl_450)",
     )
     parser.add_argument(
         "extra",
@@ -359,7 +367,7 @@ def main() -> int:
         return 2
 
     target: str = args.target
-    profile = args.profile or ("sm_6_6" if target == "hlsl" else "glsl_450")
+    profile = args.profile or ("glsl_450" if target == "spirv" else "sm_6_6")
     output_dir = (
         args.out_dir.expanduser().resolve()
         if args.out_dir
