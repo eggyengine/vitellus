@@ -68,12 +68,15 @@ pub const Dx12DebugController = struct {
     }
 
     pub fn deinit(self: *Dx12DebugController) void {
+        const enabled = self.debug.get() != null;
         self.debug.deinit();
+        if (enabled) log.debug("destroyed DX12 debug controller", .{});
     }
 };
 
 pub const Dx12DebugDevice = struct {
     debug: ComPtr(dx.ID3D12DebugDevice) = .{},
+    info_queue: ComPtr(dx.ID3D12InfoQueue) = .{},
 
     pub fn init(device: ComPtr(dx.ID3D12Device)) Dx12DebugDevice {
         var self: Dx12DebugDevice = .{};
@@ -82,9 +85,25 @@ pub const Dx12DebugDevice = struct {
             log.warn("ID3D12DebugDevice unavailable", .{});
             return self;
         };
+        self.info_queue = device.as(dx.ID3D12InfoQueue, &dx.IID_ID3D12InfoQueue) catch .{};
 
         log.debug("ID3D12DebugDevice acquired", .{});
         return self;
+    }
+
+    pub fn logMessages(self: Dx12DebugDevice) void {
+        const queue = self.info_queue.get() orelse return;
+        const count = queue.lpVtbl.*.GetNumStoredMessages.?(queue);
+        var storage: [4096]u8 align(@alignOf(dx.D3D12_MESSAGE)) = undefined;
+        for (0..count) |index| {
+            var size: usize = storage.len;
+            if (queue.lpVtbl.*.GetMessageA.?(queue, index, @ptrCast(&storage), &size) < 0) continue;
+            const message: *const dx.D3D12_MESSAGE = @ptrCast(@alignCast(&storage));
+            const description = message.pDescription orelse continue;
+            const length = if (message.DescriptionByteLength > 0) message.DescriptionByteLength - 1 else 0;
+            log.err("D3D12 [{}]: {s}", .{ message.ID, description[0..length] });
+        }
+        queue.lpVtbl.*.ClearStoredMessages.?(queue);
     }
 
     pub fn reportLiveObjects(self: Dx12DebugDevice) void {
@@ -98,6 +117,9 @@ pub const Dx12DebugDevice = struct {
     }
 
     pub fn deinit(self: *Dx12DebugDevice) void {
+        const enabled = self.debug.get() != null;
+        self.info_queue.deinit();
         self.debug.deinit();
+        if (enabled) log.debug("destroyed DX12 debug device", .{});
     }
 };

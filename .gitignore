@@ -1,3 +1,8 @@
 .zig-cache
 zig-out
 zig-pkg
+
+compiled
+.vscode
+#idk why it appeared...
+.zig-global-cache

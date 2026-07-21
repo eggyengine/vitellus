@@ -79,7 +79,14 @@ pub const Dx12Device = struct {
             allocator.destroy(self);
         }
 
-        adapter.debug_ctrl.enable(desc.validation);
+        if (adapter.instance.?.config.validation != .none) {
+            if (adapter.instance) |instance| {
+                instance.debug_ctrl.enable(adapter.instance.?.config.validation);
+            } else {
+                var debug_ctrl = debug.Dx12DebugController.init(adapter.instance.?.config.validation);
+                defer debug_ctrl.deinit();
+            }
+        }
         log.debug("creating ID3D12Device", .{});
         try checkHr(dx.D3D12CreateDevice(
             @ptrCast(adapter.adapter.get()),
@@ -87,14 +94,20 @@ pub const Dx12Device = struct {
             &dx.IID_ID3D12Device,
             @ptrCast(self.device.put()),
         ));
+        utils.setD3D12Name(allocator, self.device.unwrap(), desc.label);
         log.debug("ID3D12Device successfully initialised", .{});
 
         try self.createDescriptorHeap(&self.resource_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, resource_capacity, true);
         try self.createDescriptorHeap(&self.sampler_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, sampler_capacity, true);
         try self.createDescriptorHeap(&self.rtv_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_RTV, rtv_capacity, false);
         try self.createDescriptorHeap(&self.dsv_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_DSV, dsv_capacity, false);
+        utils.setD3D12DerivedName(allocator, self.resource_heap.unwrap(), desc.label, "resource descriptors");
+        utils.setD3D12DerivedName(allocator, self.sampler_heap.unwrap(), desc.label, "sampler descriptors");
+        utils.setD3D12DerivedName(allocator, self.rtv_heap.unwrap(), desc.label, "RTV descriptors");
+        utils.setD3D12DerivedName(allocator, self.dsv_heap.unwrap(), desc.label, "DSV descriptors");
+        log.debug("created DX12 descriptor heaps resources={} samplers={} RTVs={} DSVs={}", .{ resource_capacity, sampler_capacity, rtv_capacity, dsv_capacity });
 
-        if (desc.validation != .none) {
+        if (adapter.instance.?.config.validation != .none) {
             self.debug_device = debug.Dx12DebugDevice.init(self.device);
         }
 
@@ -107,9 +120,10 @@ pub const Dx12Device = struct {
         self.dsv_heap.deinit();
         self.sampler_heap.deinit();
         self.resource_heap.deinit();
-        self.device.deinit();
         self.debug_device.reportLiveObjects();
         self.debug_device.deinit();
+        self.device.deinit();
+        log.debug("destroyed DX12 device and descriptor heaps", .{});
         allocator.destroy(self);
     }
 

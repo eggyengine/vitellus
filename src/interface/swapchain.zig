@@ -53,6 +53,8 @@ pub const ImageUsage = packed struct(u32) {
 
 /// Window, queue, format, and scheduling used to create a swapchain.
 pub const SwapchainDescriptor = struct {
+    /// Optional name shown for the presentation chain in graphics debuggers.
+    label: ?[]const u8 = null,
     window: Window,
     queue: Queue,
     extent: Extent2D = .{},

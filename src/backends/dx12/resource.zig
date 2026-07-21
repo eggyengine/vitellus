@@ -7,12 +7,14 @@ const dx = @import("dx.zig").c;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
+const log = std.log.scoped(.dx12_resource);
 
 pub const Dx12Buffer = struct {
     allocator: std.mem.Allocator,
     resource: ComPtr(dx.ID3D12Resource) = .{},
     size: u64,
     memory: resource.MemoryLocation,
+    label: ?[]u8 = null,
 
     pub fn fromHandle(value: resource.Buffer) !*Dx12Buffer {
         if (value.handle == 0) return error.InvalidBuffer;
@@ -24,6 +26,7 @@ pub const Dx12Texture = struct {
     allocator: std.mem.Allocator,
     resource: ComPtr(dx.ID3D12Resource) = .{},
     desc: resource.TextureDescriptor,
+    label: ?[]u8 = null,
 
     pub fn fromHandle(value: resource.Texture) !*Dx12Texture {
         if (value.handle == 0) return error.InvalidTexture;
@@ -53,6 +56,7 @@ pub const Dx12TextureView = struct {
     allocator: ?std.mem.Allocator = null,
     rtv_index: ?u32 = null,
     dsv_index: ?u32 = null,
+    label: ?[]u8 = null,
 
     pub fn fromHandle(value: resource.TextureView) !*Dx12TextureView {
         if (value.handle == 0) return error.InvalidTextureView;
@@ -80,8 +84,10 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     self.* = .{ .allocator = device.allocator, .size = desc.size, .memory = desc.memory };
     errdefer {
         self.resource.deinit();
+        if (self.label) |label| device.allocator.free(label);
         device.allocator.destroy(self);
     }
+    self.label = if (desc.label) |label| try device.allocator.dupe(u8, label) else null;
 
     const initial_state: dx.D3D12_RESOURCE_STATES = switch (desc.memory) {
         .device => if (desc.initial_data != null) dx.D3D12_RESOURCE_STATE_COPY_DEST else dx.D3D12_RESOURCE_STATE_COMMON,
@@ -96,6 +102,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
         initial_state,
         &self.resource,
     );
+    utils.setD3D12Name(device.allocator, self.resource.unwrap(), desc.label);
 
     if (desc.initial_data) |data| switch (desc.memory) {
         .upload => try writeMapped(self.resource.unwrap(), data),
@@ -103,6 +110,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
         .readback => unreachable,
     };
 
+    log.debug("created DX12 buffer size={} memory={s}", .{ desc.size, @tagName(desc.memory) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &buffer_vtable };
 }
 
@@ -110,6 +118,8 @@ pub fn destroyBuffer(value: resource.Buffer) void {
     const self = Dx12Buffer.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.resource.deinit();
+    if (self.label) |label| allocator.free(label);
+    log.debug("destroyed DX12 buffer size={}", .{self.size});
     allocator.destroy(self);
 }
 
@@ -146,8 +156,11 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
     self.* = .{ .allocator = device.allocator, .desc = desc };
     errdefer {
         self.resource.deinit();
+        if (self.label) |label| device.allocator.free(label);
         device.allocator.destroy(self);
     }
+    self.label = if (desc.label) |label| try device.allocator.dupe(u8, label) else null;
+    self.desc.label = self.label;
 
     const heap = dx.D3D12_HEAP_PROPERTIES{
         .Type = dx.D3D12_HEAP_TYPE_DEFAULT,
@@ -182,7 +195,9 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
         &dx.IID_ID3D12Resource,
         @ptrCast(self.resource.put()),
     ));
+    utils.setD3D12Name(device.allocator, self.resource.unwrap(), desc.label);
     if (desc.initial_data) |data| try uploadTexture(device.device.unwrap(), self.resource.unwrap(), &native_desc, desc, data);
+    log.debug("created DX12 texture {}x{}x{} format={s}", .{ desc.width, desc.height, desc.depth_or_layers, @tagName(desc.format) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
 
@@ -190,6 +205,8 @@ pub fn destroyTexture(value: resource.Texture) void {
     const self = Dx12Texture.fromHandle(value) catch return;
     const allocator = self.allocator;
     self.resource.deinit();
+    if (self.label) |label| allocator.free(label);
+    log.debug("destroyed DX12 texture {}x{}x{}", .{ self.desc.width, self.desc.height, self.desc.depth_or_layers });
     allocator.destroy(self);
 }
 
@@ -226,6 +243,8 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
         .rest_state = dx.D3D12_RESOURCE_STATE_COMMON,
         .allocator = device.allocator,
     };
+    self.label = if (desc.label) |label| try device.allocator.dupe(u8, label) else null;
+    errdefer if (self.label) |label| device.allocator.free(label);
     errdefer {
         if (self.rtv_index) |index| device.freeRtv(index);
         if (self.dsv_index) |index| device.freeDsv(index);
@@ -236,6 +255,7 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
         self.rtv_index = allocation.index;
         var rtv = renderTargetViewDesc(self.format, view_dimension, desc.base_mip, desc.base_layer, layer_count);
         device.device.unwrap().lpVtbl.*.CreateRenderTargetView.?(device.device.unwrap(), self.resource, &rtv, self.rtv);
+        utils.setRenderDocDescriptorName(device.allocator, device.rtv_heap.unwrap(), allocation.index, desc.label);
     }
     if (texture.desc.usage.depth_stencil_attachment) {
         const allocation = try device.allocateDsv();
@@ -243,7 +263,9 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
         self.dsv_index = allocation.index;
         var dsv = depthStencilViewDesc(self.format, view_dimension, desc.base_mip, desc.base_layer, layer_count);
         device.device.unwrap().lpVtbl.*.CreateDepthStencilView.?(device.device.unwrap(), self.resource, &dsv, self.dsv);
+        utils.setRenderDocDescriptorName(device.allocator, device.dsv_heap.unwrap(), allocation.index, desc.label);
     }
+    log.debug("created DX12 texture view dimension={s} mips={} layers={}", .{ @tagName(view_dimension), mip_count, layer_count });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_view_vtable };
 }
 
@@ -313,7 +335,11 @@ pub fn destroyTextureView(value: resource.TextureView) void {
     const self = Dx12TextureView.fromHandle(value) catch return;
     if (self.rtv_index) |index| self.owner.?.freeRtv(index);
     if (self.dsv_index) |index| self.owner.?.freeDsv(index);
-    if (self.allocator) |allocator| allocator.destroy(self);
+    if (self.allocator) |allocator| {
+        if (self.label) |label| allocator.free(label);
+        log.debug("destroyed DX12 texture view", .{});
+        allocator.destroy(self);
+    }
 }
 
 fn createCommittedBuffer(

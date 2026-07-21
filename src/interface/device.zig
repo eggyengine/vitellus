@@ -13,8 +13,8 @@ const sync = @import("sync.zig");
 
 /// Backend options applied while creating a logical device.
 pub const DeviceDescriptor = struct {
-    /// Validation requested from the selected backend.
-    validation: ValidationLevel = .none,
+    /// Optional name shown for the logical device in graphics debuggers.
+    label: ?[]const u8 = null,
     required_features: @import("settings.zig").FeatureSet = .{},
 };
 
@@ -41,17 +41,15 @@ pub const Device = struct {
         createComputePipelineFn: ?*const fn (*anyopaque, pipeline.ComputePipelineDescriptor) anyerror!pipeline.ComputePipeline = null,
         createCommandPoolFn: ?*const fn (*anyopaque, command.CommandPoolDescriptor) anyerror!command.CommandPool = null,
         createQuerySetFn: ?*const fn (*anyopaque, command.QuerySetDescriptor) anyerror!command.QuerySet = null,
-        createFenceFn: ?*const fn (*anyopaque, u64) anyerror!sync.Fence = null,
-        createSemaphoreFn: ?*const fn (*anyopaque) anyerror!sync.Semaphore = null,
+        createFenceFn: ?*const fn (*anyopaque, sync.FenceDescriptor) anyerror!sync.Fence = null,
+        createSemaphoreFn: ?*const fn (*anyopaque, sync.SemaphoreDescriptor) anyerror!sync.Semaphore = null,
     };
 
     pub fn init(adapter: anytype, desc: DeviceDescriptor) !Device {
-        var resolved = desc;
-        if (resolved.validation == .none) resolved.validation = adapter.config.validation;
-        const required: u32 = @bitCast(resolved.required_features);
+        const required: u32 = @bitCast(desc.required_features);
         const available: u32 = @bitCast(adapter.capabilities().features);
         if ((required & ~available) != 0) return error.RequiredFeatureUnsupported;
-        return adapter.vtable.createDeviceFn(adapter.ptr, adapter.allocator, resolved);
+        return adapter.vtable.createDeviceFn(adapter.ptr, adapter.allocator, desc);
     }
 
     /// Releases the logical device. All child objects must already be gone.

@@ -3,6 +3,8 @@ const std = @import("std");
 const candler = @import("candler");
 const win = @import("windowing.zig");
 
+// todo: move this to its own library or open a PR in 7Games/zig-sdl
+
 const log = std.log.scoped(.sdl3_ext);
 
 pub const Sdl3Window = struct {

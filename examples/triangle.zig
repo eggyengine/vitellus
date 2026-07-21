@@ -34,19 +34,23 @@ pub fn main(init: std.process.Init) !void {
 
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
-    const adapter = try vit.Adapter.init(init.gpa, .{
+    const instance = try vit.Instance.init(init.gpa, .{
         .backend = .{ .dx12 = true },
         .validation = .core,
     });
+    defer instance.deinit();
+
+    const adapter = try vit.Adapter.init(instance, .{ .label = "triangle adapter" });
     defer adapter.deinit();
 
-    const device = try vit.Device.init(adapter, .{});
+    const device = try vit.Device.init(adapter, .{ .label = "triangle device" });
     defer device.deinit();
 
-    const queue = try vit.Queue.init(device, .{ .kind = .graphics });
+    const queue = try vit.Queue.init(device, .{ .label = "triangle graphics queue", .kind = .graphics });
     defer queue.deinit();
 
     const swapchain = try vit.Swapchain.init(adapter, .{
+        .label = "triangle swapchain",
         .window = try window_adapter.asWindow(),
         .queue = queue,
         .extent = .{ .width = width, .height = height },
@@ -150,15 +154,16 @@ pub fn main(init: std.process.Init) !void {
     defer pipeline.deinit();
 
     const command_pool = try vit.CommandPool.init(device, .{
+        .label = "triangle command pool",
         .transient = false,
         .reset_individually = true,
     });
     defer command_pool.deinit();
-    const frame_fence = try vit.Fence.init(device, 0);
+    const frame_fence = try vit.Fence.init(device, .{ .label = "triangle frame fence" });
     defer frame_fence.deinit();
     var frame_value: u64 = 0;
 
-    const setup_commands = try vit.CommandBuffer.init(command_pool);
+    const setup_commands = try vit.CommandBuffer.init(command_pool, .{ .label = "triangle setup commands" });
     try setup_commands.barrier(&.{
         .{ .buffer = .{ .buffer = vertex_buffer, .before = .common, .after = .vertex } },
         .{ .buffer = .{ .buffer = index_buffer, .before = .common, .after = .index } },
@@ -178,7 +183,7 @@ pub fn main(init: std.process.Init) !void {
 
         const acquired = try swapchain.acquireNextImage(null);
         const back_buffer = acquired.view;
-        const commands = try vit.CommandBuffer.init(command_pool);
+        const commands = try vit.CommandBuffer.init(command_pool, .{ .label = "triangle frame commands" });
         try commands.barrier(&.{.{ .texture_view = .{ .view = back_buffer, .before = .present, .after = .color_attachment } }});
 
         const color_attachments = [_]vit.hal.command.ColorAttachment{.{

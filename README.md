@@ -34,4 +34,4 @@ const vit = @import("vitellus");
 
 ## documentation
 
-there is a tutorial available in [docs/tutorial](docs/tutorial/README.md) that might be worth checking out
+~~there is a tutorial available in [docs/tutorial](docs/tutorial/README.md) that might be worth checking out~~

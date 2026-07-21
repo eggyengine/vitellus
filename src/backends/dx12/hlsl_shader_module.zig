@@ -4,6 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const shader = @import("../../interface/shader.zig");
 const dxc = @import("dxc.zig");
+const options = @import("shader_options");
 
 const CompiledShader = shader.CompiledShader;
 const ShaderCompileRequest = shader.ShaderCompileRequest;
@@ -65,49 +66,30 @@ pub const HLSLProfile = enum {
     }
 };
 
-/// Built-in HLSL module backed by the DirectX Shader Compiler.
+/// HLSL shader module compilation backed by the [DirectX Shader Compiler](https://github.com/microsoft/directxshadercompiler).
+///
+/// This requires the feature `-Denable_dxc`. If you do not wish to bundle `dxc` libraries,
+/// you might prefer to use `vit.BinaryShaderModule`, which allows for DXIL shaders instead.
+///
+/// It is currently only supported on Windows.
 pub const HLSLShaderModule = struct {
     pub const Descriptor = struct {
         code: []const u8,
         entry_point: []const u8 = "main",
         profile: HLSLProfile,
-    };
-
-    const Context = struct {
-        code: []const u8,
-        entry_point: []const u8,
-        profile: HLSLProfile,
 
         pub fn compile(
-            self: *const Context,
+            self: *const Descriptor,
             allocator: std.mem.Allocator,
             request: ShaderCompileRequest,
         ) anyerror!CompiledShader {
-            return switch (request.backend) {
-                .dx12 => self.compileDxil(allocator, request),
-                .vulkan => self.compileSpirv(allocator, request),
-                .metal => self.compileMetallib(allocator, request),
+            if (comptime !options.enable_dxc) return error.ShaderCompilerUnavailable;
+            const format: shader.ShaderBinaryFormat = switch (request.backend) {
+                .dx12 => .dxil,
+                .vulkan => .spirv,
+                .metal => return error.ShaderCompilerUnavailable,
+                .custom => return error.UnsupportedShaderBackend,
             };
-        }
-
-        fn compileDxil(self: *const Context, allocator: std.mem.Allocator, request: ShaderCompileRequest) !CompiledShader {
-            return self.compileWithDxc(allocator, request, .dxil);
-        }
-
-        fn compileSpirv(self: *const Context, allocator: std.mem.Allocator, request: ShaderCompileRequest) !CompiledShader {
-            return self.compileWithDxc(allocator, request, .spirv);
-        }
-
-        fn compileMetallib(_: *const Context, _: std.mem.Allocator, _: ShaderCompileRequest) !CompiledShader {
-            return error.ShaderCompilerUnavailable;
-        }
-
-        fn compileWithDxc(
-            self: *const Context,
-            allocator: std.mem.Allocator,
-            request: ShaderCompileRequest,
-            format: shader.ShaderBinaryFormat,
-        ) !CompiledShader {
             if (comptime builtin.target.os.tag != .windows) return error.ShaderCompilerUnavailable;
             if (!self.profile.supportsStage(request.stage)) return error.ShaderProfileStageMismatch;
 
@@ -126,22 +108,21 @@ pub const HLSLShaderModule = struct {
             defer allocator.free(profile);
 
             const L = std.unicode.utf8ToUtf16LeStringLiteral;
-            var arguments: [11][*:0]const u16 = undefined;
-            var argument_count: usize = 0;
-            appendArgument(&arguments, &argument_count, L("-E"));
-            appendArgument(&arguments, &argument_count, entry_point.ptr);
-            appendArgument(&arguments, &argument_count, L("-T"));
-            appendArgument(&arguments, &argument_count, profile.ptr);
-            appendArgument(&arguments, &argument_count, L("-HV"));
-            appendArgument(&arguments, &argument_count, L("2021"));
-            appendArgument(&arguments, &argument_count, L("-O3"));
-
+            var arguments = [_][*:0]const u16{
+                L("-E"),   entry_point.ptr,
+                L("-T"),   profile.ptr,
+                L("-HV"),  L("2021"),
+                L("-O3"),  undefined,
+                undefined,
+            };
+            var argument_count: u32 = 7;
             if (format == .spirv) {
-                appendArgument(&arguments, &argument_count, L("-spirv"));
-                appendArgument(&arguments, &argument_count, L("-fspv-target-env=vulkan1.3"));
+                arguments[7] = L("-spirv");
+                arguments[8] = L("-fspv-target-env=vulkan1.3");
+                argument_count = arguments.len;
             }
 
-            const source = dxc.DxcBuffer{
+            const source: dxc.DxcBuffer = .{
                 .Ptr = self.code.ptr,
                 .Size = self.code.len,
                 .Encoding = dxc.DXC_CP_UTF8,
@@ -151,7 +132,7 @@ pub const HLSLShaderModule = struct {
                 compiler,
                 &source,
                 &arguments,
-                @intCast(argument_count),
+                argument_count,
                 null,
                 &dxc.IID_IDxcResult,
                 &raw_result,
@@ -183,18 +164,9 @@ pub const HLSLShaderModule = struct {
     };
 
     pub fn init(desc: Descriptor) ShaderModule {
-        return ShaderModule.init(Context{
-            .code = desc.code,
-            .entry_point = desc.entry_point,
-            .profile = desc.profile,
-        });
+        return ShaderModule.init(desc);
     }
 };
-
-fn appendArgument(arguments: []([*:0]const u16), count: *usize, argument: [*:0]const u16) void {
-    arguments[count.*] = argument;
-    count.* += 1;
-}
 
 fn checkHr(hr: dxc.HRESULT) !void {
     if (hr < 0) return error.ShaderCompilerCallFailed;
@@ -218,7 +190,7 @@ fn logDiagnostics(result: *dxc.IDxcResult, failed: bool) void {
 }
 
 test "HLSL module compiles DXIL as an inline temporary" {
-    if (builtin.target.os.tag != .windows) return error.SkipZigTest;
+    if (!options.enable_dxc or builtin.target.os.tag != .windows) return error.SkipZigTest;
 
     const module = HLSLShaderModule.init(.{
         .code = "float4 main() : SV_Target { return 1; }",
@@ -232,12 +204,12 @@ test "HLSL module compiles DXIL as an inline temporary" {
     });
     defer compiled.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(shader.ShaderBinaryFormat.dxil, compiled.format);
+    try std.testing.expect(compiled.format.eql(.dxil));
     try std.testing.expectEqualStrings("DXBC", compiled.bytes[0..4]);
 }
 
 test "HLSL module compiles SPIR-V" {
-    if (builtin.target.os.tag != .windows) return error.SkipZigTest;
+    if (!options.enable_dxc or builtin.target.os.tag != .windows) return error.SkipZigTest;
 
     const module = HLSLShaderModule.init(.{
         .code = "float4 main() : SV_Target { return 1; }",
@@ -251,6 +223,6 @@ test "HLSL module compiles SPIR-V" {
     });
     defer compiled.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(shader.ShaderBinaryFormat.spirv, compiled.format);
+    try std.testing.expect(compiled.format.eql(.spirv));
     try std.testing.expectEqualSlices(u8, &.{ 0x03, 0x02, 0x23, 0x07 }, compiled.bytes[0..4]);
 }
