@@ -59,6 +59,7 @@ const group_vtable: binding.BindGroup.VTable = .{ .deinitFn = destroyGroup };
 
 pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) anyerror!binding.BindGroupLayout {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
+    if (desc.shader != null) return error.ShaderReflectionUnavailable;
     const self = try device.allocator.create(Dx12BindGroupLayout);
     errdefer device.allocator.destroy(self);
     const entries = try device.allocator.dupe(binding.BindGroupLayoutEntry, desc.entries);
@@ -72,7 +73,14 @@ pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) an
         if (!entry.visibility.vertex and !entry.visibility.fragment and !entry.visibility.compute) return error.EmptyShaderVisibility;
         for (entries[0..i]) |previous| if (previous.binding == entry.binding) return error.DuplicateBinding;
         if (entry.count == 0) return error.EmptyBindingArray;
-        if (entry.kind == .sampler) sampler_count += entry.count else resource_count += entry.count;
+        switch (entry.kind) {
+            .sampler => sampler_count += entry.count,
+            .combined_texture_sampler => {
+                resource_count += entry.count;
+                sampler_count += entry.count;
+            },
+            else => resource_count += entry.count,
+        }
     }
     self.* = .{
         .allocator = device.allocator,
@@ -131,7 +139,9 @@ pub fn destroySampler(value: resource_interface.Sampler) void {
 pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!binding.BindGroup {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const layout = try Dx12BindGroupLayout.fromHandle(desc.layout);
-    if (desc.entries.len != layout.resource_count + layout.sampler_count) return error.BindingCountMismatch;
+    var entry_count: usize = 0;
+    for (layout.entries) |entry| entry_count += entry.count;
+    if (desc.entries.len != entry_count) return error.BindingCountMismatch;
 
     const self = try device.allocator.create(Dx12BindGroup);
     const label = if (desc.label) |value| try device.allocator.dupe(u8, value) else null;
@@ -204,9 +214,10 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                     if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.resource_heap.unwrap(), resource_allocation.?.index + resource_index, buffer.label);
                     resource_index += 1;
                 },
-                .sampled_texture => {
+                .sampled_texture, .combined_texture_sampler => {
                     const value = switch (entry.resource) {
                         .texture_view => |view| view,
+                        .combined_texture_sampler => |combined| combined.view,
                         else => return error.BindingTypeMismatch,
                     };
                     const view = try resource.Dx12TextureView.fromHandle(value);
@@ -247,6 +258,16 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                     raw_device.lpVtbl.*.CreateShaderResourceView.?(raw_device, view.resource, &srv, cpu);
                     if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.resource_heap.unwrap(), resource_allocation.?.index + resource_index, view.label);
                     resource_index += 1;
+                    if (layout_entry.kind == .combined_texture_sampler) {
+                        const sampler_value = switch (entry.resource) {
+                            .combined_texture_sampler => |combined| combined.sampler,
+                            else => return error.BindingTypeMismatch,
+                        };
+                        const combined_sampler = try Dx12Sampler.fromHandle(sampler_value);
+                        raw_device.lpVtbl.*.CreateSampler.?(raw_device, &combined_sampler.desc, offsetCpu(sampler_allocation.?.cpu, sampler_index, sampler_stride));
+                        if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.sampler_heap.unwrap(), sampler_allocation.?.index + sampler_index, combined_sampler.label);
+                        sampler_index += 1;
+                    }
                 },
                 .storage_texture => {
                     const value = switch (entry.resource) {
@@ -357,7 +378,7 @@ pub fn dynamicResources(device: *Dx12Device, group: *Dx12BindGroup, offsets: []c
                     descriptor_index += 1;
                 }
             },
-            .sampled_texture, .storage_texture => descriptor_index += layout_entry.count,
+            .sampled_texture, .combined_texture_sampler, .storage_texture => descriptor_index += layout_entry.count,
             .sampler => {},
         }
     }

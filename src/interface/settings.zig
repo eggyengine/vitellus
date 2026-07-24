@@ -17,6 +17,10 @@ pub const VitellusConfig = struct {
     /// - Android: Vulkan
     /// - Linux: Vulkan
     ///
+    /// When set to `vulkan`, `dx12`, or `metal`, the `VITELLUS_BACKEND`
+    /// environment variable promotes that backend to the front of the
+    /// fallback chain when it is included in this set.
+    ///
     /// Pass an empty set (`.{}`) together with `custom_backends` to disable
     /// every built-in backend.
     backend: ?BackendType,
@@ -133,6 +137,30 @@ pub const BackendType = packed struct(u32) {
     }
 };
 
+/// Parses a built-in backend name, returning null for unknown names.
+pub fn parseBackendName(name: []const u8) ?Backend {
+    if (std.mem.eql(u8, name, "vulkan")) return .vulkan;
+    if (std.mem.eql(u8, name, "dx12")) return .dx12;
+    if (std.mem.eql(u8, name, "metal")) return .metal;
+    return null;
+}
+
+/// Returns the backend requested through `VITELLUS_BACKEND`, if any.
+pub fn environmentBackend(allocator: std.mem.Allocator) !?Backend {
+    const environ = std.process.Environ{ .block = .global };
+    const value = environ.getAlloc(allocator, "VITELLUS_BACKEND") catch |err| switch (err) {
+        error.EnvironmentVariableMissing => return null,
+        else => return err,
+    };
+    defer allocator.free(value);
+
+    const backend = parseBackendName(value) orelse {
+        std.log.warn("ignoring unknown VITELLUS_BACKEND value '{s}'", .{value});
+        return null;
+    };
+    return backend;
+}
+
 /// Fixed-capacity backend preference list.
 pub const BackendFallbackOrder = struct {
     items: [3]Backend = undefined,
@@ -174,12 +202,31 @@ pub fn platformBackendOrder() []const Backend {
 /// caller's requested backend set. If `requested` is null, the platform default
 /// fallback set is used.
 pub fn backendFallbackOrder(requested: ?BackendType) BackendFallbackOrder {
+    return backendFallbackOrderWithPreference(requested, null);
+}
+
+/// Returns the ordered backends to try, promoting `preferred` when it is in
+/// the requested set. The remaining backends retain platform preference order.
+pub fn backendFallbackOrderWithPreference(
+    requested: ?BackendType,
+    preferred: ?Backend,
+) BackendFallbackOrder {
     const allowed = requested orelse platformDefaultBackends();
     var order = BackendFallbackOrder{};
 
     if (allowed.isEmpty()) return order;
 
+    if (preferred) |backend| {
+        if (allowed.contains(backend)) {
+            order.items[order.len] = backend;
+            order.len += 1;
+        }
+    }
+
     for (platformBackendOrder()) |backend| {
+        if (preferred) |preferred_backend| {
+            if (backend.eql(preferred_backend)) continue;
+        }
         if (allowed.contains(backend)) {
             order.items[order.len] = backend;
             order.len += 1;
@@ -187,6 +234,19 @@ pub fn backendFallbackOrder(requested: ?BackendType) BackendFallbackOrder {
     }
 
     return order;
+}
+
+test "built-in backend names can be parsed" {
+    try std.testing.expect(parseBackendName("vulkan").?.eql(.vulkan));
+    try std.testing.expect(parseBackendName("dx12").?.eql(.dx12));
+    try std.testing.expect(parseBackendName("metal").?.eql(.metal));
+    try std.testing.expectEqual(@as(?Backend, null), parseBackendName("unknown"));
+}
+
+test "preferred backend is first in fallback order" {
+    const order = backendFallbackOrderWithPreference(BackendType.all(), .metal);
+    try std.testing.expect(order.len > 0);
+    try std.testing.expect(order.slice()[0].eql(.metal));
 }
 
 /// Amount of backend and API validation requested by the application.

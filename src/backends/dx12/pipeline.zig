@@ -153,6 +153,9 @@ fn makeRootSignature(device: *Dx12Device, layouts: []const ?*binding.Dx12BindGro
         if (layout.resource_count > 0) parameter_count += 1;
         if (layout.sampler_count > 0) parameter_count += 1;
         range_count += layout.entries.len;
+        for (layout.entries) |entry| if (entry.kind == .combined_texture_sampler) {
+            range_count += 1;
+        };
     };
     const parameters = try device.allocator.alloc(dx.D3D12_ROOT_PARAMETER, parameter_count);
     defer device.allocator.free(parameters);
@@ -173,8 +176,8 @@ fn makeRootSignature(device: *Dx12Device, layouts: []const ?*binding.Dx12BindGro
             parameter_index += 1;
         }
         const sampler_start = range_index;
-        for (layout.entries) |entry| if (entry.kind == .sampler) {
-            ranges[range_index] = descriptorRange(entry.kind, entry.binding, @intCast(group_index), entry.count);
+        for (layout.entries) |entry| if (entry.kind == .sampler or entry.kind == .combined_texture_sampler) {
+            ranges[range_index] = descriptorRange(.{ .sampler = .filtering }, entry.binding, @intCast(group_index), entry.count);
             range_index += 1;
         };
         if (layout.sampler_count > 0) {
@@ -205,6 +208,7 @@ fn descriptorRange(kind: @import("../../interface/binding.zig").BindingType, bin
                 .storage_read_write => dx.D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
             },
             .sampled_texture => dx.D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            .combined_texture_sampler => dx.D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
             .storage_texture => dx.D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
             .sampler => dx.D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
         },

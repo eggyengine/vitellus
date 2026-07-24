@@ -104,10 +104,10 @@ pub fn query(
         mode_index += 1;
     };
 
-    const alpha_count: usize = @intFromBool(native_caps.supported_composite_alpha.opaque_bit_khr) +
-        @intFromBool(native_caps.supported_composite_alpha.pre_multiplied_bit_khr) +
-        @intFromBool(native_caps.supported_composite_alpha.post_multiplied_bit_khr) +
-        @intFromBool(native_caps.supported_composite_alpha.inherit_bit_khr);
+    const alpha_count: usize = @as(usize, @intFromBool(native_caps.supported_composite_alpha.opaque_bit_khr)) +
+        @as(usize, @intFromBool(native_caps.supported_composite_alpha.pre_multiplied_bit_khr)) +
+        @as(usize, @intFromBool(native_caps.supported_composite_alpha.post_multiplied_bit_khr)) +
+        @as(usize, @intFromBool(native_caps.supported_composite_alpha.inherit_bit_khr));
     const alpha = try allocator.alloc(swapchain.CompositeAlpha, alpha_count);
     errdefer allocator.free(alpha);
     var alpha_index: usize = 0;

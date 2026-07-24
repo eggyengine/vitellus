@@ -1,4 +1,8 @@
 //! Immutable graphics-pipeline and vertex-input descriptions.
+//!
+//! Coordinates follow D3D/Metal on every backend: clip-space X/Y span
+//! `[-w, w]`, clip-space Z spans `[0, w]`, framebuffer origin is top-left,
+//! and normalized texture coordinates use `(0, 0)` for the top-left texel.
 
 const shader = @import("shader.zig");
 const resource = @import("resource.zig");

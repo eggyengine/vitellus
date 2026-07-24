@@ -116,7 +116,8 @@ pub const Adapter = struct {
     /// The caller owns the returned slice and every adapter in it. Call
     /// `deinit` on each adapter, then free the slice with `allocator`.
     pub fn enumerate(allocator: std.mem.Allocator, backend: BackendType) ![]Adapter {
-        const order = settings_mod.backendFallbackOrder(backend);
+        const preferred_backend = try settings_mod.environmentBackend(allocator);
+        const order = settings_mod.backendFallbackOrderWithPreference(backend, preferred_backend);
         var last_error: ?anyerror = null;
 
         for (order.slice()) |candidate| {

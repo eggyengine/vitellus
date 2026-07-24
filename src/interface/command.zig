@@ -55,7 +55,8 @@ pub const CommandPool = struct {
 };
 /// Integer width used by an index buffer.
 pub const IndexFormat = enum { uint16, uint32 };
-/// Floating-point viewport used by rasterisation.
+/// Floating-point viewport in the D3D/Metal convention: top-left origin,
+/// positive width/height, and depth values in `[0, 1]`.
 pub const Viewport = struct {
     x: f32 = 0,
     y: f32 = 0,

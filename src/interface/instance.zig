@@ -31,7 +31,8 @@ pub const Instance = struct {
             return instance;
         }
 
-        const order = settings.backendFallbackOrder(config.backend);
+        const preferred_backend = try settings.environmentBackend(allocator);
+        const order = settings.backendFallbackOrderWithPreference(config.backend, preferred_backend);
         for (order.slice()) |candidate| {
             var instance = switch (candidate) {
                 .dx12 => @import("../backends/dx12/instance.zig").Dx12Instance.init(allocator, config),

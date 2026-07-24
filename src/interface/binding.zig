@@ -1,6 +1,7 @@
 //! Shader-visible resources grouped by explicit binding layouts.
 
 const resource = @import("resource.zig");
+const shader = @import("shader.zig");
 
 /// Pipeline stages that may access a binding.
 pub const ShaderVisibility = packed struct(u32) {
@@ -14,12 +15,14 @@ pub const BufferBindingType = enum { uniform, storage_read, storage_read_write }
 pub const TextureSampleType = enum { float_filterable, float_unfilterable, sint, uint, depth };
 pub const StorageTextureAccess = enum { read, write, read_write };
 pub const SamplerBindingType = enum { filtering, non_filtering, comparison };
+pub const SampledTextureBindingLayout = struct { sample_type: TextureSampleType = .float_filterable, dimension: resource.TextureViewDimension = .d2, multisampled: bool = false };
 
 /// Resource represented by a bind-group entry, including the validation data
 /// needed by Vulkan, Metal, and DirectX 12.
 pub const BindingType = union(enum) {
     buffer: struct { kind: BufferBindingType = .uniform, dynamic_offset: bool = false, min_size: u64 = 0 },
-    sampled_texture: struct { sample_type: TextureSampleType = .float_filterable, dimension: resource.TextureViewDimension = .d2, multisampled: bool = false },
+    sampled_texture: SampledTextureBindingLayout,
+    combined_texture_sampler: SampledTextureBindingLayout,
     storage_texture: struct { access: StorageTextureAccess = .write, format: resource.Format, dimension: resource.TextureViewDimension = .d2 },
     sampler: SamplerBindingType,
 };
@@ -35,7 +38,9 @@ pub const BindGroupLayoutEntry = struct {
 /// Ordered set of bindings accepted by one bind-group slot.
 pub const BindGroupLayoutDescriptor = struct {
     label: ?[]const u8 = null,
-    entries: []const BindGroupLayoutEntry,
+    entries: []const BindGroupLayoutEntry = &.{},
+    shader: ?shader.Shader = null,
+    set: u32 = 0,
 };
 
 /// Opaque backend bind-group-layout handle.
@@ -64,6 +69,7 @@ pub const BindingResource = union(enum) {
     buffer: BufferBinding,
     texture_view: resource.TextureView,
     sampler: resource.Sampler,
+    combined_texture_sampler: struct { view: resource.TextureView, sampler: resource.Sampler },
 };
 
 /// Resource assigned to a numbered layout binding.

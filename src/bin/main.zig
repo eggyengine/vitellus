@@ -1,20 +1,21 @@
 const std = @import("std");
 const sdl3 = @import("sdl3");
 const vit = @import("vitellus");
+const zigimg = @import("zigimg");
 
 const width = 1280;
 const height = 720;
 
 const Vertex = extern struct {
     position: [2]f32,
-    color: [3]f32,
+    uv: [2]f32,
 };
 
 const vertices = [_]Vertex{
-    .{ .position = .{ -0.6, 0.6 }, .color = .{ 1.0, 0.1, 0.1 } },
-    .{ .position = .{ 0.6, 0.6 }, .color = .{ 0.1, 1.0, 0.1 } },
-    .{ .position = .{ 0.6, -0.6 }, .color = .{ 0.1, 0.3, 1.0 } },
-    .{ .position = .{ -0.6, -0.6 }, .color = .{ 1.0, 0.8, 0.1 } },
+    .{ .position = .{ -0.6, 0.6 }, .uv = .{ 0, 0 } },
+    .{ .position = .{ 0.6, 0.6 }, .uv = .{ 1, 0 } },
+    .{ .position = .{ 0.6, -0.6 }, .uv = .{ 1, 1 } },
+    .{ .position = .{ -0.6, -0.6 }, .uv = .{ 0, 1 } },
 };
 
 const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
@@ -35,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
 
     const instance = try vit.Instance.init(init.gpa, .{
         .backend = .all(),
-        // .backend = .{ .dx12 = true },
+        // .backend = .{ .vulkan = true },
         .validation = .core,
     });
     defer instance.deinit();
@@ -68,42 +69,32 @@ pub fn main(init: std.process.Init) !void {
     const vertex_shader = try vit.Shader.init(device, .{
         .label = "triangle vertex shader",
         .stage = .vertex,
-        // .source = vit.HLSLShaderModule.init(.{
-        //     .code = @embedFile("compiled/triangle.vsMain.hlsl"),
-        //     .entry_point = "vsMain",
-        //     .profile = .vs_6_7,
-        // }),
-        // .source = vit.SPIRVShaderModule.init(.{
-        //     .code = @embedFile("compiled/triangle.vsMain.spv"),
-        //     .entry_point = "vsMain",
-        // }),
-        .source = vit.BinaryShaderModule.init(.{
-            .format = .dxil,
-            .backend = .dx12,
-            .bytes = @embedFile("compiled/triangle.vsMain.dxil"),
+        .source = vit.SPIRVShaderModule.init(.{
+            .code = @embedFile("compiled/triangle.vsMain.spv"),
             .entry_point = "vsMain",
         }),
+        // .source = vit.BinaryShaderModule.init(.{
+        //     .format = .dxil,
+        //     .backend = .dx12,
+        //     .bytes = @embedFile("compiled/triangle.vsMain.dxil"),
+        //     .entry_point = "vsMain",
+        // }),
     });
     defer vertex_shader.deinit();
 
     const fragment_shader = try vit.Shader.init(device, .{
         .label = "triangle fragment shader",
         .stage = .fragment,
-        // .source = vit.HLSLShaderModule.init(.{
-        //     .code = @embedFile("compiled/triangle.psMain.hlsl"),
-        //     .entry_point = "psMain",
-        //     .profile = .ps_6_7,
-        // }),
-        // .source = vit.SPIRVShaderModule.init(.{
-        //     .code = @embedFile("compiled/triangle.psMain.spv"),
-        //     .entry_point = "psMain",
-        // }),
-        .source = vit.BinaryShaderModule.init(.{
-            .format = .dxil,
-            .backend = .dx12,
-            .bytes = @embedFile("compiled/triangle.psMain.dxil"),
+        .source = vit.SPIRVShaderModule.init(.{
+            .code = @embedFile("compiled/triangle.psMain.spv"),
             .entry_point = "psMain",
         }),
+        // .source = vit.BinaryShaderModule.init(.{
+        //     .format = .dxil,
+        //     .backend = .dx12,
+        //     .bytes = @embedFile("compiled/triangle.psMain.dxil"),
+        //     .entry_point = "psMain",
+        // }),
     });
 
     defer fragment_shader.deinit();
@@ -124,39 +115,41 @@ pub fn main(init: std.process.Init) !void {
     });
     defer index_buffer.deinit();
 
-    const tint = [4]f32{ 0.45, 0.85, 1.0, 1.0 };
-    const uniform_buffer = try vit.Buffer.init(device, .{
-        .label = "scene uniform",
-        .size = 256,
-        .usage = .{ .uniform = true },
-        .memory = .upload,
-        .initial_data = std.mem.asBytes(&tint),
-    });
-    defer uniform_buffer.deinit();
+    // texture
+    const image_data = @embedFile("sample.jpg")[0..];
+    var image = try zigimg.Image.fromMemory(init.gpa, image_data);
+    defer image.deinit(init.gpa);
+    try image.convert(init.gpa, .rgba32);
 
-    const scene_layout = try vit.BindGroupLayout.init(device, .{
-        .label = "scene layout",
-        .entries = &.{.{
-            .binding = 0,
-            .kind = .{ .buffer = .{ .kind = .uniform, .min_size = @sizeOf(@TypeOf(tint)) } },
-            .visibility = .{ .fragment = true },
-        }},
+    const pixels = std.mem.sliceAsBytes(image.pixels.rgba32);
+    const texture = try vit.Texture.init(device, .{
+        .width = @intCast(image.width),
+        .height = @intCast(image.height),
+        .format = .rgba8_unorm,
+        .usage = .{ .sampled = true },
+        .initial_data = pixels,
     });
-    defer scene_layout.deinit();
+    defer texture.deinit();
 
-    const scene_group = try vit.BindGroup.init(device, .{
-        .label = "scene resources",
-        .layout = scene_layout,
-        .entries = &.{.{
-            .binding = 0,
-            .resource = .{ .buffer = .{ .buffer = uniform_buffer, .size = 256 } },
-        }},
+    const view = try vit.TextureView.init(device, .{
+        .texture = texture,
     });
-    defer scene_group.deinit();
+    defer view.deinit();
+    const sampler = try vit.Sampler.init(device, .{});
+    defer sampler.deinit();
+
+    const layout = try vit.BindGroupLayout.init(device, .{ .shader = fragment_shader });
+    defer layout.deinit();
+
+    const group = try vit.BindGroup.init(device, .{
+        .layout = layout,
+        .entries = &.{.{ .binding = 0, .resource = .{ .combined_texture_sampler = .{ .view = view, .sampler = sampler } } }},
+    });
+    defer group.deinit();
 
     const vertex_attributes = [_]vit.hal.pipeline.VertexAttribute{
         .{ .location = 0, .format = .float32x2, .offset = @offsetOf(Vertex, "position") },
-        .{ .location = 1, .format = .float32x3, .offset = @offsetOf(Vertex, "color") },
+        .{ .location = 1, .format = .float32x2, .offset = @offsetOf(Vertex, "uv") },
     };
     const vertex_layouts = [_]vit.hal.pipeline.VertexBufferLayout{.{
         .stride = @sizeOf(Vertex),
@@ -165,7 +158,7 @@ pub fn main(init: std.process.Init) !void {
     const color_targets = [_]vit.hal.pipeline.ColorTargetState{
         .{ .format = .bgra8_unorm },
     };
-    const pipeline_layout = try vit.PipelineLayout.init(device, .{ .bind_group_layouts = &.{scene_layout} });
+    const pipeline_layout = try vit.PipelineLayout.init(device, .{ .bind_group_layouts = &.{layout} });
     defer pipeline_layout.deinit();
     const pipeline = try vit.GraphicsPipeline.init(device, .{
         .label = "indexed quad pipeline",
@@ -193,6 +186,7 @@ pub fn main(init: std.process.Init) !void {
     try setup_commands.barrier(&.{
         .{ .buffer = .{ .buffer = vertex_buffer, .before = .common, .after = .vertex } },
         .{ .buffer = .{ .buffer = index_buffer, .before = .common, .after = .index } },
+        .{ .texture = .{ .texture = texture, .before = .common, .after = .sampled } },
     });
     try setup_commands.finish();
     try queue.submit(.{ .command_buffers = &.{setup_commands} });
@@ -226,7 +220,7 @@ pub fn main(init: std.process.Init) !void {
         commands.setGraphicsPipeline(pipeline);
         commands.setVertexBuffer(0, vertex_buffer, 0);
         commands.setIndexBuffer(index_buffer, .uint16, 0);
-        commands.setBindGroup(0, scene_group, &.{});
+        commands.setBindGroup(0, group, &.{});
         commands.drawIndexed(@intCast(indices.len), 1, 0, 0, 0);
         commands.endRenderPass();
         try commands.barrier(&.{.{ .texture_view = .{ .view = back_buffer, .before = .color_attachment, .after = .present } }});

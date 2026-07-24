@@ -104,6 +104,15 @@ pub fn build(b: *std.Build) void {
         .imports = &.{ .{ .name = "vitellus", .module = mod }, .{ .name = "sdl3", .module = sdl.module("sdl3") } },
     });
 
+    {
+        const zigimg_dependency = b.lazyDependency("zigimg", .{
+            .target = target,
+            .optimize = optimize,
+        });
+
+        if (zigimg_dependency) |dep| exe_mod.addImport("zigimg", dep.module("zigimg"));
+    }
+
     // run step
     {
         const exe = b.addExecutable(.{

@@ -3,6 +3,7 @@ const vk = @import("vulkan");
 const binding = @import("../../interface/binding.zig");
 const vkDevice = @import("device.zig").vkDevice;
 const resource_impl = @import("resource.zig");
+const shader_impl = @import("shader.zig");
 
 pub const vkBindGroupLayout = struct {
     allocator: std.mem.Allocator,
@@ -33,9 +34,27 @@ const group_vtable: binding.BindGroup.VTable = .{ .deinitFn = destroyGroup };
 
 pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) !binding.BindGroupLayout {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
-    const native = try device.allocator.alloc(vk.DescriptorSetLayoutBinding, desc.entries.len);
+    if (desc.shader != null and desc.entries.len != 0) return error.AmbiguousBindGroupLayout;
+    var reflected: ?[]binding.BindGroupLayoutEntry = null;
+    defer if (reflected) |value| device.allocator.free(value);
+    const layout_entries = if (desc.shader) |value| blk: {
+        const source = try shader_impl.vkShader.fromHandle(value);
+        var count: usize = 0;
+        for (source.bindings) |item| {
+            if (item.set == desc.set) count += 1;
+        }
+        const result = try device.allocator.alloc(binding.BindGroupLayoutEntry, count);
+        reflected = result;
+        var index: usize = 0;
+        for (source.bindings) |item| if (item.set == desc.set) {
+            result[index] = item.entry;
+            index += 1;
+        };
+        break :blk result;
+    } else desc.entries;
+    const native = try device.allocator.alloc(vk.DescriptorSetLayoutBinding, layout_entries.len);
     defer device.allocator.free(native);
-    for (desc.entries, native) |entry, *result| {
+    for (layout_entries, native) |entry, *result| {
         if (entry.count == 0) return error.InvalidDescriptorCount;
         result.* = .{
             .binding = entry.binding,
@@ -49,7 +68,7 @@ pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) !b
         .p_bindings = if (native.len == 0) null else native.ptr,
     }, null);
     errdefer device.proxy.destroyDescriptorSetLayout(handle, null);
-    const entries = try device.allocator.dupe(binding.BindGroupLayoutEntry, desc.entries);
+    const entries = try device.allocator.dupe(binding.BindGroupLayoutEntry, layout_entries);
     errdefer device.allocator.free(entries);
     const self = try device.allocator.create(vkBindGroupLayout);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = handle, .entries = entries };
@@ -93,7 +112,9 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) !binding.
             .dst_array_element = entry.array_element,
             .descriptor_count = 1,
             .descriptor_type = descriptorType(layout_entry.kind),
-            .p_image_info = undefined, .p_buffer_info = undefined, .p_texel_buffer_view = undefined,
+            .p_image_info = undefined,
+            .p_buffer_info = undefined,
+            .p_texel_buffer_view = undefined,
         };
         switch (entry.resource) {
             .buffer => |value| {
@@ -105,11 +126,23 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) !binding.
             },
             .texture_view => |value| {
                 const view = try resource_impl.vkTextureView.fromHandle(value);
-                image_infos[index] = .{ .sampler = .null_handle, .image_view = view.view, .image_layout = switch (layout_entry.kind) { .storage_texture => .general, else => .shader_read_only_optimal } };
+                image_infos[index] = .{ .sampler = .null_handle, .image_view = view.view, .image_layout = switch (layout_entry.kind) {
+                    .storage_texture => .general,
+                    else => .shader_read_only_optimal,
+                } };
                 writes[index].p_image_info = @ptrCast(&image_infos[index]);
             },
             .sampler => |value| {
                 image_infos[index] = .{ .sampler = (try resource_impl.vkSampler.fromHandle(value)).handle, .image_view = .null_handle, .image_layout = .undefined };
+                writes[index].p_image_info = @ptrCast(&image_infos[index]);
+            },
+            .combined_texture_sampler => |value| {
+                const view = try resource_impl.vkTextureView.fromHandle(value.view);
+                image_infos[index] = .{
+                    .sampler = (try resource_impl.vkSampler.fromHandle(value.sampler)).handle,
+                    .image_view = view.view,
+                    .image_layout = .shader_read_only_optimal,
+                };
                 writes[index].p_image_info = @ptrCast(&image_infos[index]);
             },
         }
@@ -148,6 +181,7 @@ fn descriptorType(kind: binding.BindingType) vk.DescriptorType {
             .storage_read, .storage_read_write => if (value.dynamic_offset) .storage_buffer_dynamic else .storage_buffer,
         },
         .sampled_texture => .sampled_image,
+        .combined_texture_sampler => .combined_image_sampler,
         .storage_texture => .storage_image,
         .sampler => .sampler,
     };
