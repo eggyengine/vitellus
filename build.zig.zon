@@ -39,6 +39,11 @@
             .hash = "zigimg-0.1.0-8_eo2mHBFwDLhWjXriR17_b7VF6qML1f98Xokp7ZZbop",
             .lazy = true,
         },
+        .eggenvector = .{
+            .url = "git+https://github.com/eggyengine/eggenvector#49046e371a8791ed3483e80326d779eedd0c181e",
+            .hash = "eggenvector-0.0.0-UyZb9C7sAQBBRR526yoYPHubwq9etR7eLFT5chA31KkX",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

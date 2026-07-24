@@ -2,6 +2,7 @@ const std = @import("std");
 const sdl3 = @import("sdl3");
 const vit = @import("vitellus");
 const zigimg = @import("zigimg");
+const camera = @import("camera.zig");
 
 const width = 1280;
 const height = 720;
@@ -35,8 +36,8 @@ pub fn main(init: std.process.Init) !void {
     const window_adapter = vit.windowing.sdl3.Sdl3Window.init(window);
 
     const instance = try vit.Instance.init(init.gpa, .{
-        .backend = .all(),
-        // .backend = .{ .vulkan = true },
+        // .backend = .all(),
+        .backend = .{ .vulkan = true },
         .validation = .core,
     });
     defer instance.deinit();
@@ -193,12 +194,22 @@ pub fn main(init: std.process.Init) !void {
     try queue.waitIdle();
     setup_commands.deinit();
 
+    var cam = camera.Camera.init(.{ .x = 0, .y = 0, .z = 3 });
+    try sdl3.mouse.setWindowRelativeMode(window, true);
+
+    var last_time_ns = sdl3.timer.getNanosecondsSinceInit();
     var quit = false;
     while (!quit) {
+        const now_ns = sdl3.timer.getNanosecondsSinceInit();
+        const dt: f32 = @as(f32, @floatFromInt(now_ns -% last_time_ns)) / 1_000_000_000.0;
+        last_time_ns = now_ns;
+
         while (sdl3.events.poll()) |event| switch (event) {
             .quit, .terminating => quit = true,
+            .mouse_wheel => |wheel| cam.processMouseScroll(wheel.scroll_y),
             else => {},
         };
+        if (processInput(&cam, dt)) quit = true;
         if (quit) break;
 
         const acquired = try swapchain.acquireNextImage(null);
@@ -235,6 +246,27 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try queue.waitIdle();
+}
+
+fn processInput(cam: *camera.Camera, delta_time: f32) bool {
+    const keys = sdl3.keyboard.getState();
+    if (keys[@intFromEnum(sdl3.Scancode.escape)]) return true;
+
+    if (keys[@intFromEnum(sdl3.Scancode.w)]) cam.processKeyboard(.forward, delta_time);
+    if (keys[@intFromEnum(sdl3.Scancode.s)]) cam.processKeyboard(.backward, delta_time);
+    if (keys[@intFromEnum(sdl3.Scancode.a)]) cam.processKeyboard(.left, delta_time);
+    if (keys[@intFromEnum(sdl3.Scancode.d)]) cam.processKeyboard(.right, delta_time);
+    if (keys[@intFromEnum(sdl3.Scancode.space)]) cam.processKeyboard(.up, delta_time);
+    if (keys[@intFromEnum(sdl3.Scancode.left_ctrl)]) cam.processKeyboard(.down, delta_time);
+
+    const mouse_state = sdl3.mouse.getRelativeState();
+    const x_rel = mouse_state[1];
+    const y_rel = mouse_state[2];
+    if (x_rel != 0 or y_rel != 0) {
+        cam.processMouseMovement(x_rel, -y_rel, true);
+    }
+
+    return false;
 }
 
 fn printStartupInfo(info: vit.AdapterInfo, backend: vit.Backend, caps: vit.hal.adapter.SurfaceCapabilities) void {

@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
     const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
     const enable_dxc = b.option(bool, "enable_dxc", "Enable runtime HLSL compilation with DXC") orelse false;
-    const enable_spirv_cross = b.option(bool, "enable_spirv-cross", "Enable SPIRV-Cross C API shader translation") orelse true;
+    const enable_spirv_cross = b.option(bool, "enable_spirv-cross", "Enable SPIRV-Cross C API shader translation") orelse false;
     var dxc_bin_dir: ?std.Build.LazyPath = null;
 
     const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse true;
@@ -124,6 +124,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{ .{ .name = "vitellus", .module = mod }, .{ .name = "sdl3", .module = sdl.module("sdl3") } },
     });
 
+    // zigimg
     {
         const zigimg_dependency = b.lazyDependency("zigimg", .{
             .target = target,
@@ -131,6 +132,17 @@ pub fn build(b: *std.Build) void {
         });
 
         if (zigimg_dependency) |dep| exe_mod.addImport("zigimg", dep.module("zigimg"));
+    }
+
+    // eggenvector
+    {
+        const emath = b.lazyDependency("eggenvector", .{
+            .target = target,
+            .optimize = optimize,
+        });
+
+        if (emath) |dep|
+            exe_mod.addImport("eggenvector", dep.module("eggenvector"));
     }
 
     // run step
