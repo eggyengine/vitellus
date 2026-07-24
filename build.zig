@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
     const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
     const enable_dxc = b.option(bool, "enable_dxc", "Enable runtime HLSL compilation with DXC") orelse false;
-    const enable_spirv_cross = b.option(bool, "enable_spirv-cross", "Enable SPIRV-Cross shader translation") orelse false;
+    const enable_spirv_cross = b.option(bool, "enable_spirv-cross", "Enable SPIRV-Cross C API shader translation") orelse true;
     var dxc_bin_dir: ?std.Build.LazyPath = null;
 
     const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse true;
@@ -62,28 +62,48 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    // spirv-cross compilation
+    // SPIRV-Cross C API (https://github.com/KhronosGroup/SPIRV-Cross)
+    // Mirrors CMake SPIRV_CROSS_SHARED with GLSL + HLSL + MSL backends enabled.
+    // GLSL is required as the base for HLSL/MSL. Exposes spirv_cross_c.h.
     if (enable_spirv_cross) {
         if (b.lazyDependency("spirv-cross", .{})) |dep| {
-            const spirv_cross = b.addLibrary(.{
-                .name = "spirv-cross",
-                .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libcpp = true }),
+            const spirv_cross_mod = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .link_libcpp = true,
             });
-            spirv_cross.root_module.addCSourceFiles(.{
+            spirv_cross_mod.addIncludePath(dep.path(""));
+            // Core + GLSL + HLSL + MSL + C wrapper (see CMakeLists.txt spirv-cross-*-sources).
+            spirv_cross_mod.addCSourceFiles(.{
                 .root = dep.path(""),
                 .files = &.{
+                    // spirv-cross-core
                     "spirv_cross.cpp",
                     "spirv_parser.cpp",
                     "spirv_cross_parsed_ir.cpp",
                     "spirv_cfg.cpp",
+                    // spirv-cross-glsl (required by HLSL/MSL)
                     "spirv_glsl.cpp",
+                    // spirv-cross-hlsl / spirv-cross-msl
                     "spirv_hlsl.cpp",
                     "spirv_msl.cpp",
+                    // spirv-cross-c
                     "spirv_cross_c.cpp",
                 },
-                .flags = &.{ "-std=c++11", "-DSPIRV_CROSS_C_API_GLSL=1", "-DSPIRV_CROSS_C_API_HLSL=1", "-DSPIRV_CROSS_C_API_MSL=1" },
+                .flags = &.{
+                    "-std=c++11",
+                    "-DSPIRV_CROSS_C_API_GLSL=1",
+                    "-DSPIRV_CROSS_C_API_HLSL=1",
+                    "-DSPIRV_CROSS_C_API_MSL=1",
+                },
             });
-            spirv_cross.root_module.addIncludePath(dep.path(""));
+
+            const spirv_cross = b.addLibrary(.{
+                .name = "spirv-cross-c",
+                .linkage = .static,
+                .root_module = spirv_cross_mod,
+            });
+            // For @cImport("spirv_cross_c.h") from vitellus sources.
             mod.addIncludePath(dep.path(""));
             mod.linkLibrary(spirv_cross);
         }

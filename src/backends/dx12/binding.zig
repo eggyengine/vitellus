@@ -59,10 +59,32 @@ const group_vtable: binding.BindGroup.VTable = .{ .deinitFn = destroyGroup };
 
 pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) anyerror!binding.BindGroupLayout {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
-    if (desc.shader != null) return error.ShaderReflectionUnavailable;
+    if (desc.shader != null and desc.entries.len != 0) return error.AmbiguousBindGroupLayout;
+
+    var reflected: ?[]binding.BindGroupLayoutEntry = null;
+    defer if (reflected) |value| device.allocator.free(value);
+
+    const layout_entries = if (desc.shader) |value| blk: {
+        const source = try @import("shader.zig").Dx12Shader.fromHandle(value);
+        if (source.bindings.len == 0) return error.ShaderReflectionUnavailable;
+        var count: usize = 0;
+        for (source.bindings) |item| {
+            if (item.set == desc.set) count += 1;
+        }
+        if (count == 0) return error.ShaderReflectionUnavailable;
+        const result = try device.allocator.alloc(binding.BindGroupLayoutEntry, count);
+        reflected = result;
+        var index: usize = 0;
+        for (source.bindings) |item| if (item.set == desc.set) {
+            result[index] = item.entry;
+            index += 1;
+        };
+        break :blk result;
+    } else desc.entries;
+
     const self = try device.allocator.create(Dx12BindGroupLayout);
     errdefer device.allocator.destroy(self);
-    const entries = try device.allocator.dupe(binding.BindGroupLayoutEntry, desc.entries);
+    const entries = try device.allocator.dupe(binding.BindGroupLayoutEntry, layout_entries);
     errdefer device.allocator.free(entries);
     const label = if (desc.label) |value| try device.allocator.dupe(u8, value) else null;
     errdefer if (label) |value| device.allocator.free(value);

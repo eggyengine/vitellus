@@ -43,14 +43,20 @@ pub const ShaderCompileRequest = struct {
 /// `bytes` must be allocated with the allocator passed to `ShaderModule.compile`.
 /// The graphics backend owns the result and calls `deinit` after consuming it.
 /// `entry_point` remains borrowed from the module for that same duration.
+///
+/// `reflection_spirv` is optional SPIR-V retained solely for bind-group reflection
+/// when `bytes` is a different format (e.g. DXIL from SPIR-V cross-compilation).
 pub const CompiledShader = struct {
     format: ShaderBinaryFormat,
     bytes: []u8,
     entry_point: []const u8 = "main",
+    reflection_spirv: ?[]u8 = null,
 
-    /// Frees the owned bytecode with the allocator used to compile it.
+    /// Frees the owned bytecode (and reflection SPIR-V, when present) with the
+    /// allocator used to compile it.
     pub fn deinit(self: CompiledShader, allocator: std.mem.Allocator) void {
         allocator.free(self.bytes);
+        if (self.reflection_spirv) |spirv| allocator.free(spirv);
     }
 };
 

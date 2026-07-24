@@ -90,13 +90,13 @@ pub const FenceDescriptor = hal.sync.FenceDescriptor;
 pub const SemaphoreDescriptor = hal.sync.SemaphoreDescriptor;
 pub const RenderPassDescriptor = hal.command.RenderPassDescriptor;
 pub const SubmitDescriptor = hal.sync.SubmitDescriptor;
-pub const image_orientation = @import("bin/image_orientation.zig");
 
 test {
-    _ = image_orientation;
     _ = @import("backends/dx12/hlsl_shader_module.zig");
     _ = @import("backends/dx12/resource.zig");
     _ = @import("backends/dx12/shader.zig");
+    _ = @import("backends/vulkan/spirv.zig");
+    _ = @import("backends/spirv_reflect.zig");
 }
 
 test "DX12 capability queries reflect the live adapter" {
