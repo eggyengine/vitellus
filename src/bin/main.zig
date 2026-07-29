@@ -2,6 +2,7 @@ const std = @import("std");
 const sdl3 = @import("sdl3");
 const vit = @import("vitellus");
 const zigimg = @import("zigimg");
+const emath = @import("eggenvector");
 const camera = @import("camera.zig");
 
 const width = 1280;
@@ -10,6 +11,12 @@ const height = 720;
 const Vertex = extern struct {
     position: [2]f32,
     uv: [2]f32,
+};
+
+const SceneUniform = extern struct {
+    model: [4][4]f32,
+    view: [4][4]f32,
+    proj: [4][4]f32,
 };
 
 const vertices = [_]Vertex{
@@ -139,12 +146,60 @@ pub fn main(init: std.process.Init) !void {
     const sampler = try vit.Sampler.init(device, .{});
     defer sampler.deinit();
 
-    const layout = try vit.BindGroupLayout.init(device, .{ .shader = fragment_shader });
+    const camera_buffer = try vit.Buffer.init(device, .{
+        .label = "camera uniform buffer",
+        .size = 256,
+        .usage = .{
+            .uniform = true,
+        },
+        .memory = .upload,
+    });
+    defer camera_buffer.deinit();
+
+    const layout = try vit.BindGroupLayout.init(device, .{
+        .label = "scene layout",
+        .entries = &.{
+            .{
+                .binding = 0,
+                .kind = .{
+                    .buffer = .{
+                        .kind = .uniform,
+                        .min_size = @sizeOf(SceneUniform),
+                    },
+                },
+                .visibility = .{ .vertex = true },
+            },
+            .{
+                .binding = 1,
+                .kind = .{ .combined_texture_sampler = .{} },
+                .visibility = .{ .fragment = true },
+            },
+        },
+    });
     defer layout.deinit();
 
     const group = try vit.BindGroup.init(device, .{
         .layout = layout,
-        .entries = &.{.{ .binding = 0, .resource = .{ .combined_texture_sampler = .{ .view = view, .sampler = sampler } } }},
+        .entries = &.{
+            .{
+                .binding = 0,
+                .resource = .{
+                    .buffer = .{
+                        .buffer = camera_buffer,
+                        .size = 256,
+                    },
+                },
+            },
+            .{
+                .binding = 1,
+                .resource = .{
+                    .combined_texture_sampler = .{
+                        .view = view,
+                        .sampler = sampler,
+                    },
+                },
+            },
+        },
     });
     defer group.deinit();
 
@@ -211,6 +266,27 @@ pub fn main(init: std.process.Init) !void {
         };
         if (processInput(&cam, dt)) quit = true;
         if (quit) break;
+
+        const scene_uniform = SceneUniform{
+            .model = emath.identity(f32, 4).data,
+            .view = cam.getViewMatrix().data,
+            .proj = cam.getProjectionMatrix(
+                @as(f32, width) / @as(f32, height),
+                0.1,
+                100.0,
+            ).data,
+        };
+
+        const camera_bytes = std.mem.asBytes(&scene_uniform);
+        const mapped = try camera_buffer.map(.write, .{
+            .offset = 0,
+            .size = camera_bytes.len,
+        });
+        @memcpy(mapped, camera_bytes);
+        camera_buffer.unmap(.{
+            .offset = 0,
+            .size = camera_bytes.len,
+        });
 
         const acquired = try swapchain.acquireNextImage(null);
         const back_buffer = acquired.view;
