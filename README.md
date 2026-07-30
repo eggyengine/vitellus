@@ -15,16 +15,12 @@ and then in `build.zig`:
 const vit = b.dependency("vitellus", .{
     .target = target,
     .optimize = optimize,
+
+    .enable_dxc = true, // default is false
+    .enable_spirv-cross = true, // default is false
 });
 
 exe.root_module.addImport("vitellus", vit.module("vitellus"));
-```
-
-```zig
-const vit = b.dependency("vitellus", .{
-    .target = target,
-    .optimize = optimize,
-});
 ```
 
 and lastly in your library/executable:

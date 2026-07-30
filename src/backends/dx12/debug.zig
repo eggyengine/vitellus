@@ -101,7 +101,14 @@ pub const Dx12DebugDevice = struct {
             const message: *const dx.D3D12_MESSAGE = @ptrCast(@alignCast(&storage));
             const description = message.pDescription orelse continue;
             const length = if (message.DescriptionByteLength > 0) message.DescriptionByteLength - 1 else 0;
-            log.err("D3D12 [{}]: {s}", .{ message.ID, description[0..length] });
+            const args = .{ message.ID, description[0..length] };
+            switch (message.Severity) {
+                dx.D3D12_MESSAGE_SEVERITY_CORRUPTION,
+                dx.D3D12_MESSAGE_SEVERITY_ERROR,
+                => log.err("D3D12 [{}]: {s}", args),
+                dx.D3D12_MESSAGE_SEVERITY_WARNING => log.warn("D3D12 [{}]: {s}", args),
+                else => log.debug("D3D12 [{}]: {s}", args),
+            }
         }
         queue.lpVtbl.*.ClearStoredMessages.?(queue);
     }

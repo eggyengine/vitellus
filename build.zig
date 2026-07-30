@@ -7,7 +7,9 @@ pub fn build(b: *std.Build) void {
     const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
     const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
     const enable_dxc = b.option(bool, "enable_dxc", "Enable runtime HLSL compilation with DXC") orelse false;
-    const enable_spirv_cross = b.option(bool, "enable_spirv-cross", "Enable SPIRV-Cross C API shader translation") orelse false;
+    const enable_spirv_cross =
+        b.option(bool, "enable_spirv_cross", "Enable SPIRV-Cross C API shader translation") orelse
+        false;
     var dxc_bin_dir: ?std.Build.LazyPath = null;
 
     const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse true;
@@ -117,83 +119,15 @@ pub fn build(b: *std.Build) void {
         mod.addImport("vulkan", vulkan);
     }
 
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/bin/main.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{ .{ .name = "vitellus", .module = mod }, .{ .name = "sdl3", .module = sdl.module("sdl3") } },
-    });
-
-    // zigimg
-    {
-        const zigimg_dependency = b.lazyDependency("zigimg", .{
-            .target = target,
-            .optimize = optimize,
-        });
-
-        if (zigimg_dependency) |dep| exe_mod.addImport("zigimg", dep.module("zigimg"));
-    }
-
-    // eggenvector
-    {
-        const emath = b.lazyDependency("eggenvector", .{
-            .target = target,
-            .optimize = optimize,
-        });
-
-        if (emath) |dep|
-            exe_mod.addImport("eggenvector", dep.module("eggenvector"));
-    }
-
-    // run step
-    {
-        const exe = b.addExecutable(.{
-            .name = "vitellus",
-            .root_module = exe_mod,
-        });
-
-        b.installArtifact(exe);
-        const run_step = b.step("run", "Run the app");
-
-        const run_cmd = b.addRunArtifact(exe);
-        if (dxc_bin_dir) |dir| run_cmd.addPathDir(dir.getPath(b));
-        run_step.dependOn(&run_cmd.step);
-
-        run_cmd.step.dependOn(b.getInstallStep());
-
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
-        }
-    }
-
     // check step
     // required by zls
     {
         const exe_check = b.addExecutable(.{
             .name = "vitellus",
-            .root_module = exe_mod,
+            .root_module = mod,
         });
         const check = b.step("check", "Check if vitellus compiles");
         check.dependOn(&exe_check.step);
-    }
-
-    // triangle example in [example/] folder
-    // might need to remove (its not really necessary)
-    {
-        const triangle = b.addExecutable(.{
-            .name = "vitellus-triangle",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("examples/triangle.zig"),
-                .target = target,
-                .optimize = optimize,
-                .imports = &.{
-                    .{ .name = "vitellus", .module = mod },
-                    .{ .name = "sdl3", .module = sdl.module("sdl3") },
-                },
-            }),
-        });
-        const triangle_step = b.step("triangle", "Build the triangle example");
-        triangle_step.dependOn(&triangle.step);
     }
 
     // tests
@@ -214,7 +148,7 @@ pub fn build(b: *std.Build) void {
         if (dxc_bin_dir) |dir| run_mod_tests.addPathDir(dir.getPath(b));
 
         const exe_tests = b.addTest(.{
-            .root_module = exe_mod,
+            .root_module = mod,
             .test_runner = test_runner,
         });
 
