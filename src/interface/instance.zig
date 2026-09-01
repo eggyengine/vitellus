@@ -1,4 +1,5 @@
 const std = @import("std");
+const options = @import("shader_options");
 const settings = @import("settings.zig");
 const Backend = settings.Backend;
 const VitellusConfig = settings.VitellusConfig;
@@ -35,8 +36,14 @@ pub const Instance = struct {
         const order = settings.backendFallbackOrderWithPreference(config.backend, preferred_backend);
         for (order.slice()) |candidate| {
             var instance = switch (candidate) {
-                .dx12 => @import("../backends/dx12/instance.zig").Dx12Instance.init(allocator, config),
-                .vulkan => @import("../backends/vulkan/instance.zig").vkInstance.init(allocator, config),
+                .dx12 => if (comptime options.enable_dx12)
+                    @import("../backends/dx12/instance.zig").Dx12Instance.init(allocator, config)
+                else
+                    error.Dx12Unavailable,
+                .vulkan => if (comptime options.enable_vk)
+                    @import("../backends/vulkan/instance.zig").vkInstance.init(allocator, config)
+                else
+                    error.VulkanUnavailable,
                 .metal => error.MetalNotImplemented,
                 .custom => unreachable, // custom backends never enter the built-in fallback order
             } catch |err| {

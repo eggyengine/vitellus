@@ -54,7 +54,7 @@ test "SPIR-V passes through for Vulkan without a compiler dependency" {
 }
 
 test "SPIR-V cross-compiles to DXIL for DX12" {
-    if (!options.enable_spirv_cross or !options.enable_dxc or builtin.target.os.tag != .windows)
+    if (comptime !options.enable_spirv_cross or !options.enable_dxc or builtin.target.os.tag != .windows)
         return error.SkipZigTest;
 
     const hlsl_mod = @import("../dx12/hlsl_shader_module.zig");

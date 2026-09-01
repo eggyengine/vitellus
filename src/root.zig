@@ -1,3 +1,5 @@
+const options = @import("shader_options");
+
 pub const candler = @import("candler");
 
 pub const windowing = struct {
@@ -6,8 +8,8 @@ pub const windowing = struct {
 };
 
 pub const backends = struct {
-    pub const dx12 = @import("backends/dx12.zig");
-    pub const vk = @import("backends/vulkan.zig");
+    pub const dx12 = if (options.enable_dx12) @import("backends/dx12.zig") else struct {};
+    pub const vk = if (options.enable_vk) @import("backends/vulkan.zig") else struct {};
 };
 
 pub const hal = struct {
@@ -50,9 +52,9 @@ pub const ValidationLevel = hal.settings.ValidationLevel;
 pub const VitellusConfig = hal.settings.VitellusConfig;
 pub const Shader = hal.shader.Shader;
 pub const ShaderModule = hal.shader.ShaderModule;
-pub const HLSLShaderModule = backends.dx12.HLSLShaderModule;
-pub const HLSLProfile = backends.dx12.HLSLProfile;
-pub const SPIRVShaderModule = backends.vk.SPIRVShaderModule;
+pub const HLSLShaderModule = @import("backends/dx12/hlsl_shader_module.zig").HLSLShaderModule;
+pub const HLSLProfile = @import("backends/dx12/hlsl_shader_module.zig").HLSLProfile;
+pub const SPIRVShaderModule = @import("backends/vulkan/spirv.zig").SPIRVShaderModule;
 pub const BinaryShaderModule = hal.shader.BinaryShaderModule;
 pub const CompiledShader = hal.shader.CompiledShader;
 pub const ShaderCompileRequest = hal.shader.ShaderCompileRequest;
@@ -92,11 +94,25 @@ pub const RenderPassDescriptor = hal.command.RenderPassDescriptor;
 pub const SubmitDescriptor = hal.sync.SubmitDescriptor;
 
 test {
+    _ = @import("interface/instance.zig");
+    _ = @import("interface/shader.zig");
+    _ = @import("interface/settings.zig");
     _ = @import("backends/dx12/hlsl_shader_module.zig");
-    _ = @import("backends/dx12/resource.zig");
-    _ = @import("backends/dx12/shader.zig");
+    if (comptime options.enable_dx12) {
+        _ = @import("backends/dx12/resource.zig");
+        _ = @import("backends/dx12/shader.zig");
+        _ = @import("backends/dx12/pipeline.zig");
+        _ = @import("backends/dx12/command.zig");
+    }
     _ = @import("backends/vulkan/spirv.zig");
     _ = @import("backends/spirv_reflect.zig");
+    if (comptime options.enable_vk) {
+        _ = @import("backends/vulkan/instance.zig");
+        _ = @import("backends/vulkan/adapter.zig");
+        _ = @import("backends/vulkan/device.zig");
+        _ = @import("backends/vulkan/shader.zig");
+        _ = @import("backends/vulkan/command.zig");
+    }
 }
 
 test "DX12 capability queries reflect the live adapter" {

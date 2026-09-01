@@ -1,6 +1,7 @@
 //! Physical GPU discovery and backend selection.
 
 const std = @import("std");
+const options = @import("shader_options");
 const settings_mod = @import("settings.zig");
 const Backend = settings_mod.Backend;
 const BackendType = settings_mod.BackendType;
@@ -144,8 +145,14 @@ pub const Adapter = struct {
 
     fn enumerateBackend(backend: Backend, allocator: std.mem.Allocator) ![]Adapter {
         return switch (backend) {
-            .dx12 => @import("../backends/dx12/adapter.zig").Dx12Adapter.enumerate(allocator),
-            .vulkan => @import("../backends/vulkan/adapter.zig").vkAdapter.enumerateStandalone(allocator),
+            .dx12 => if (comptime options.enable_dx12)
+                @import("../backends/dx12/adapter.zig").Dx12Adapter.enumerate(allocator)
+            else
+                error.Dx12Unavailable,
+            .vulkan => if (comptime options.enable_vk)
+                @import("../backends/vulkan/adapter.zig").vkAdapter.enumerateStandalone(allocator)
+            else
+                error.VulkanUnavailable,
             .metal => error.MetalNotImplemented,
             .custom => unreachable, // custom backends never enter the built-in fallback order
         };

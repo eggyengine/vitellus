@@ -145,9 +145,21 @@ pub fn parseBackendName(name: []const u8) ?Backend {
     return null;
 }
 
+fn processEnviron() std.process.Environ {
+    const Block = std.process.Environ.Block;
+    if (comptime @hasField(Block, "use_global")) {
+        return .{ .block = .global };
+    }
+    if (!builtin.link_libc) return .empty;
+    const raw = std.c.environ;
+    var env_count: usize = 0;
+    while (raw[env_count] != null) : (env_count += 1) {}
+    return .{ .block = .{ .slice = raw[0..env_count :null] } };
+}
+
 /// Returns the backend requested through `VITELLUS_BACKEND`, if any.
 pub fn environmentBackend(allocator: std.mem.Allocator) !?Backend {
-    const environ = std.process.Environ{ .block = .global };
+    const environ = processEnviron();
     const value = environ.getAlloc(allocator, "VITELLUS_BACKEND") catch |err| switch (err) {
         error.EnvironmentVariableMissing => return null,
         else => return err,

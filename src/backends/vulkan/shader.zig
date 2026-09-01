@@ -91,7 +91,7 @@ test "reflects a combined image sampler" {
 }
 
 test "Vulkan device creates SPIR-V compiled from HLSL" {
-    if (!@import("shader_options").enable_dxc or @import("builtin").target.os.tag != .windows)
+    if (comptime !@import("shader_options").enable_dxc or @import("builtin").target.os.tag != .windows)
         return error.SkipZigTest;
 
     const instance = @import("instance.zig").vkInstance.init(std.testing.allocator, .{

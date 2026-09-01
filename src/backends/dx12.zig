@@ -1,5 +1,3 @@
-const builtin = @import("builtin");
-
 const dx = @cImport({
     @cDefine("WIN32_LEAN_AND_MEAN", "");
     @cInclude("d3d12.h");
