@@ -9,8 +9,7 @@
             .hash = "N-V-__8AAGDkQAACqNWyBF-0Vd6C0xgQqSsB23ys9Hy9KNIl",
         },
         .sdl3 = .{
-            .url = "git+https://codeberg.org/7Games/zig-sdl3?ref=master#83c694024f23cbacfa36fcd8fca1c57d4957203e",
-            .hash = "sdl3-0.2.2-NmT1Q-2jKQBa4uSXUwuVwdmXpXe-eYwim7Wkyx531v6O",
+            .path = "vendor/zig-sdl3",
         },
         .candler = .{
             .url = "git+https://github.com/eggyengine/candler#68e3041704e098ebb891f527dbae207f344b00bb",

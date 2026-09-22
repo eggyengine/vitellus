@@ -76,7 +76,12 @@ pub const vkInstance = struct {
         enabled_extensions[enabled_extension_count] = vk.extensions.khr_surface.name.ptr;
         enabled_extension_count += 1;
 
-        switch (builtin.target.os.tag) {
+        if (builtin.abi.isAndroid()) {
+            if (!try hasInstanceExtension(base, allocator, null, vk.extensions.khr_android_surface.name))
+                return error.VulkanPlatformSurfaceExtensionUnavailable;
+            enabled_extensions[enabled_extension_count] = vk.extensions.khr_android_surface.name.ptr;
+            enabled_extension_count += 1;
+        } else switch (builtin.target.os.tag) {
             .windows => {
                 if (!try hasInstanceExtension(base, allocator, null, vk.extensions.khr_win_32_surface.name))
                     return error.VulkanPlatformSurfaceExtensionUnavailable;
@@ -330,6 +335,9 @@ fn debugCallback(
 }
 
 fn openVulkanLoader() !DynLib {
+    if (builtin.abi.isAndroid()) {
+        return DynLib.open("libvulkan.so") catch DynLib.open("libvulkan.so.1");
+    }
     return switch (builtin.target.os.tag) {
         .windows => DynLib.open("vulkan-1.dll"),
         .linux => DynLib.open("libvulkan.so.1") catch DynLib.open("libvulkan.so"),

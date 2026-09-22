@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
-    const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows;
+    const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows and !target.result.abi.isAndroid();
     const enable_dxc = b.option(bool, "enable_dxc", "Enable runtime HLSL compilation with DXC") orelse false;
     const enable_spirv_cross =
         b.option(bool, "enable_spirv_cross", "Enable SPIRV-Cross C API shader translation") orelse
@@ -35,9 +35,11 @@ pub fn build(b: *std.Build) void {
     mod.addImport("candler", candler.module("candler"));
 
     // todo: make the sdl windowing stuff separate to vitellus core
+    const sdl_linkage: std.builtin.LinkMode = if (target.result.abi.isAndroid()) .dynamic else .static;
     const sdl = b.dependency("sdl3", .{
         .target = target,
         .optimize = optimize,
+        .c_sdl_preferred_linkage = sdl_linkage,
     });
     mod.addImport("sdl3", sdl.module("sdl3"));
 
