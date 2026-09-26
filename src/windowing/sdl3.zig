@@ -1,7 +1,7 @@
 pub const sdl = @import("sdl3");
 const std = @import("std");
-const candler = @import("candler");
-const win = @import("windowing.zig");
+const vitellus = @import("vitellus");
+const candler = vitellus.candler;
 
 // todo: move this to its own library or open a PR in 7Games/zig-sdl
 
@@ -22,7 +22,7 @@ pub const Sdl3Window = struct {
         };
     }
 
-    pub fn asWindow(self: *const @This()) !win.Window {
+    pub fn asWindow(self: *const @This()) !vitellus.Window {
         return .{
             .display_handle = candler.HasDisplayHandle.init(self),
             .window_handle = candler.HasWindowHandle.init(self),

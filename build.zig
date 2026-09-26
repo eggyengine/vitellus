@@ -34,15 +34,6 @@ pub fn build(b: *std.Build) void {
     });
     mod.addImport("candler", candler.module("candler"));
 
-    // todo: make the sdl windowing stuff separate to vitellus core
-    const sdl_linkage: std.builtin.LinkMode = if (target.result.abi.isAndroid()) .dynamic else .static;
-    const sdl = b.dependency("sdl3", .{
-        .target = target,
-        .optimize = optimize,
-        .c_sdl_preferred_linkage = sdl_linkage,
-    });
-    mod.addImport("sdl3", sdl.module("sdl3"));
-
     // directx
     if (enable_dx12) {
         if (b.lazyDependency("directx-headers", .{})) |dep| {
