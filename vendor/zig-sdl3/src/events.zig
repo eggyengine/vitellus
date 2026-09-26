@@ -2070,6 +2070,7 @@ pub const User = struct {
     /// Convert to SDL.
     pub fn toSdl(self: User, event_type: Type) c.SDL_Event {
         var ret = self.common.toSdl(event_type);
+        ret.user.type = self.event_type;
         ret.user.windowID = self.window_id orelse 0;
         ret.user.code = self.code;
         ret.user.data1 = self.data1;
@@ -2077,6 +2078,15 @@ pub const User = struct {
         return ret;
     }
 };
+
+test "user events retain their registered SDL event type" {
+    const event_type: c.SDL_EventType = @intCast(c.SDL_EVENT_USER + 1);
+    const event = User{ .common = .{ .timestamp = 0 }, .event_type = event_type, .code = 42 };
+    try std.testing.expectEqual(event_type, event.toSdl(.user).user.type);
+    const received = Event.fromSdl(event.toSdl(.user));
+    try std.testing.expectEqual(event_type, received.user.event_type);
+    try std.testing.expectEqual(@as(i32, 42), received.user.code);
+}
 
 /// Window state change event data (event.window.*).
 ///
@@ -2661,7 +2671,10 @@ pub const Event = union(Type) {
             c.SDL_EVENT_POLL_SENTINEL => .{ .poll_sentinal = @FieldType(Event, "poll_sentinal").fromSdl(event) },
             c.SDL_EVENT_USER => .{ .user = @FieldType(Event, "user").fromSdl(event) },
             c.SDL_EVENT_ENUM_PADDING => .{ .padding = @splat(0) },
-            else => .{ .unknown = @FieldType(Event, "unknown").fromSdl(event) },
+            else => if (event.type >= c.SDL_EVENT_USER and event.type < c.SDL_EVENT_LAST)
+                .{ .user = @FieldType(Event, "user").fromSdl(event) }
+            else
+                .{ .unknown = @FieldType(Event, "unknown").fromSdl(event) },
         };
     }
 
