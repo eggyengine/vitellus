@@ -61,7 +61,6 @@ pub fn build(b: *std.Build) void {
     var emscripten = false;
     var system_include_path: ?std.Build.LazyPath = null;
     var system_framework_path: ?std.Build.LazyPath = null;
-    var library_path: ?std.Build.LazyPath = null;
     var msvc = false; // Assume mingw-w64 as the default for Windows
     var musl = false; // Assume glibc as the default for Linux
     switch (target.result.os.tag) {
@@ -85,7 +84,6 @@ pub fn build(b: *std.Build) void {
             if (b.sysroot) |sysroot| {
                 system_include_path = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "usr/include" }) };
                 system_framework_path = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "System/Library/Frameworks" }) };
-                library_path = .{ .cwd_relative = "/usr/lib" }; // ???
             } else if (!target.query.isNative()) {
                 std.log.err("'--sysroot' is required when building SDL for non-native macOS targets", .{});
                 std.process.exit(1);
@@ -674,9 +672,6 @@ pub fn build(b: *std.Build) void {
     }
     if (system_framework_path) |path| {
         sdl_mod.addSystemFrameworkPath(path);
-    }
-    if (library_path) |path| {
-        sdl_mod.addLibraryPath(path);
     }
 
     var sdl_c_flags_buf: [common_c_flags.len + 3][]const u8 = undefined;

@@ -1,4 +1,5 @@
 pub const sdl = @import("sdl3");
+const builtin = @import("builtin");
 const std = @import("std");
 const vitellus = @import("vitellus");
 const candler = vitellus.candler;
@@ -12,7 +13,15 @@ pub const Sdl3Window = struct {
     metal_view: ?sdl.MetalView = null,
 
     pub fn init(window: sdl.video.Window) Sdl3Window {
-        return .{ .window = window };
+        return .{
+            .window = window,
+            .metal_view = if (builtin.os.tag == .macos) sdl.MetalView.init(window) else null,
+        };
+    }
+
+    pub fn deinit(self: *Sdl3Window) void {
+        if (self.metal_view) |view| view.deinit();
+        self.window.deinit();
     }
 
     pub fn initWithMetalView(window: sdl.video.Window, metal_view: sdl.MetalView) Sdl3Window {
@@ -49,7 +58,7 @@ pub const Sdl3Window = struct {
         if (props.cocoa_window != null) {
             if (self.metal_view) |view| {
                 log.debug("resolved SDL3 AppKit window handle", .{});
-                return borrowedWindowHandle(candler.AppKitWindowHandle.new(view.value).intoRaw());
+                return borrowedWindowHandle(candler.AppKitWindowHandle.new(view.getLayer() orelse view.value).intoRaw());
             }
         }
 
