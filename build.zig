@@ -1,4 +1,5 @@
 const std = @import("std");
+const zeggdoc = @import("zeggdoc");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -150,4 +151,9 @@ pub fn build(b: *std.Build) void {
         const test_step = b.step("test", "Run tests");
         test_step.dependOn(&run_mod_tests.step);
     }
+
+    const docs = b.step("doc", "Generate Vitellus documentation");
+    docs.dependOn(zeggdoc.addDocsStepWithOptions(b, b.dependency("zeggdoc", .{}).path("."), .{
+        .exclude = &.{"vendor/**"},
+    }));
 }
