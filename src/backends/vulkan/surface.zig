@@ -10,6 +10,15 @@ pub fn create(instance: *vkInstance, window: Window) !vk.SurfaceKHR {
     const raw_window = (try window.window_handle.windowHandle()).asRaw();
     const raw_display = (try window.display_handle.displayHandle()).asRaw();
 
+    if (builtin.abi.isAndroid()) {
+        return switch (raw_window) {
+            .android_ndk => |handle| instance.wrapper.createAndroidSurfaceKHR(instance.instance, &.{
+                .window = @ptrCast(handle.a_native_window),
+            }, null),
+            else => error.UnsupportedWindowHandle,
+        };
+    }
+
     return switch (builtin.target.os.tag) {
         .windows => switch (raw_window) {
             .win32 => |handle| instance.wrapper.createWin32SurfaceKHR(instance.instance, &.{

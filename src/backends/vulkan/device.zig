@@ -75,15 +75,16 @@ pub const vkDevice = struct {
             .p_next = @ptrCast(&timeline_features),
             .dynamic_rendering = .true,
         };
-        const extensions = [_][*:0]const u8{vk.extensions.khr_swapchain.name.ptr};
+        var extension_names: [2][*:0]const u8 = undefined;
+        const extensions = try deviceExtensions(adapter, allocator, &extension_names);
         const get_device_proc_addr = adapter.instance.wrapper.dispatch.vkGetDeviceProcAddr orelse
             return error.VulkanLoaderMissingGetDeviceProcAddr;
         const handle = try adapter.instance.wrapper.createDevice(adapter.physical_device, &.{
             .p_next = &dynamic_rendering_features,
             .queue_create_info_count = @intCast(queue_info_count),
             .p_queue_create_infos = queue_infos[0..queue_info_count].ptr,
-            .enabled_extension_count = extensions.len,
-            .pp_enabled_extension_names = &extensions,
+            .enabled_extension_count = @intCast(extensions.len),
+            .pp_enabled_extension_names = extensions.ptr,
             .p_enabled_features = &enabled_features,
         }, null);
 
@@ -117,6 +118,27 @@ pub const vkDevice = struct {
     }
 };
 
+fn deviceExtensions(adapter: *vkAdapter, allocator: std.mem.Allocator, buf: *[2][*:0]const u8) ![]const [*:0]const u8 {
+    return fillDeviceExtensions(try hasDeviceExtension(adapter, allocator, vk.extensions.khr_portability_subset.name), buf);
+}
+
+fn fillDeviceExtensions(portability: bool, buf: *[2][*:0]const u8) []const [*:0]const u8 {
+    buf[0] = vk.extensions.khr_swapchain.name.ptr;
+    if (!portability) return buf[0..1];
+    buf[1] = vk.extensions.khr_portability_subset.name.ptr;
+    return buf[0..2];
+}
+
+fn hasDeviceExtension(adapter: *vkAdapter, allocator: std.mem.Allocator, name: []const u8) !bool {
+    const extensions = try adapter.instance.wrapper.enumerateDeviceExtensionPropertiesAlloc(adapter.physical_device, null, allocator);
+    defer allocator.free(extensions);
+    for (extensions) |*extension| {
+        const len = std.mem.indexOfScalar(u8, &extension.extension_name, 0) orelse extension.extension_name.len;
+        if (std.mem.eql(u8, extension.extension_name[0..len], name)) return true;
+    }
+    return false;
+}
+
 fn requiredVkFeatures(desc: DeviceDescriptor) vk.PhysicalDeviceFeatures {
     return .{
         .occlusion_query_precise = vkBool(desc.required_features.occlusion_query),
@@ -130,6 +152,13 @@ fn requiredVkFeatures(desc: DeviceDescriptor) vk.PhysicalDeviceFeatures {
 
 fn vkBool(value: bool) vk.Bool32 {
     return if (value) .true else .false;
+}
+
+test "device extensions include portability subset when advertised" {
+    var buf: [2][*:0]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), fillDeviceExtensions(false, &buf).len);
+    try std.testing.expectEqual(@as(usize, 2), fillDeviceExtensions(true, &buf).len);
+    try std.testing.expectEqualStrings(vk.extensions.khr_portability_subset.name, std.mem.span(buf[1]));
 }
 
 test "Vulkan logical device creates queues and semaphores" {

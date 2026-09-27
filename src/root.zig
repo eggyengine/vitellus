@@ -4,7 +4,6 @@ pub const candler = @import("candler");
 
 pub const windowing = struct {
     pub const Window = @import("windowing/windowing.zig").Window;
-    pub const sdl3 = @import("windowing/sdl3.zig");
 };
 
 pub const backends = struct {

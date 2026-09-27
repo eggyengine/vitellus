@@ -188,7 +188,7 @@ pub const BackendFallbackOrder = struct {
 pub fn platformDefaultBackends() BackendType {
     return switch (builtin.target.os.tag) {
         .windows => .{ .dx12 = true, .vulkan = true },
-        // Zig models Android as a Linux OS with an Android ABI.
+        // Zig models Android as Linux with an Android ABI. Vulkan is the only backend.
         .linux => .{ .vulkan = true },
         else => if (builtin.target.os.tag.isDarwin())
             .{ .metal = true, .vulkan = true }
