@@ -6,8 +6,3 @@ compiled
 .vscode
 #idk why it appeared...
 .zig-global-cache
-vendor/zeggdoc/node_modules/
-docs/data/
-docs/site/
-docs/server.ts
-docs/package.json

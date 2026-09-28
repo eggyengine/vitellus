@@ -1,9 +1,12 @@
 const std = @import("std");
-const zeggdoc = @import("zeggdoc");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const update_submodules = b.addSystemCommand(&.{ "git", "submodule", "update", "--init", "--remote", "--recursive" });
+    b.step("update-submodules", "Update submodules to their latest remote commits")
+        .dependOn(&update_submodules.step);
 
     const enable_dx12_requested = b.option(bool, "dx12", "Enable the DirectX 12 backend") orelse true;
     const enable_dx12 = enable_dx12_requested and target.result.os.tag == .windows and !target.result.abi.isAndroid();
@@ -151,9 +154,4 @@ pub fn build(b: *std.Build) void {
         const test_step = b.step("test", "Run tests");
         test_step.dependOn(&run_mod_tests.step);
     }
-
-    const docs = b.step("doc", "Generate Vitellus documentation");
-    docs.dependOn(zeggdoc.addDocsStepWithOptions(b, b.dependency("zeggdoc", .{}).path("."), .{
-        .exclude = &.{"vendor/**"},
-    }));
 }

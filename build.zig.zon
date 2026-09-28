@@ -40,23 +40,10 @@
             .hash = "eggenvector-0.0.0-UyZb9C7sAQBBRR526yoYPHubwq9etR7eLFT5chA31KkX",
             .lazy = true,
         },
-        .zeggdoc = .{
-            .path = "vendor/zeggdoc",
-        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
-        "vendor/zeggdoc/build.zig",
-        "vendor/zeggdoc/build.zig.zon",
-        "vendor/zeggdoc/bun.lock",
-        "vendor/zeggdoc/bunfig.toml",
-        "vendor/zeggdoc/cli/index.ts",
-        "vendor/zeggdoc/docs/server.ts",
-        "vendor/zeggdoc/package.json",
-        "vendor/zeggdoc/src",
-        "vendor/zeggdoc/styles",
-        "vendor/zeggdoc/templates/pages.yml",
     },
 }
