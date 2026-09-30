@@ -169,9 +169,9 @@ pub const AndroidSdl = struct {
 
 /// zig-sdl3 builds castholm/SDL, whose build.zig only knows desktop Linux. For Android, rebuild that
 /// same fetched package with `patches/sdl-android.patch` applied and link its `libSDL3.so` into
-/// `sdl3_module` instead. `app` is the shared library the APK loads. Call before the APK collects
-/// its libraries, then `setLibC`.
-pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *std.Build.Module, app: *std.Build.Step.Compile) AndroidSdl {
+/// `sdl3_module` instead. `apps` are the shared libraries APKs load; call this once for all of
+/// them, before the APKs collect their libraries, then `setLibC`.
+pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *std.Build.Module, apps: []const *std.Build.Step.Compile) AndroidSdl {
     const objects = sdl3_module.link_objects.items;
     const index = for (objects, 0..) |object, i| {
         if (object == .other_step and std.mem.eql(u8, object.other_step.name, "SDL3")) break i;
@@ -207,6 +207,6 @@ pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *
     }
     // APK packagers want the file name at configure time, so hand them the installed copy.
     const install = b.addInstallFileWithDir(built, .{ .custom = "android" }, "libSDL3.so");
-    app.step.dependOn(&install.step);
+    for (apps) |app| app.step.dependOn(&install.step);
     return .{ .run = run, .library = .{ .cwd_relative = b.getInstallPath(.{ .custom = "android" }, "libSDL3.so") } };
 }
