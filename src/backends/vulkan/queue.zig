@@ -54,12 +54,15 @@ pub const vkQueue = struct {
 
     fn submitImpl(ptr: *anyopaque, desc: sync.SubmitDescriptor) !void {
         const self: *vkQueue = @ptrCast(@alignCast(ptr));
-        const commands = try std.heap.page_allocator.alloc(vk.CommandBuffer, desc.command_buffers.len); defer std.heap.page_allocator.free(commands);
-        const waits = try std.heap.page_allocator.alloc(vk.Semaphore, desc.wait_semaphores.len + desc.wait_fences.len); defer std.heap.page_allocator.free(waits);
-        const wait_values = try std.heap.page_allocator.alloc(u64, waits.len); defer std.heap.page_allocator.free(wait_values);
-        const stages = try std.heap.page_allocator.alloc(vk.PipelineStageFlags, waits.len); defer std.heap.page_allocator.free(stages);
-        const signals = try std.heap.page_allocator.alloc(vk.Semaphore, desc.signal_semaphores.len + desc.signal_fences.len); defer std.heap.page_allocator.free(signals);
-        const signal_values = try std.heap.page_allocator.alloc(u64, signals.len); defer std.heap.page_allocator.free(signal_values);
+        // Submits happen every frame and are almost always small: keep them off the page allocator.
+        var fallback = std.heap.stackFallback(1024, std.heap.page_allocator);
+        const allocator = fallback.get();
+        const commands = try allocator.alloc(vk.CommandBuffer, desc.command_buffers.len); defer allocator.free(commands);
+        const waits = try allocator.alloc(vk.Semaphore, desc.wait_semaphores.len + desc.wait_fences.len); defer allocator.free(waits);
+        const wait_values = try allocator.alloc(u64, waits.len); defer allocator.free(wait_values);
+        const stages = try allocator.alloc(vk.PipelineStageFlags, waits.len); defer allocator.free(stages);
+        const signals = try allocator.alloc(vk.Semaphore, desc.signal_semaphores.len + desc.signal_fences.len); defer allocator.free(signals);
+        const signal_values = try allocator.alloc(u64, signals.len); defer allocator.free(signal_values);
         for (desc.command_buffers, commands) |value, *out| { const cmd = command_impl.vkCommandBuffer.fromInterface(value); if (!cmd.finished) return error.CommandBufferNotFinished; out.* = cmd.handle; }
         for (desc.wait_semaphores, 0..) |value, i| { waits[i] = try sync_impl.rawSemaphore(value); wait_values[i] = 0; stages[i] = .{ .all_commands_bit = true }; }
         for (desc.wait_fences, 0..) |value, i| { const n = desc.wait_semaphores.len + i; waits[n] = try sync_impl.rawFence(value.fence); wait_values[n] = value.value; stages[n] = .{ .all_commands_bit = true }; }

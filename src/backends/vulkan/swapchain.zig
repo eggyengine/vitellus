@@ -120,8 +120,10 @@ pub const vkSwapchain = struct {
     fn presentImpl(ptr: *anyopaque, waits: []const sync.Semaphore) anyerror!swapchain_interface.PresentStatus {
         const self: *vkSwapchain = @ptrCast(@alignCast(ptr));
         const image_index = self.current_image orelse return error.NoAcquiredImage;
-        const semaphores = try self.allocator.alloc(vk.Semaphore, waits.len);
-        defer self.allocator.free(semaphores);
+        var fallback = std.heap.stackFallback(8 * @sizeOf(vk.Semaphore), self.allocator);
+        const allocator = fallback.get();
+        const semaphores = try allocator.alloc(vk.Semaphore, waits.len);
+        defer allocator.free(semaphores);
         for (waits, semaphores) |wait, *semaphore| semaphore.* = try sync_impl.rawSemaphore(wait);
         // ponytail: main currently presents without a binary render-finished semaphore.
         // Serialize that compatibility path until the public API supplies one.
