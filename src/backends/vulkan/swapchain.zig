@@ -32,6 +32,8 @@ pub const vkSwapchain = struct {
     composite_alpha: swapchain_interface.CompositeAlpha,
     usage: swapchain_interface.ImageUsage,
     requested_image_count: u32,
+    /// The surface transform when the swapchain was built; a rotation changes it.
+    surface_transform: vk.SurfaceTransformFlagsKHR = .{},
     label: ?[]u8 = null,
 
     const vtable: Swapchain.VTable = .{
@@ -146,7 +148,11 @@ pub const vkSwapchain = struct {
             else => return err,
         };
         self.current_image = null;
+        // Android reports SUBOPTIMAL on every present while rotated, because we leave rotation to
+        // the compositor (see `recreate`); only rebuild when the surface actually changed.
         if (result == .suboptimal_khr) {
+            const caps = try self.adapter.instance.wrapper.getPhysicalDeviceSurfaceCapabilitiesKHR(self.adapter.physical_device, self.surface);
+            if (caps.current_transform.toInt() == self.surface_transform.toInt()) return .optimal;
             try resizeImpl(ptr, self.extent);
             return .suboptimal;
         }
@@ -177,7 +183,9 @@ pub const vkSwapchain = struct {
 
         const usage = toVkUsage(self.usage);
         if (!caps.supported_usage_flags.contains(usage)) return error.UnsupportedImageUsage;
-        const extent = chooseExtent(caps, requested_extent);
+        // Identity lets the compositor rotate for us (Android); desktops are always identity anyway.
+        const pre_transform: vk.SurfaceTransformFlagsKHR = if (caps.supported_transforms.identity_bit_khr) .{ .identity_bit_khr = true } else caps.current_transform;
+        const extent = chooseExtent(caps, requested_extent, pre_transform);
         if (extent.width == 0 or extent.height == 0) return error.InvalidExtent;
         var image_count = @max(self.requested_image_count, caps.min_image_count);
         if (caps.max_image_count != 0) image_count = @min(image_count, caps.max_image_count);
@@ -191,7 +199,7 @@ pub const vkSwapchain = struct {
             .image_array_layers = 1,
             .image_usage = usage,
             .image_sharing_mode = .exclusive,
-            .pre_transform = caps.current_transform,
+            .pre_transform = pre_transform,
             .composite_alpha = surface_impl.toVkCompositeAlpha(self.composite_alpha),
             .present_mode = surface_impl.toVkPresentMode(self.present_mode),
             .clipped = .true,
@@ -246,6 +254,7 @@ pub const vkSwapchain = struct {
         self.view_impls = new_view_impls;
         self.views = new_views;
         self.extent = .{ .width = extent.width, .height = extent.height };
+        self.surface_transform = caps.current_transform;
         self.adapter.instance.nameObject(
             self.allocator,
             self.queue.device,
@@ -277,8 +286,15 @@ fn toVkUsage(usage: swapchain_interface.ImageUsage) vk.ImageUsageFlags {
     };
 }
 
-fn chooseExtent(caps: vk.SurfaceCapabilitiesKHR, requested: swapchain_interface.Extent2D) vk.Extent2D {
-    if (caps.current_extent.width != std.math.maxInt(u32)) return caps.current_extent;
+fn chooseExtent(caps: vk.SurfaceCapabilitiesKHR, requested: swapchain_interface.Extent2D, pre_transform: vk.SurfaceTransformFlagsKHR) vk.Extent2D {
+    if (caps.current_extent.width != std.math.maxInt(u32)) {
+        // Android keeps `current_extent` in the display's native orientation; without
+        // pre-rotation, a quarter-turned surface needs the swapped (window-shaped) size.
+        const turned = caps.current_transform.rotate_90_bit_khr or caps.current_transform.rotate_270_bit_khr or
+            caps.current_transform.horizontal_mirror_rotate_90_bit_khr or caps.current_transform.horizontal_mirror_rotate_270_bit_khr;
+        if (turned and pre_transform.identity_bit_khr) return .{ .width = caps.current_extent.height, .height = caps.current_extent.width };
+        return caps.current_extent;
+    }
     return .{
         .width = std.math.clamp(requested.width, caps.min_image_extent.width, caps.max_image_extent.width),
         .height = std.math.clamp(requested.height, caps.min_image_extent.height, caps.max_image_extent.height),
