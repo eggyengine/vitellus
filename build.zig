@@ -25,6 +25,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    addDocs(b, mod, "vitellus");
     const shader_options = b.addOptions();
     shader_options.addOption(bool, "enable_dx12", enable_dx12);
     shader_options.addOption(bool, "enable_vk", enable_vk);
@@ -209,4 +210,12 @@ pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *
     const install = b.addInstallFileWithDir(built, .{ .custom = "android" }, "libSDL3.so");
     for (apps) |app| app.step.dependOn(&install.step);
     return .{ .run = run, .library = .{ .cwd_relative = b.getInstallPath(.{ .custom = "android" }, "libSDL3.so") } };
+}
+
+/// `zig build docs`: Zig's HTML API docs for `mod` in zig-out/docs, which
+/// .github/workflows/docs.yml publishes to GitHub Pages.
+fn addDocs(b: *std.Build, mod: *std.Build.Module, name: []const u8) void {
+    const docs = b.addObject(.{ .name = name, .root_module = mod });
+    const install = b.addInstallDirectory(.{ .source_dir = docs.getEmittedDocs(), .install_dir = .prefix, .install_subdir = "docs" });
+    b.step("docs", "Build the API docs into zig-out/docs").dependOn(&install.step);
 }
