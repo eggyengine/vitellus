@@ -155,3 +155,58 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_mod_tests.step);
     }
 }
+
+pub const AndroidSdl = struct {
+    run: *std.Build.Step.Run,
+    /// The patched `libSDL3.so` at a fixed install path; package it next to the app with `apk.addLibraryFile`.
+    library: std.Build.LazyPath,
+
+    /// The NDK libc file to build with; zig-android-sdk sets it on the app's artifact in `apk.addInstallApk()`.
+    pub fn setLibC(self: AndroidSdl, libc_file: std.Build.LazyPath) void {
+        self.run.addFileArg(libc_file);
+    }
+};
+
+/// zig-sdl3 builds castholm/SDL, whose build.zig only knows desktop Linux. For Android, rebuild that
+/// same fetched package with `patches/sdl-android.patch` applied and link its `libSDL3.so` into
+/// `sdl3_module` instead. `app` is the shared library the APK loads. Call before the APK collects
+/// its libraries, then `setLibC`.
+pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *std.Build.Module, app: *std.Build.Step.Compile) AndroidSdl {
+    const objects = sdl3_module.link_objects.items;
+    const index = for (objects, 0..) |object, i| {
+        if (object == .other_step and std.mem.eql(u8, object.other_step.name, "SDL3")) break i;
+    } else @panic("the sdl3 module does not link zig-sdl3's SDL3 library");
+    const desktop = objects[index].other_step;
+    // ponytail: needs sh, cp and patch on the host; port to a Zig build tool if Windows hosts build for Android.
+    const run = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\set -e
+        \\work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
+        \\libc=$(realpath "$7"); cp -R "$1"/. "$work"; chmod -R u+w "$work"; cd "$work"
+        \\patch -p1 < "$3"
+        \\mkdir .ndk; ln -s "$(sed -n 's/^crt_dir=//p' "$libc")" .ndk/lib # liblog, libandroid, ... live beside the CRT
+        \\"$4" build -Dtarget="$5" -Doptimize="$6" -Dpreferred_linkage=dynamic --prefix "$2" --libc "$libc" --search-prefix .ndk
+        ,
+        "sh",
+    });
+    run.setName("build patched SDL for Android");
+    run.addDirectoryArg(.{ .cwd_relative = desktop.step.owner.build_root.path orelse "." });
+    const out = run.addOutputDirectoryArg("sdl");
+    run.addFileArg(vitellus.path("patches/sdl-android.patch"));
+    run.addArg(b.graph.zig_exe);
+    run.addArg(desktop.root_module.resolved_target.?.query.zigTriple(b.allocator) catch @panic("OOM"));
+    run.addArg(@tagName(desktop.root_module.optimize orelse .Debug));
+    const built = out.path(b, "lib/libSDL3.so");
+    objects[index] = .{ .static_path = built };
+    // `linkLibrary` also added the desktop build as an include dir; the headers are the same, so drop it.
+    for (sdl3_module.include_dirs.items, 0..) |dir, i| {
+        if (dir == .other_step and dir.other_step == desktop) {
+            _ = sdl3_module.include_dirs.orderedRemove(i);
+            break;
+        }
+    }
+    // APK packagers want the file name at configure time, so hand them the installed copy.
+    const install = b.addInstallFileWithDir(built, .{ .custom = "android" }, "libSDL3.so");
+    app.step.dependOn(&install.step);
+    return .{ .run = run, .library = .{ .cwd_relative = b.getInstallPath(.{ .custom = "android" }, "libSDL3.so") } };
+}
