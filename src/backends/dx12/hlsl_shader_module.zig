@@ -90,7 +90,6 @@ pub const HLSLShaderModule = struct {
                 .metal => return error.ShaderCompilerUnavailable,
                 .custom => return error.UnsupportedShaderBackend,
             };
-            if (comptime builtin.target.os.tag != .windows) return error.ShaderCompilerUnavailable;
             if (!self.profile.supportsStage(request.stage)) return error.ShaderProfileStageMismatch;
 
             var raw_compiler: ?*anyopaque = null;
@@ -102,13 +101,12 @@ pub const HLSLShaderModule = struct {
             const compiler: *dxc.IDxcCompiler3 = @ptrCast(@alignCast(raw_compiler orelse return error.ShaderCompilerUnavailable));
             defer _ = compiler.lpVtbl.Release(compiler);
 
-            const entry_point = try std.unicode.utf8ToUtf16LeAllocZ(allocator, self.entry_point);
+            const entry_point = try wide(allocator, self.entry_point);
             defer allocator.free(entry_point);
-            const profile = try std.unicode.utf8ToUtf16LeAllocZ(allocator, self.profile.name());
+            const profile = try wide(allocator, self.profile.name());
             defer allocator.free(profile);
 
-            const L = std.unicode.utf8ToUtf16LeStringLiteral;
-            var arguments = [_][*:0]const u16{
+            var arguments = [_][*:0]const dxc.WCHAR{
                 L("-E"),   entry_point.ptr,
                 L("-T"),   profile.ptr,
                 L("-HV"),  L("2021"),
@@ -168,6 +166,25 @@ pub const HLSLShaderModule = struct {
     }
 };
 
+/// DXC's arguments are `wchar_t` strings: UTF-16 on Windows, UTF-32 elsewhere.
+fn wide(allocator: std.mem.Allocator, utf8: []const u8) ![:0]dxc.WCHAR {
+    if (dxc.WCHAR == u16) return std.unicode.utf8ToUtf16LeAllocZ(allocator, utf8);
+    const out = try allocator.allocSentinel(u32, try std.unicode.utf8CountCodepoints(utf8), 0);
+    var codepoints = (try std.unicode.Utf8View.init(utf8)).iterator();
+    for (out) |*c| c.* = codepoints.nextCodepoint().?;
+    return out;
+}
+
+/// `wide` for ASCII literals, at compile time.
+fn L(comptime ascii: []const u8) [*:0]const dxc.WCHAR {
+    const result = comptime blk: {
+        var buffer: [ascii.len:0]dxc.WCHAR = undefined;
+        for (ascii, 0..) |c, i| buffer[i] = c;
+        break :blk buffer;
+    };
+    return &result;
+}
+
 fn checkHr(hr: dxc.HRESULT) !void {
     if (hr < 0) return error.ShaderCompilerCallFailed;
 }
@@ -190,7 +207,7 @@ fn logDiagnostics(result: *dxc.IDxcResult, failed: bool) void {
 }
 
 test "HLSL module compiles DXIL as an inline temporary" {
-    if (!options.enable_dxc or builtin.target.os.tag != .windows) return error.SkipZigTest;
+    if (!options.enable_dxc) return error.SkipZigTest;
 
     const module = HLSLShaderModule.init(.{
         .code = "float4 main() : SV_Target { return 1; }",
@@ -209,7 +226,7 @@ test "HLSL module compiles DXIL as an inline temporary" {
 }
 
 test "HLSL module compiles SPIR-V" {
-    if (!options.enable_dxc or builtin.target.os.tag != .windows) return error.SkipZigTest;
+    if (!options.enable_dxc) return error.SkipZigTest;
 
     const module = HLSLShaderModule.init(.{
         .code = "float4 main() : SV_Target { return 1; }",

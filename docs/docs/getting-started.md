@@ -36,7 +36,7 @@ const vit = @import("vitellus");
 | --- | --- | --- |
 | `vk` | `true` | Compile the Vulkan backend. |
 | `dx12` | `true` | Compile the DirectX 12 backend. This only applies to Windows targets. |
-| `enable_dxc` | `false` | Fetch DXC so that `HLSLShaderModule` can compile HLSL at runtime. |
+| `enable_dxc` | `false` | Fetch DXC so that `HLSLShaderModule` can compile HLSL at runtime. Supported on Windows and x86_64 Linux. |
 | `enable_spirv_cross` | `false` | Link SPIRV-Cross so that SPIR-V shaders also run on DirectX 12. This also needs `enable_dxc`. |
 
 You pass the options to `b.dependency`:
@@ -49,6 +49,23 @@ const vit = b.dependency("vitellus", .{
     .enable_spirv_cross = true,
 });
 ```
+
+### Shipping DXC with your app
+
+DXC is a shared library (`dxcompiler.dll` on Windows, `libdxcompiler.so` on Linux), and a dependency's install step never runs for your app. Install it yourself from the `dxcompiler` named path. On Linux, Vitellus sets the rpath to `$ORIGIN/../lib`, so put the library in `zig-out/lib`:
+
+```zig
+// DXC is a lazy dependency: the path exists once Zig has fetched it and rerun build.zig.
+if (vit.builder.named_lazy_paths.get("dxcompiler")) |lib| {
+    const install = if (target.result.os.tag == .windows)
+        b.addInstallBinFile(lib, "dxcompiler.dll")
+    else
+        b.addInstallLibFile(lib, "libdxcompiler.so");
+    b.getInstallStep().dependOn(&install.step);
+}
+```
+
+Install the `dxil` named path the same way (`dxil.dll` or `libdxil.so`) if you compile DXIL for DirectX 12. It's the validator that signs the output.
 
 ## Windowing
 

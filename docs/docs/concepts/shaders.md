@@ -20,7 +20,7 @@ const shader = try vit.Shader.init(device, .{
 | Module | Input | Vulkan | DirectX 12 |
 | --- | --- | --- | --- |
 | `SPIRVShaderModule` | SPIR-V | Used as is | Needs `enable_spirv_cross` and `enable_dxc` |
-| `HLSLShaderModule` | HLSL source | Needs `enable_dxc` (Windows) | Needs `enable_dxc` |
+| `HLSLShaderModule` | HLSL source | Needs `enable_dxc` | Needs `enable_dxc` |
 | `BinaryShaderModule` | A finished binary for one backend | Yes | Yes |
 
 ### SPIR-V
@@ -33,7 +33,7 @@ vit.SPIRVShaderModule.init(.{ .code = @embedFile("lighting.frag.spv"), .entry_po
 
 ### HLSL
 
-HLSL is compiled at runtime by DXC. The profile has to match the stage:
+HLSL is compiled at runtime by DXC, on Windows and x86_64 Linux. The profile has to match the stage:
 
 ```zig
 vit.HLSLShaderModule.init(.{ .code = source, .entry_point = "psMain", .profile = .ps_6_7 })

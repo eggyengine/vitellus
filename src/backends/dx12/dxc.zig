@@ -1,10 +1,16 @@
-//! Minimal ABI declarations for the interfaces used from dxcompiler.dll.
+//! Minimal ABI declarations for the interfaces used from dxcompiler.dll / libdxcompiler.so.
 //!
 //! The official `dxcapi.h` is a C++ COM header and cannot be translated by
 //! Zig's C importer, so the small stable ABI surface used by Vitellus is
 //! declared directly here.
 
+const builtin = @import("builtin");
 const windows = @import("std").os.windows;
+
+/// Off Windows, DXC's WinAdapter.h drops `__stdcall` (plain C calls) and its `wchar_t` is 32-bit.
+/// Its `IUnknown` has no virtual destructor there, so the vtable layouts below hold on both.
+pub const call: @import("std").builtin.CallingConvention = if (builtin.os.tag == .windows) .winapi else .c;
+pub const WCHAR = if (builtin.os.tag == .windows) u16 else u32;
 
 pub const HRESULT = i32;
 pub const GUID = windows.GUID;
@@ -20,11 +26,11 @@ pub const IDxcBlob = extern struct {
     lpVtbl: *const VTable,
 
     pub const VTable = extern struct {
-        QueryInterface: *const fn (*IDxcBlob, *const GUID, *?*anyopaque) callconv(.winapi) HRESULT,
-        AddRef: *const fn (*IDxcBlob) callconv(.winapi) u32,
-        Release: *const fn (*IDxcBlob) callconv(.winapi) u32,
-        GetBufferPointer: *const fn (*IDxcBlob) callconv(.winapi) ?*anyopaque,
-        GetBufferSize: *const fn (*IDxcBlob) callconv(.winapi) usize,
+        QueryInterface: *const fn (*IDxcBlob, *const GUID, *?*anyopaque) callconv(call) HRESULT,
+        AddRef: *const fn (*IDxcBlob) callconv(call) u32,
+        Release: *const fn (*IDxcBlob) callconv(call) u32,
+        GetBufferPointer: *const fn (*IDxcBlob) callconv(call) ?*anyopaque,
+        GetBufferSize: *const fn (*IDxcBlob) callconv(call) usize,
     };
 };
 
@@ -32,12 +38,12 @@ pub const IDxcResult = extern struct {
     lpVtbl: *const VTable,
 
     pub const VTable = extern struct {
-        QueryInterface: *const fn (*IDxcResult, *const GUID, *?*anyopaque) callconv(.winapi) HRESULT,
-        AddRef: *const fn (*IDxcResult) callconv(.winapi) u32,
-        Release: *const fn (*IDxcResult) callconv(.winapi) u32,
-        GetStatus: *const fn (*IDxcResult, *HRESULT) callconv(.winapi) HRESULT,
-        GetResult: *const fn (*IDxcResult, *?*IDxcBlob) callconv(.winapi) HRESULT,
-        GetErrorBuffer: *const fn (*IDxcResult, *?*IDxcBlob) callconv(.winapi) HRESULT,
+        QueryInterface: *const fn (*IDxcResult, *const GUID, *?*anyopaque) callconv(call) HRESULT,
+        AddRef: *const fn (*IDxcResult) callconv(call) u32,
+        Release: *const fn (*IDxcResult) callconv(call) u32,
+        GetStatus: *const fn (*IDxcResult, *HRESULT) callconv(call) HRESULT,
+        GetResult: *const fn (*IDxcResult, *?*IDxcBlob) callconv(call) HRESULT,
+        GetErrorBuffer: *const fn (*IDxcResult, *?*IDxcBlob) callconv(call) HRESULT,
     };
 };
 
@@ -45,24 +51,24 @@ pub const IDxcCompiler3 = extern struct {
     lpVtbl: *const VTable,
 
     pub const VTable = extern struct {
-        QueryInterface: *const fn (*IDxcCompiler3, *const GUID, *?*anyopaque) callconv(.winapi) HRESULT,
-        AddRef: *const fn (*IDxcCompiler3) callconv(.winapi) u32,
-        Release: *const fn (*IDxcCompiler3) callconv(.winapi) u32,
+        QueryInterface: *const fn (*IDxcCompiler3, *const GUID, *?*anyopaque) callconv(call) HRESULT,
+        AddRef: *const fn (*IDxcCompiler3) callconv(call) u32,
+        Release: *const fn (*IDxcCompiler3) callconv(call) u32,
         Compile: *const fn (
             *IDxcCompiler3,
             *const DxcBuffer,
-            [*]const [*:0]const u16,
+            [*]const [*:0]const WCHAR,
             u32,
             ?*anyopaque,
             *const GUID,
             *?*anyopaque,
-        ) callconv(.winapi) HRESULT,
+        ) callconv(call) HRESULT,
         Disassemble: *const fn (
             *IDxcCompiler3,
             *const DxcBuffer,
             *const GUID,
             *?*anyopaque,
-        ) callconv(.winapi) HRESULT,
+        ) callconv(call) HRESULT,
     };
 };
 
@@ -91,4 +97,4 @@ pub extern "dxcompiler" fn DxcCreateInstance(
     class_id: *const GUID,
     interface_id: *const GUID,
     instance: *?*anyopaque,
-) callconv(.winapi) HRESULT;
+) callconv(call) HRESULT;

@@ -52,8 +52,25 @@ pub fn build(b: *std.Build) void {
     }
 
     // directx shader compiler
-    if (enable_dxc) {
-        if (target.result.os.tag != .windows) @panic("the bundled DXC dependency only supports Windows");
+    if (enable_dxc and target.result.os.tag == .linux and !target.result.abi.isAndroid()) {
+        if (target.result.cpu.arch != .x86_64) @panic("DXC has no prebuilt Linux binary for this architecture");
+        if (b.lazyDependency("directx-shader-compiler-linux", .{})) |dep| {
+            const lib_dir = dep.path("lib");
+            dxc_bin_dir = lib_dir;
+            mod.addLibraryPath(lib_dir);
+            mod.linkSystemLibrary("dxcompiler", .{});
+            // Installed beside the app (zig-out/lib), and found from the package cache when run uncopied.
+            mod.addRPathSpecial("$ORIGIN/../lib");
+            mod.addRPath(lib_dir);
+            // A dependency's install step never runs for the app, so apps install these named
+            // paths themselves: zig-out/lib/libdxcompiler.so (and libdxil.so) next to bin/.
+            b.addNamedLazyPath("dxcompiler", dep.path("lib/libdxcompiler.so"));
+            b.addNamedLazyPath("dxil", dep.path("lib/libdxil.so"));
+            b.getInstallStep().dependOn(&b.addInstallFile(dep.path("lib/libdxcompiler.so"), "lib/libdxcompiler.so").step);
+            b.getInstallStep().dependOn(&b.addInstallFile(dep.path("lib/libdxil.so"), "lib/libdxil.so").step);
+        }
+    } else if (enable_dxc) {
+        if (target.result.os.tag != .windows) @panic("the bundled DXC dependency supports Windows and x86_64 Linux");
         if (b.lazyDependency("directx-shader-compiler", .{})) |dep| {
             const dxc_arch = switch (target.result.cpu.arch) {
                 .x86 => "x86",
@@ -65,6 +82,8 @@ pub fn build(b: *std.Build) void {
             dxc_bin_dir = bin_dir;
             mod.addLibraryPath(dep.path(b.fmt("lib/{s}", .{dxc_arch})));
             mod.linkSystemLibrary("dxcompiler", .{});
+            b.addNamedLazyPath("dxcompiler", dep.path(b.fmt("bin/{s}/dxcompiler.dll", .{dxc_arch})));
+            b.addNamedLazyPath("dxil", dep.path(b.fmt("bin/{s}/dxil.dll", .{dxc_arch})));
             b.getInstallStep().dependOn(&b.addInstallFile(dep.path(b.fmt("bin/{s}/dxcompiler.dll", .{dxc_arch})), "bin/dxcompiler.dll").step);
             b.getInstallStep().dependOn(&b.addInstallFile(dep.path(b.fmt("bin/{s}/dxil.dll", .{dxc_arch})), "bin/dxil.dll").step);
         }

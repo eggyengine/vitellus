@@ -17,6 +17,12 @@
             .hash = "N-V-__8AADDUvANDVTAEXW1xlMtWXX3bUyU8tGOfn57BBCk-",
             .lazy = true,
         },
+        // The same DXC release, prebuilt for x86_64 Linux (libdxcompiler.so, with SPIR-V output).
+        .@"directx-shader-compiler-linux" = .{
+            .url = "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/linux_dxc_2026_05_26.x86_64.tar.gz",
+            .hash = "N-V-__8AAKybGALIIQFF6_YeTrevMS6TUkFoGUoQXHp5tuCm",
+            .lazy = true,
+        },
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.16-compat#b496a6a561ffbbeb530b0f9ed4e059f88c0723a5",
             .hash = "vulkan-0.0.0-r7Ytx7N9AwD7IZt5_XNHtkJ4G9qY0pCH-cpcOsbL8wzD",
