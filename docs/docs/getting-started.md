@@ -78,4 +78,5 @@ exe.root_module.addImport("vitellus_sdl3", vitellus_sdl3);
 zig build test   # run the tests
 zig build check  # type-check without linking
 zig build docs   # write the API reference to zig-out/docs
+docs/examples/check.sh  # build the full programs from these guides
 ```
