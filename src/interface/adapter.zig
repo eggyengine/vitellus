@@ -15,6 +15,57 @@ const swapchain = @import("swapchain.zig");
 const resource = @import("resource.zig");
 const Window = @import("../windowing/windowing.zig").Window;
 
+const builtin = @import("builtin");
+const log = std.log.scoped(.vitellus);
+
+/// Logs what is rendering: hardware and software only, nothing that identifies the user or
+/// the machine (no host or user names, serials, or device UUIDs).
+fn logSystem(instance: Instance, gpu: AdapterInfo) void {
+    var brand: [48]u8 = undefined;
+    log.info("backend {s}, validation {s}", .{ instance.selected_backend.name(), @tagName(instance.config.validation) });
+    // Integrated GPUs report the system memory they share, not dedicated VRAM.
+    const memory = if (gpu.kind == .integrated) "shared memory" else "VRAM";
+    log.info("GPU {s} ({s}, {s}, {d} MiB {s})", .{ gpu.nameSlice(), @tagName(gpu.vendor), @tagName(gpu.kind), gpu.dedicated_vram / (1024 * 1024), memory });
+    log.info("CPU {s} ({s}, {d} threads), {s} {s}", .{
+        cpuName(&brand),
+        @tagName(builtin.cpu.arch),
+        std.Thread.getCpuCount() catch 0,
+        @tagName(builtin.os.tag),
+        @tagName(builtin.abi),
+    });
+}
+
+/// The CPU's marketing name from CPUID on x86, else the model Zig compiled for.
+fn cpuName(buffer: *[48]u8) []const u8 {
+    if (comptime builtin.cpu.arch.isX86()) {
+        if (cpuid(0x8000_0000)[0] >= 0x8000_0004) {
+            for (0..3) |i| {
+                const regs = cpuid(0x8000_0002 + @as(u32, @intCast(i)));
+                for (regs, 0..) |reg, j| std.mem.writeInt(u32, buffer[i * 16 + j * 4 ..][0..4], reg, .little);
+            }
+            const name = std.mem.trim(u8, std.mem.sliceTo(buffer, 0), " ");
+            if (name.len > 0) return name;
+        }
+    }
+    return builtin.cpu.model.name;
+}
+
+fn cpuid(leaf: u32) [4]u32 {
+    var eax: u32 = undefined;
+    var ebx: u32 = undefined;
+    var ecx: u32 = undefined;
+    var edx: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax] "={eax}" (eax),
+          [ebx] "={ebx}" (ebx),
+          [ecx] "={ecx}" (ecx),
+          [edx] "={edx}" (edx),
+        : [leaf] "{eax}" (leaf),
+          [subleaf] "{ecx}" (@as(u32, 0)),
+    );
+    return .{ eax, ebx, ecx, edx };
+}
+
 pub const PowerPreference = enum { low_power, high_performance };
 pub const AdapterDescriptor = struct {
     /// Optional name shown for the selected physical adapter in graphics debuggers.
@@ -109,6 +160,7 @@ pub const Adapter = struct {
     pub fn init(instance: Instance, desc: AdapterDescriptor) !Adapter {
         var adapter = try instance.createAdapter(desc);
         adapter.validation = instance.config.validation;
+        logSystem(instance, adapter.info());
         return adapter;
     }
 
