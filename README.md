@@ -2,6 +2,8 @@
 
 vitellus is a native-first rendering hardware interface written in Zig for building game engines and renderers on modern graphics APIs.
 
+guides and API reference: https://eggyengine.github.io/vitellus/
+
 ## add to project
 requires zig `0.16.0`
 
@@ -17,7 +19,7 @@ const vit = b.dependency("vitellus", .{
     .optimize = optimize,
 
     .enable_dxc = true, // default is false
-    .enable_spirv-cross = true, // default is false
+    .enable_spirv_cross = true, // default is false
 });
 
 exe.root_module.addImport("vitellus", vit.module("vitellus"));
