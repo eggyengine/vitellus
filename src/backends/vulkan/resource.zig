@@ -287,6 +287,11 @@ fn formatBlock(format: resource.Format) FormatBlock { return switch (format) {
 fn sampleCount(n: u32) vk.SampleCountFlags { return switch (n) { 1 => .{ .@"1_bit" = true }, 2 => .{ .@"2_bit" = true }, 4 => .{ .@"4_bit" = true }, 8 => .{ .@"8_bit" = true }, 16 => .{ .@"16_bit" = true }, 32 => .{ .@"32_bit" = true }, 64 => .{ .@"64_bit" = true }, else => .{} }; }
 fn defaultViewDimension(d: resource.TextureDimension, layers: u32) resource.TextureViewDimension { return switch (d) { .d1 => if (layers > 1) .d1_array else .d1, .d2 => if (layers > 1) .d2_array else .d2, .d3 => .d3 }; }
 fn viewType(d: resource.TextureViewDimension) vk.ImageViewType { return switch (d) { .d1 => .@"1d", .d1_array => .@"1d_array", .d2 => .@"2d", .d2_array => .@"2d_array", .cube => .cube, .cube_array => .cube_array, .d3 => .@"3d" }; }
+/// The aspects (depth, stencil, colour) a format has.
+pub fn formatAspects(format: vk.Format) vk.ImageAspectFlags {
+    return aspectMask(.all, format);
+}
+
 fn aspectMask(a: resource.TextureAspect, format: vk.Format) vk.ImageAspectFlags { return switch (a) { .color => .{ .color_bit = true }, .depth => .{ .depth_bit = true }, .stencil => .{ .stencil_bit = true }, .all => switch (format) { .s8_uint => .{ .stencil_bit = true }, .d16_unorm, .d32_sfloat => .{ .depth_bit = true }, .d24_unorm_s8_uint, .d32_sfloat_s8_uint => .{ .depth_bit = true, .stencil_bit = true }, else => .{ .color_bit = true } } }; }
 fn filter(v: resource.FilterMode) vk.Filter { return if (v == .linear) .linear else .nearest; }
 fn address(v: resource.AddressMode) vk.SamplerAddressMode { return switch (v) { .repeat => .repeat, .mirror_repeat => .mirrored_repeat, .clamp_to_edge => .clamp_to_edge }; }

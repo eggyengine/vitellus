@@ -155,12 +155,13 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         .dynamic_state_count = dynamic_states.len,
         .p_dynamic_states = &dynamic_states,
     };
+    const depth_format: vk.Format = if (desc.depth_stencil) |depth| adapter_impl.toVkFormat(depth.format) else .undefined;
     const rendering: vk.PipelineRenderingCreateInfo = .{
         .view_mask = 0,
         .color_attachment_count = @intCast(color_formats.len),
         .p_color_attachment_formats = if (color_formats.len == 0) null else color_formats.ptr,
-        .depth_attachment_format = if (desc.depth_stencil) |depth| adapter_impl.toVkFormat(depth.format) else .undefined,
-        .stencil_attachment_format = .undefined,
+        .depth_attachment_format = if (depth_format != .undefined and resource_impl.formatAspects(depth_format).depth_bit) depth_format else .undefined,
+        .stencil_attachment_format = if (depth_format != .undefined and resource_impl.formatAspects(depth_format).stencil_bit) depth_format else .undefined,
     };
     const depth_state: vk.PipelineDepthStencilStateCreateInfo = if (desc.depth_stencil) |depth| .{
         .depth_test_enable = .true, .depth_write_enable = if (depth.depth_write) .true else .false,

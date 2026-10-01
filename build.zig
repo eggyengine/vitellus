@@ -24,6 +24,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        // The Vulkan loader and its layers expect the system dynamic linker; without libc,
+        // std.DynLib falls back to Zig's own ELF loader and the loader segfaults.
+        .link_libc = if (enable_vk and target.result.os.tag != .windows) true else null,
     });
     addDocs(b, mod, "vitellus");
     const shader_options = b.addOptions();

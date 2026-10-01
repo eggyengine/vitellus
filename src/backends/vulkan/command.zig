@@ -161,14 +161,26 @@ fn beginRenderPass(ptr: *anyopaque, desc: command.RenderPassDescriptor) !void {
     }
     var depth: vk.RenderingAttachmentInfo = undefined;
     var stencil: vk.RenderingAttachmentInfo = undefined;
-    const depth_ptr: ?*const vk.RenderingAttachmentInfo = if (desc.depth_stencil_attachment) |attachment| blk: {
+    var depth_ptr: ?*const vk.RenderingAttachmentInfo = null;
+    var stencil_ptr: ?*const vk.RenderingAttachmentInfo = null;
+    if (desc.depth_stencil_attachment) |attachment| {
         const view = try resource.vkTextureView.fromHandle(attachment.view);
-        depth = .{ .image_view = view.view, .image_layout = if (attachment.depth_read_only) .depth_stencil_read_only_optimal else .depth_stencil_attachment_optimal, .resolve_mode = .{}, .resolve_image_view = .null_handle, .resolve_image_layout = .undefined, .load_op = loadOp(attachment.depth_load_op), .store_op = storeOp(attachment.depth_store_op), .clear_value = .{ .depth_stencil = .{ .depth = attachment.depth_clear, .stencil = attachment.stencil_clear } } };
-        stencil = depth;
-        break :blk &depth;
-    } else null;
+        // Only bind the aspects the format has: a depth-only view as the stencil attachment is invalid.
+        const aspects = resource.formatAspects(view.format);
+        const read_only = (!aspects.depth_bit or attachment.depth_read_only) and (!aspects.stencil_bit or attachment.stencil_read_only);
+        const layout: vk.ImageLayout = if (read_only) .depth_stencil_read_only_optimal else .depth_stencil_attachment_optimal;
+        const clear: vk.ClearValue = .{ .depth_stencil = .{ .depth = attachment.depth_clear, .stencil = attachment.stencil_clear } };
+        if (aspects.depth_bit) {
+            depth = .{ .image_view = view.view, .image_layout = layout, .resolve_mode = .{}, .resolve_image_view = .null_handle, .resolve_image_layout = .undefined, .load_op = loadOp(attachment.depth_load_op), .store_op = storeOp(attachment.depth_store_op), .clear_value = clear };
+            depth_ptr = &depth;
+        }
+        if (aspects.stencil_bit) {
+            stencil = .{ .image_view = view.view, .image_layout = layout, .resolve_mode = .{}, .resolve_image_view = .null_handle, .resolve_image_layout = .undefined, .load_op = loadOp(attachment.stencil_load_op), .store_op = storeOp(attachment.stencil_store_op), .clear_value = clear };
+            stencil_ptr = &stencil;
+        }
+    }
     const render_extent = if (colors.len > 0) (try resource.vkTextureView.fromHandle(desc.color_attachments[0].view)).extent else (try resource.vkTextureView.fromHandle(desc.depth_stencil_attachment.?.view)).extent;
-    self.device.cmdBeginRendering(self.handle, &.{ .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = render_extent }, .layer_count = 1, .view_mask = 0, .color_attachment_count = @intCast(colors.len), .p_color_attachments = if (colors.len == 0) null else colors.ptr, .p_depth_attachment = depth_ptr, .p_stencil_attachment = if (depth_ptr != null) &stencil else null });
+    self.device.cmdBeginRendering(self.handle, &.{ .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = render_extent }, .layer_count = 1, .view_mask = 0, .color_attachment_count = @intCast(colors.len), .p_color_attachments = if (colors.len == 0) null else colors.ptr, .p_depth_attachment = depth_ptr, .p_stencil_attachment = stencil_ptr });
     self.rendering = true;
     self.device.cmdSetViewport(self.handle, 0, &.{vkViewport(.{ .width = @floatFromInt(render_extent.width), .height = @floatFromInt(render_extent.height) })});
     self.device.cmdSetScissor(self.handle, 0, &.{.{ .offset = .{ .x = 0, .y = 0 }, .extent = render_extent }});
