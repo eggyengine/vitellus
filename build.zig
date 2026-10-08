@@ -16,7 +16,8 @@ pub fn build(b: *std.Build) void {
         false;
     var dxc_bin_dir: ?std.Build.LazyPath = null;
 
-    const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse true;
+    const is_web = target.result.cpu.arch.isWasm();
+    const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse !is_web;
     // Zig 0.16's self-hosted linker rejects R_X86_64_PC64 in glibc/GCC .sframe.
     const use_llvm = target.result.os.tag == .linux;
 

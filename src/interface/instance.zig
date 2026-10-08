@@ -35,7 +35,8 @@ pub const Instance = struct {
         const preferred_backend = try settings.environmentBackend(allocator);
         const order = settings.backendFallbackOrderWithPreference(config.backend, preferred_backend);
         for (order.slice()) |candidate| {
-            var instance = switch (candidate) {
+            // Typed so the catch still compiles when every built-in backend is disabled (e.g. wasm).
+            var instance = @as(anyerror!Instance, switch (candidate) {
                 .dx12 => if (comptime options.enable_dx12)
                     @import("../backends/dx12/instance.zig").Dx12Instance.init(allocator, config)
                 else
@@ -46,7 +47,7 @@ pub const Instance = struct {
                     error.VulkanUnavailable,
                 .metal => error.MetalNotImplemented,
                 .custom => unreachable, // custom backends never enter the built-in fallback order
-            } catch |err| {
+            }) catch |err| {
                 last_error = err;
                 continue;
             };
