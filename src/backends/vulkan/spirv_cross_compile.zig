@@ -20,7 +20,7 @@ pub fn compile(
     return switch (request.backend) {
         .dx12 => try compileDx12(code, entry_point, allocator, request),
         .metal => error.SpirvCrossTranslationNotImplemented,
-        .vulkan, .custom => unreachable,
+        .vulkan, .webgpu, .custom => unreachable,
     };
 }
 

@@ -87,7 +87,7 @@ pub const HLSLShaderModule = struct {
             const format: shader.ShaderBinaryFormat = switch (request.backend) {
                 .dx12 => .dxil,
                 .vulkan => .spirv,
-                .metal => return error.ShaderCompilerUnavailable,
+                .metal, .webgpu => return error.ShaderCompilerUnavailable,
                 .custom => return error.UnsupportedShaderBackend,
             };
             if (!self.profile.supportsStage(request.stage)) return error.ShaderProfileStageMismatch;

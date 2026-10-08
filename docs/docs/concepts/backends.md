@@ -24,8 +24,9 @@ The default order depends on the platform:
 | Windows | DirectX 12, then Vulkan |
 | Linux and Android | Vulkan |
 | macOS and iOS | Metal (not implemented yet), then Vulkan |
+| Web (Emscripten) | WebGPU |
 
-If the `VITELLUS_BACKEND` environment variable is set to `vulkan`, `dx12` or `metal`, that backend is tried first, provided `.backend` allows it. This lets you switch backends without rebuilding:
+If the `VITELLUS_BACKEND` environment variable is set to `vulkan`, `dx12`, `metal` or `webgpu`, that backend is tried first, provided `.backend` allows it. This lets you switch backends without rebuilding:
 
 ```bash
 VITELLUS_BACKEND=vulkan ./zig-out/bin/my-game
@@ -68,7 +69,7 @@ Each `BackendFactory` in `custom_backends` is tried before the built-in backends
 const instance = try vit.Instance.init(gpa, .{
     .backend = null,
     .validation = .none,
-    .custom_backends = &.{.{ .name = "webgpu", .createInstanceFn = createWebGpuInstance }},
+    .custom_backends = &.{.{ .name = "software", .createInstanceFn = createSoftwareInstance }},
 });
 ```
 

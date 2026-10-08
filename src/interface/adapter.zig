@@ -29,7 +29,8 @@ fn logSystem(instance: Instance, gpu: AdapterInfo) void {
     log.info("CPU {s} ({s}, {d} threads), {s} {s}", .{
         cpuName(&brand),
         @tagName(builtin.cpu.arch),
-        std.Thread.getCpuCount() catch 0,
+        // Zig 0.16's Emscripten std cannot compile getCpuCount's error path.
+        if (comptime builtin.os.tag == .emscripten) 0 else std.Thread.getCpuCount() catch 0,
         @tagName(builtin.os.tag),
         @tagName(builtin.abi),
     });
@@ -206,6 +207,8 @@ pub const Adapter = struct {
             else
                 error.VulkanUnavailable,
             .metal => error.MetalNotImplemented,
+            // A browser exposes one adapter; use `Instance.createAdapter`.
+            .webgpu => error.EnumerationUnsupported,
             .custom => unreachable, // custom backends never enter the built-in fallback order
         };
     }

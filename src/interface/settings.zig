@@ -16,6 +16,7 @@ pub const VitellusConfig = struct {
     /// - Apple platforms: Metal → Vulkan
     /// - Android: Vulkan
     /// - Linux: Vulkan
+    /// - Web (Emscripten): WebGPU
     ///
     /// When set to `vulkan`, `dx12`, or `metal`, the `VITELLUS_BACKEND`
     /// environment variable promotes that backend to the front of the
@@ -36,8 +37,10 @@ pub const Backend = union(enum) {
     dx12,
     vulkan,
     metal,
+    /// WebGPU in the browser, through Emscripten.
+    webgpu,
     /// User-implemented backend identified by a stable, unique name
-    /// (e.g. "webgpu"). The name is borrowed and must outlive this value.
+    /// (e.g. "software"). The name is borrowed and must outlive this value.
     custom: []const u8,
 
     /// Returns whether two backend identities are the same. Custom backends
@@ -66,8 +69,8 @@ pub const Backend = union(enum) {
 ///
 /// ```zig
 /// pub const factory = vitellus.BackendFactory{
-///     .name = "webgpu",
-///     .createInstanceFn = WebGpuInstance.create,
+///     .name = "software",
+///     .createInstanceFn = SoftwareInstance.create,
 /// };
 /// ```
 ///
@@ -76,12 +79,12 @@ pub const Backend = union(enum) {
 /// ```zig
 /// const instance = try vitellus.Instance.init(allocator, .{
 ///     .backend = .{}, // or a built-in set to fall back to
-///     .custom_backends = &.{webgpu.factory},
+///     .custom_backends = &.{software.factory},
 ///     .validation = .none,
 /// });
 /// ```
 pub const BackendFactory = struct {
-    /// Stable, unique backend name (e.g. "webgpu"). This is the identity the
+    /// Stable, unique backend name (e.g. "software"). This is the identity the
     /// backend should use as `Backend{ .custom = name }` in shader compile
     /// requests.
     name: []const u8,
@@ -103,7 +106,8 @@ pub const BackendType = packed struct(u32) {
     vulkan: bool = false,
     dx12: bool = false,
     metal: bool = false,
-    _pad: u29 = 0,
+    webgpu: bool = false,
+    _pad: u28 = 0,
 
     /// Returns a set containing every known backend.
     ///
@@ -116,8 +120,10 @@ pub const BackendType = packed struct(u32) {
     /// - macOS:
     ///     - Metal
     ///     - Vulkan
+    /// - Web (Emscripten):
+    ///     - WebGPU
     pub fn all() BackendType {
-        return .{ .vulkan = true, .dx12 = true, .metal = true };
+        return .{ .vulkan = true, .dx12 = true, .metal = true, .webgpu = true };
     }
 
     /// Returns whether this set contains `backend`. Custom backends are
@@ -127,13 +133,14 @@ pub const BackendType = packed struct(u32) {
             .dx12 => self.dx12,
             .vulkan => self.vulkan,
             .metal => self.metal,
+            .webgpu => self.webgpu,
             .custom => false,
         };
     }
 
     /// Returns whether no backend is enabled.
     pub fn isEmpty(self: BackendType) bool {
-        return !self.dx12 and !self.vulkan and !self.metal;
+        return !self.dx12 and !self.vulkan and !self.metal and !self.webgpu;
     }
 };
 
@@ -142,6 +149,7 @@ pub fn parseBackendName(name: []const u8) ?Backend {
     if (std.mem.eql(u8, name, "vulkan")) return .vulkan;
     if (std.mem.eql(u8, name, "dx12")) return .dx12;
     if (std.mem.eql(u8, name, "metal")) return .metal;
+    if (std.mem.eql(u8, name, "webgpu")) return .webgpu;
     return null;
 }
 
@@ -175,7 +183,7 @@ pub fn environmentBackend(allocator: std.mem.Allocator) !?Backend {
 
 /// Fixed-capacity backend preference list.
 pub const BackendFallbackOrder = struct {
-    items: [3]Backend = undefined,
+    items: [4]Backend = undefined,
     len: usize = 0,
 
     /// Returns the initialised entries in preference order.
@@ -190,6 +198,7 @@ pub fn platformDefaultBackends() BackendType {
         .windows => .{ .dx12 = true, .vulkan = true },
         // Zig models Android as Linux with an Android ABI. Vulkan is the only backend.
         .linux => .{ .vulkan = true },
+        .emscripten => .{ .webgpu = true },
         else => if (builtin.target.os.tag.isDarwin())
             .{ .metal = true, .vulkan = true }
         else
@@ -203,6 +212,7 @@ pub fn platformBackendOrder() []const Backend {
         .windows => &.{ .dx12, .vulkan },
         // Zig models Android as a Linux OS with an Android ABI.
         .linux => &.{.vulkan},
+        .emscripten => &.{.webgpu},
         else => if (builtin.target.os.tag.isDarwin())
             &.{ .metal, .vulkan }
         else

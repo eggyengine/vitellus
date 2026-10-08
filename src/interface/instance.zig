@@ -46,6 +46,10 @@ pub const Instance = struct {
                 else
                     error.VulkanUnavailable,
                 .metal => error.MetalNotImplemented,
+                .webgpu => if (comptime options.enable_webgpu)
+                    @import("../backends/webgpu.zig").createInstance(allocator, config)
+                else
+                    error.WebGpuUnavailable,
                 .custom => unreachable, // custom backends never enter the built-in fallback order
             }) catch |err| {
                 last_error = err;

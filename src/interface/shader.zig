@@ -15,8 +15,9 @@ pub const ShaderBinaryFormat = union(enum) {
     dxil,
     spirv,
     metallib,
+    wgsl,
     /// Format consumed by a user-implemented backend, identified by a stable,
-    /// unique name (e.g. "wgsl"). The name is borrowed and must outlive this
+    /// unique name (e.g. "dxbc"). The name is borrowed and must outlive this
     /// value.
     custom: []const u8,
 

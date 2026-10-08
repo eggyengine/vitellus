@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) void {
 
     const is_web = target.result.cpu.arch.isWasm();
     const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse !is_web;
+    const enable_webgpu = target.result.os.tag == .emscripten;
     // Zig 0.16's self-hosted linker rejects R_X86_64_PC64 in glibc/GCC .sframe.
     const use_llvm = target.result.os.tag == .linux;
 
@@ -33,6 +34,7 @@ pub fn build(b: *std.Build) void {
     const shader_options = b.addOptions();
     shader_options.addOption(bool, "enable_dx12", enable_dx12);
     shader_options.addOption(bool, "enable_vk", enable_vk);
+    shader_options.addOption(bool, "enable_webgpu", enable_webgpu);
     shader_options.addOption(bool, "enable_dxc", enable_dxc);
     shader_options.addOption(bool, "enable_spirv_cross", enable_spirv_cross);
     mod.addOptions("shader_options", shader_options);
@@ -135,6 +137,29 @@ pub fn build(b: *std.Build) void {
             mod.addIncludePath(dep.path(""));
             mod.linkLibrary(spirv_cross);
         }
+    }
+
+    // webgpu, through the emdawnwebgpu port that `emcc --use-port=emdawnwebgpu` downloads
+    const emsdk_option = b.option([]const u8, "emsdk", "Path to emsdk for web builds (default: $EMSDK, then ~/emsdk)");
+    if (enable_webgpu) {
+        const emsdk = emsdk_option orelse
+            b.graph.environ_map.get("EMSDK") orelse
+            b.pathJoin(&.{ b.graph.environ_map.get("HOME") orelse "/", "emsdk" });
+        const cache = b.pathJoin(&.{ emsdk, "upstream/emscripten/cache" });
+        const port_include = b.pathJoin(&.{ cache, "ports/emdawnwebgpu/emdawnwebgpu_pkg/webgpu/include" });
+        const header = b.pathJoin(&.{ port_include, "webgpu/webgpu.h" });
+        std.Io.Dir.cwd().access(b.graph.io, header, .{}) catch std.debug.panic(
+            "{s} is missing; fetch the port once with `embuilder build emdawnwebgpu`",
+            .{header},
+        );
+        const webgpu_c = b.addTranslateC(.{
+            .root_source_file = .{ .cwd_relative = header },
+            .target = target,
+            .optimize = optimize,
+        });
+        webgpu_c.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ cache, "sysroot/include" }) });
+        mod.addImport("webgpu_c", webgpu_c.createModule());
+        mod.link_libc = true;
     }
 
     // vulkan

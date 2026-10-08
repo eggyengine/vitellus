@@ -9,6 +9,7 @@ pub const windowing = struct {
 pub const backends = struct {
     pub const dx12 = if (options.enable_dx12) @import("backends/dx12.zig") else struct {};
     pub const vk = if (options.enable_vk) @import("backends/vulkan.zig") else struct {};
+    pub const webgpu = if (options.enable_webgpu) @import("backends/webgpu.zig") else struct {};
 };
 
 pub const hal = struct {

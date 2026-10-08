@@ -35,7 +35,7 @@ pub const SPIRVShaderModule = struct {
                     spirv_cross.compile(self.code, self.entry_point, allocator, request)
                 else
                     error.ShaderCompilerUnavailable,
-                .custom => error.UnsupportedShaderBackend,
+                .webgpu, .custom => error.UnsupportedShaderBackend,
             };
         }
     };
