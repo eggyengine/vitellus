@@ -23,6 +23,37 @@
             .hash = "N-V-__8AAKybGALIIQFF6_YeTrevMS6TUkFoGUoQXHp5tuCm",
             .lazy = true,
         },
+        // Slang releases, for `vitellus_slangc` and `compileSlang`.
+        .slang_linux_x86_64 = .{
+            .url = "https://github.com/shader-slang/slang/releases/download/v2026.18.2/slang-2026.18.2-linux-x86_64-glibc-2.27.tar.gz",
+            .hash = "N-V-__8AAH3yDgYqqGBLvoh4QTjTv4hpCFUVHNgMR_5II71O",
+            .lazy = true,
+        },
+        .slang_linux_aarch64 = .{
+            .url = "https://github.com/shader-slang/slang/releases/download/v2026.18.2/slang-2026.18.2-linux-aarch64-glibc-2.28.tar.gz",
+            .hash = "N-V-__8AAAV29gWb1jw0YUrdW7pbbHlb0lBzBcWb9mPiHNuK",
+            .lazy = true,
+        },
+        .slang_macos_x86_64 = .{
+            .url = "https://github.com/shader-slang/slang/releases/download/v2026.18.2/slang-2026.18.2-macos-x86_64.tar.gz",
+            .hash = "N-V-__8AAKCstwWs6UAFWNvaHuAPYQLXp7nPMdIboKo1Fil5",
+            .lazy = true,
+        },
+        .slang_macos_aarch64 = .{
+            .url = "https://github.com/shader-slang/slang/releases/download/v2026.18.2/slang-2026.18.2-macos-aarch64.tar.gz",
+            .hash = "N-V-__8AACiX6QtufbUqgh_ns17jlXnwJ8_55T4TZkC0jjL3",
+            .lazy = true,
+        },
+        .slang_windows_x86_64 = .{
+            .url = "https://github.com/shader-slang/slang/releases/download/v2026.18.2/slang-2026.18.2-windows-x86_64.tar.gz",
+            .hash = "N-V-__8AAE2gXQoXLYOhpg6VsbE4HEQqZV8KrQ28jnm0VQ59",
+            .lazy = true,
+        },
+        .slang_windows_aarch64 = .{
+            .url = "https://github.com/shader-slang/slang/releases/download/v2026.18.2/slang-2026.18.2-windows-aarch64.tar.gz",
+            .hash = "N-V-__8AAIfjWAWBNzou2HBmyAbmWAoe54OCubGldRHN7-5r",
+            .lazy = true,
+        },
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.16-compat#b496a6a561ffbbeb530b0f9ed4e059f88c0723a5",
             .hash = "vulkan-0.0.0-r7Ytx7N9AwD7IZt5_XNHtkJ4G9qY0pCH-cpcOsbL8wzD",

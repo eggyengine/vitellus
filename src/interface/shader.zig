@@ -11,26 +11,7 @@ pub const ShaderStage = enum {
 };
 
 /// Backend-ready shader binary representation.
-pub const ShaderBinaryFormat = union(enum) {
-    dxil,
-    spirv,
-    metallib,
-    wgsl,
-    /// Format consumed by a user-implemented backend, identified by a stable,
-    /// unique name (e.g. "dxbc"). The name is borrowed and must outlive this
-    /// value.
-    custom: []const u8,
-
-    /// Returns whether two formats are the same. Custom formats compare by
-    /// name.
-    pub fn eql(self: ShaderBinaryFormat, other: ShaderBinaryFormat) bool {
-        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
-        return switch (self) {
-            .custom => |name| std.mem.eql(u8, name, other.custom),
-            else => true,
-        };
-    }
-};
+pub const ShaderBinaryFormat = enum { dxil, spirv, metallib, wgsl };
 
 /// Information supplied by the selected graphics backend to a shader module.
 pub const ShaderCompileRequest = struct {
@@ -139,16 +120,8 @@ pub const ShaderModule = struct {
     }
 };
 
-/// A convenient module for already compiled backend-specific shader code.
-///
-/// Currently supports all in `ShaderBinaryFormat`, which includes:
-/// - `dxil` DirectX Intermediate Representation Language
-/// - `spirv` SPIR-V
-/// - `metallib` Metal Intermediate Representation Language
-///
-/// Cross-compilation is not supported. If you do want to do cross-compilation, you should
-/// use another shader compiler type such as `HLSLShaderCompiler` or `SPIRVShaderCompiler`.
-///
+/// Shader code already compiled for one backend: DXIL for DirectX 12, SPIR-V for Vulkan, WGSL for
+/// WebGPU. To compile from source, use `vitellus_dxc`, `vitellus_spirv` or `vitellus_slangc`.
 pub const BinaryShaderModule = struct {
     /// Borrowed precompiled shader data and its target backend.
     pub const Descriptor = struct {
@@ -169,7 +142,7 @@ pub const BinaryShaderModule = struct {
             allocator: std.mem.Allocator,
             request: ShaderCompileRequest,
         ) anyerror!CompiledShader {
-            if (!request.backend.eql(self.backend)) return error.UnsupportedShaderBackend;
+            if (request.backend != self.backend) return error.UnsupportedShaderBackend;
             return .{
                 .format = self.format,
                 .bytes = try allocator.dupe(u8, self.bytes),
@@ -219,7 +192,7 @@ test "custom shader modules compile through the interface vtable" {
             allocator: std.mem.Allocator,
             request: ShaderCompileRequest,
         ) !CompiledShader {
-            try std.testing.expect(request.backend.eql(.vulkan));
+            try std.testing.expectEqual(.vulkan, request.backend);
             try std.testing.expectEqual(ShaderStage.vertex, request.stage);
             return .{
                 .format = .spirv,
@@ -236,7 +209,7 @@ test "custom shader modules compile through the interface vtable" {
     });
     defer compiled.deinit(std.testing.allocator);
 
-    try std.testing.expect(compiled.format.eql(.spirv));
+    try std.testing.expectEqual(.spirv, compiled.format);
     try std.testing.expectEqualStrings("compiled", compiled.bytes);
     try std.testing.expectEqualStrings("customMain", compiled.entry_point);
 }

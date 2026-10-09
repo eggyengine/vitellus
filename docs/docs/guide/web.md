@@ -23,30 +23,17 @@ embuilder build emdawnwebgpu
 
 Vitellus reads `webgpu.h` from that port. It looks for emsdk in `-Demsdk=<path>`, then `$EMSDK`, then `~/emsdk`.
 
-## 2. Pick the backend and shaders
+## 2. Shaders
 
-The default backend list on Emscripten is WebGPU, so `.backend = null` works on every platform. If you list backends explicitly, include `.webgpu`:
+Leave `.backend` unset and Vitellus picks WebGPU on the web. If you list backends yourself, include `.webgpu`: each platform only tries the backends it has, so `.{ .vulkan = true, .webgpu = true }` means Vulkan on the desktop and WebGPU in the browser.
 
-```zig
-const web = @import("builtin").os.tag == .emscripten;
-const instance = try vit.Instance.init(gpa, .{
-    .backend = if (web) .{ .webgpu = true } else .{ .vulkan = true },
-    .validation = .core,
-});
-```
-
-WebGPU only accepts WGSL. Slang can emit it next to your SPIR-V (`slangc shader.slang -target wgsl -entry vertexMain -stage vertex -o shader.vert.wgsl`). Pass the WGSL as a binary shader module and name the entry point:
+WebGPU only accepts WGSL. Slang can emit it next to your SPIR-V (`slangc shader.slang -target wgsl -entry vertexMain -stage vertex -o shader.vert.wgsl`). Pass it as a binary for the WebGPU backend:
 
 ```zig
-fn shaderSource(code: []const u8, entry_point: []const u8) vit.ShaderModule {
-    if (web) return vit.BinaryShaderModule.init(.{
-        .backend = .webgpu,
-        .format = .wgsl,
-        .bytes = code,
-        .entry_point = entry_point,
-    });
-    return vit.SPIRVShaderModule.init(.{ .code = code });
-}
+const module = if (web)
+    vit.BinaryShaderModule.init(.{ .backend = .webgpu, .format = .wgsl, .bytes = @embedFile("shader.vert.wgsl"), .entry_point = "vertexMain" })
+else
+    @import("vitellus_spirv").SPIRVShaderModule.init(.{ .code = @embedFile("shader.vert.spv") });
 ```
 
 WGSL has no combined image-samplers. Bind the texture and the sampler as separate entries.
@@ -65,84 +52,52 @@ A few things behave differently:
 - Barriers, semaphores and command pools are no-ops. WebGPU tracks resource state itself, and its single queue runs work in submission order.
 - The backend renders into the page's `#canvas` element. SDL and Emscripten's default page both use it.
 
-## 4. Work around Zig 0.16's Emscripten std
+## 4. Logging, panics and SDL
 
-Zig 0.16's standard library cannot compile its stderr writer, or `std.Io.Threaded`, for Emscripten. Any code that reaches either one fails to build with errors inside `std/Io/Threaded.zig` or `std/os/emscripten.zig`. Such code includes the default panic handler, the default log function, `std.debug.print`, and zig-sdl3's `main_callbacks`. In your root file, send logs and panics to the browser console instead:
+Zig 0.16 cannot compile its stderr writer, or `std.Io.Threaded`, for Emscripten. That breaks the default log function, the default panic handler and zig-sdl3's `main_callbacks`. Vitellus has replacements that send logs and panics to the browser console. Off the web they are Zig's and zig-sdl3's defaults, so your root file can use them on every platform:
 
 ```zig
-const web = @import("builtin").os.tag == .emscripten;
-extern fn emscripten_console_log(message: [*:0]const u8) void;
-extern fn emscripten_console_error(message: [*:0]const u8) void;
+pub const std_options = vit.web.std_options;
+pub const panic = vit.web.panic;
 
-pub const std_options: std.Options = if (web) .{ .logFn = consoleLog } else .{};
-pub const panic = if (web) std.debug.FullPanic(webPanic) else std.debug.FullPanic(std.debug.defaultPanic);
-
-fn consoleLog(comptime level: std.log.Level, comptime scope: @EnumLiteral(), comptime format: []const u8, args: anytype) void {
-    var buffer: [1024]u8 = undefined;
-    const prefix = "[" ++ @tagName(level) ++ "] " ++ (if (scope == .default) "" else @tagName(scope) ++ ": ");
-    const message = std.fmt.bufPrintZ(&buffer, prefix ++ format, args) catch "[log message too long]";
-    if (@intFromEnum(level) <= @intFromEnum(std.log.Level.warn)) emscripten_console_error(message) else emscripten_console_log(message);
-}
-
-fn webPanic(message: []const u8, _: ?usize) noreturn {
-    std.log.err("panic: {s}", .{message});
-    @trap();
+comptime {
+    _ = vitellus_sdl3.main_callbacks; // instead of sdl3.main_callbacks
 }
 ```
 
-If you use zig-sdl3, register the four SDL callbacks yourself on the web and call `SDL_EnterAppMainCallbacks` from an exported `main`, instead of referencing `sdl3.main_callbacks`. Eggy's [`main.zig`](https://github.com/eggyengine/eggy/blob/main/src/main.zig) shows this in full.
+Write the same `init`, `iterate`, `event` and `quit` functions as for zig-sdl3. On the web, `Init.gpa` is libc's allocator and `Init.io` is `std.Io.failing`.
 
 ## 5. Build and link
 
-Build the app as a static library and link it with `em++`. Emscripten's C++ linker is needed because Dawn's bindings are C++. Zig ships no libc headers for Emscripten, so any C code in the build needs the emsdk sysroot's headers. SDL also reads that sysroot from `--sysroot`:
+Vitellus's `build.zig` exports an `Emscripten` helper. `init` finds emsdk (`-Demsdk`, then `$EMSDK`, then `~/emsdk`) and, for a web target, points `b.sysroot` at Emscripten's sysroot, which SDL's build reads. Call it before creating dependencies. `addApp` links your root module into a page with `em++`:
 
 ```zig title="build.zig"
-const web = target.result.os.tag == .emscripten;
-const emsdk = b.option([]const u8, "emsdk", "Path to emsdk") orelse
-    b.graph.environ_map.get("EMSDK") orelse
-    b.pathJoin(&.{ b.graph.environ_map.get("HOME") orelse "/", "emsdk" });
-const sysroot = b.pathJoin(&.{ emsdk, "upstream/emscripten/cache/sysroot" });
-if (web and b.sysroot == null) b.sysroot = sysroot;
+const Emscripten = @import("vitellus").Emscripten;
 
-const vitellus = b.dependency("vitellus", .{ .target = target, .optimize = optimize, .emsdk = emsdk });
-// ... create `app_module` (link_libc = true) and import vitellus as usual ...
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+    const emscripten = Emscripten.init(b, target, b.option([]const u8, "emsdk", "Path to emsdk"));
+    const vitellus = b.dependency("vitellus", .{ .target = target, .optimize = optimize, .emsdk = emscripten.emsdk });
+    // ... create `app_module` (link_libc = true) and import vitellus as usual ...
 
-if (web) {
-    const lib = b.addLibrary(.{ .name = "app", .linkage = .static, .root_module = app_module });
-    const emcc = b.addSystemCommand(&.{b.pathJoin(&.{ emsdk, "upstream/emscripten/em++" })});
-    emcc.setEnvironmentVariable("EM_CONFIG", b.pathJoin(&.{ emsdk, ".emscripten" }));
-    for (lib.getCompileDependencies(false)) |dep| {
-        // Every C source (SDL, FreeType, stb, ...) needs Emscripten's libc headers.
-        for (dep.root_module.getGraph().modules) |module|
-            module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sysroot, "include" }) });
-        // Zig static libraries don't bundle their dependencies, so pass each one.
-        if (dep.kind == .lib and dep.linkage == .static) emcc.addArtifactArg(dep);
+    if (target.result.os.tag == .emscripten) {
+        const app = emscripten.addApp(b, .{ .name = "app", .root_module = app_module });
+        b.step("run", "Open the app in a browser").dependOn(&app.run.step);
+    } else {
+        // b.addExecutable(...) as usual
     }
-    emcc.addArgs(&.{
-        if (optimize == .Debug) "-O0" else "-O2",
-        "--use-port=emdawnwebgpu",
-        "-sASYNCIFY", // lets Vitellus wait on WebGPU's async callbacks
-        "-sASYNCIFY_STACK_SIZE=65536",
-        "-sSTACK_SIZE=1048576",
-        "-sALLOW_MEMORY_GROWTH",
-        "-o",
-    });
-    const html = emcc.addOutputFileArg("app.html");
-    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
-        .source_dir = html.dirname(),
-        .install_dir = .prefix,
-        .install_subdir = "web",
-    }).step);
 }
 ```
 
-Then build:
+`addApp` adds Emscripten's libc headers to every C dependency, passes every static library to `em++`, and sets the flags Vitellus needs (`--use-port=emdawnwebgpu`, `-sASYNCIFY`, ...). Add your own with `.args`, or use your own page with `.shell_file`. The page needs a `<canvas id="canvas">` and the `{{{ SCRIPT }}}` placeholder.
 
 ```bash
 zig build -Dtarget=wasm32-emscripten -Doptimize=ReleaseSmall
+zig build run -Dtarget=wasm32-emscripten   # serves and opens the page with emrun
 ```
 
-The page is `zig-out/web/app.html`, with `app.js` and `app.wasm` beside it. Pass `--shell-file page.html` to `em++` to use your own page instead of Emscripten's. It needs a `<canvas id="canvas">` and the `{{{ SCRIPT }}}` placeholder.
+The page is `zig-out/web/app.html`, with `app.js` and `app.wasm` beside it.
 
 ## 6. Serve and deploy
 

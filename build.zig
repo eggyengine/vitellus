@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
     const enable_spirv_cross =
         b.option(bool, "enable_spirv_cross", "Enable SPIRV-Cross C API shader translation") orelse
         false;
+    const enable_slang = b.option(bool, "enable_slang", "Add the vitellus_slangc module for runtime Slang compilation") orelse false;
     var dxc_bin_dir: ?std.Build.LazyPath = null;
 
     const is_web = target.result.cpu.arch.isWasm();
@@ -35,8 +36,6 @@ pub fn build(b: *std.Build) void {
     shader_options.addOption(bool, "enable_dx12", enable_dx12);
     shader_options.addOption(bool, "enable_vk", enable_vk);
     shader_options.addOption(bool, "enable_webgpu", enable_webgpu);
-    shader_options.addOption(bool, "enable_dxc", enable_dxc);
-    shader_options.addOption(bool, "enable_spirv_cross", enable_spirv_cross);
     mod.addOptions("shader_options", shader_options);
 
     const candler = b.dependency("candler", .{
@@ -54,23 +53,26 @@ pub fn build(b: *std.Build) void {
         mod.linkSystemLibrary("d3d12", .{});
     }
 
-    // directx shader compiler
+    // directx shader compiler: the vitellus_dxc module
+    const dxc_mod: ?*std.Build.Module = if (enable_dxc) b.addModule("vitellus_dxc", .{
+        .root_source_file = b.path("src/dxc/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{.{ .name = "vitellus", .module = mod }},
+    }) else null;
     if (enable_dxc and target.result.os.tag == .linux and !target.result.abi.isAndroid()) {
         if (target.result.cpu.arch != .x86_64) @panic("DXC has no prebuilt Linux binary for this architecture");
         if (b.lazyDependency("directx-shader-compiler-linux", .{})) |dep| {
             const lib_dir = dep.path("lib");
             dxc_bin_dir = lib_dir;
-            mod.addLibraryPath(lib_dir);
-            mod.linkSystemLibrary("dxcompiler", .{});
+            dxc_mod.?.addLibraryPath(lib_dir);
+            dxc_mod.?.linkSystemLibrary("dxcompiler", .{});
             // Installed beside the app (zig-out/lib), and found from the package cache when run uncopied.
-            mod.addRPathSpecial("$ORIGIN/../lib");
-            mod.addRPath(lib_dir);
-            // A dependency's install step never runs for the app, so apps install these named
-            // paths themselves: zig-out/lib/libdxcompiler.so (and libdxil.so) next to bin/.
-            b.addNamedLazyPath("dxcompiler", dep.path("lib/libdxcompiler.so"));
-            b.addNamedLazyPath("dxil", dep.path("lib/libdxil.so"));
-            b.getInstallStep().dependOn(&b.addInstallFile(dep.path("lib/libdxcompiler.so"), "lib/libdxcompiler.so").step);
-            b.getInstallStep().dependOn(&b.addInstallFile(dep.path("lib/libdxil.so"), "lib/libdxil.so").step);
+            dxc_mod.?.addRPathSpecial("$ORIGIN/../lib");
+            dxc_mod.?.addRPath(lib_dir);
+            addRuntimeLibrary(b, dep.path("lib/libdxcompiler.so"), "lib/libdxcompiler.so");
+            addRuntimeLibrary(b, dep.path("lib/libdxil.so"), "lib/libdxil.so");
         }
     } else if (enable_dxc) {
         if (target.result.os.tag != .windows) @panic("the bundled DXC dependency supports Windows and x86_64 Linux");
@@ -83,14 +85,25 @@ pub fn build(b: *std.Build) void {
             };
             const bin_dir = dep.path(b.fmt("bin/{s}", .{dxc_arch}));
             dxc_bin_dir = bin_dir;
-            mod.addLibraryPath(dep.path(b.fmt("lib/{s}", .{dxc_arch})));
-            mod.linkSystemLibrary("dxcompiler", .{});
-            b.addNamedLazyPath("dxcompiler", dep.path(b.fmt("bin/{s}/dxcompiler.dll", .{dxc_arch})));
-            b.addNamedLazyPath("dxil", dep.path(b.fmt("bin/{s}/dxil.dll", .{dxc_arch})));
-            b.getInstallStep().dependOn(&b.addInstallFile(dep.path(b.fmt("bin/{s}/dxcompiler.dll", .{dxc_arch})), "bin/dxcompiler.dll").step);
-            b.getInstallStep().dependOn(&b.addInstallFile(dep.path(b.fmt("bin/{s}/dxil.dll", .{dxc_arch})), "bin/dxil.dll").step);
+            dxc_mod.?.addLibraryPath(dep.path(b.fmt("lib/{s}", .{dxc_arch})));
+            dxc_mod.?.linkSystemLibrary("dxcompiler", .{});
+            addRuntimeLibrary(b, dep.path(b.fmt("bin/{s}/dxcompiler.dll", .{dxc_arch})), "bin/dxcompiler.dll");
+            addRuntimeLibrary(b, dep.path(b.fmt("bin/{s}/dxil.dll", .{dxc_arch})), "bin/dxil.dll");
         }
     }
+
+    // spir-v: the vitellus_spirv module, translated for DX12 with SPIRV-Cross when enabled
+    if (enable_spirv_cross and !enable_dxc) @panic("enable_spirv_cross needs enable_dxc to compile the translated HLSL");
+    const spirv_options = b.addOptions();
+    spirv_options.addOption(bool, "cross", enable_spirv_cross);
+    const spirv_mod = b.addModule("vitellus_spirv", .{
+        .root_source_file = b.path("src/spirv/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "vitellus", .module = mod }},
+    });
+    spirv_mod.addOptions("spirv_options", spirv_options);
+    if (dxc_mod) |dxc| spirv_mod.addImport("vitellus_dxc", dxc);
 
     // SPIRV-Cross C API (https://github.com/KhronosGroup/SPIRV-Cross)
     // Mirrors CMake SPIRV_CROSS_SHARED with GLSL + HLSL + MSL backends enabled.
@@ -133,19 +146,16 @@ pub fn build(b: *std.Build) void {
                 .linkage = .static,
                 .root_module = spirv_cross_mod,
             });
-            // For @cImport("spirv_cross_c.h") from vitellus sources.
-            mod.addIncludePath(dep.path(""));
-            mod.linkLibrary(spirv_cross);
+            // For @cImport("spirv_cross_c.h").
+            spirv_mod.addIncludePath(dep.path(""));
+            spirv_mod.linkLibrary(spirv_cross);
         }
     }
 
     // webgpu, through the emdawnwebgpu port that `emcc --use-port=emdawnwebgpu` downloads
     const emsdk_option = b.option([]const u8, "emsdk", "Path to emsdk for web builds (default: $EMSDK, then ~/emsdk)");
     if (enable_webgpu) {
-        const emsdk = emsdk_option orelse
-            b.graph.environ_map.get("EMSDK") orelse
-            b.pathJoin(&.{ b.graph.environ_map.get("HOME") orelse "/", "emsdk" });
-        const cache = b.pathJoin(&.{ emsdk, "upstream/emscripten/cache" });
+        const cache = b.pathJoin(&.{ Emscripten.init(b, target, emsdk_option).emsdk, "upstream/emscripten/cache" });
         const port_include = b.pathJoin(&.{ cache, "ports/emdawnwebgpu/emdawnwebgpu_pkg/webgpu/include" });
         const header = b.pathJoin(&.{ port_include, "webgpu/webgpu.h" });
         std.Io.Dir.cwd().access(b.graph.io, header, .{}) catch std.debug.panic(
@@ -170,6 +180,40 @@ pub fn build(b: *std.Build) void {
         mod.addImport("vulkan", vulkan);
     }
 
+    // slang
+    if (enable_slang) {
+        const slang = if (target.result.os.tag == .emscripten) null else slangPackage(b, target.result);
+        const slang_options = b.addOptions();
+        slang_options.addOption(bool, "available", slang != null);
+        const slangc = b.addModule("vitellus_slangc", .{
+            .root_source_file = b.path("src/slangc.zig"),
+            .target = target,
+            .optimize = optimize,
+            // dlopen, unlike Zig's own ELF loader, follows the app's rpath.
+            .link_libc = true,
+            .imports = &.{.{ .name = "vitellus", .module = mod }},
+        });
+        slangc.addOptions("slang_options", slang_options);
+        if (slang) |dep| {
+            const file, const installed = switch (target.result.os.tag) {
+                .windows => .{ "bin/slang-compiler.dll", "bin/slang-compiler.dll" },
+                .macos => .{ "lib/libslang-compiler.0.2026.18.2.dylib", "lib/libslang-compiler.dylib" },
+                else => .{ "lib/libslang-compiler.so", "lib/libslang-compiler.so" },
+            };
+            switch (target.result.os.tag) {
+                .windows => {},
+                .macos => slangc.addRPathSpecial("@executable_path/../lib"),
+                else => slangc.addRPathSpecial("$ORIGIN/../lib"),
+            }
+            // Found from the package cache when run uncopied, e.g. by tests.
+            if (target.result.os.tag != .windows) slangc.addRPath(dep.path("lib"));
+            addRuntimeLibrary(b, dep.path(file), installed);
+        }
+        const slang_tests = b.addRunArtifact(b.addTest(.{ .root_module = slangc, .use_llvm = use_llvm }));
+        if (slang) |dep| if (target.result.os.tag == .windows) slang_tests.addPathDir(dep.path("bin").getPath(b));
+        b.step("test-slang", "Run vitellus_slangc tests").dependOn(&slang_tests.step);
+    }
+
     // check step
     // required by zls
     {
@@ -180,6 +224,9 @@ pub fn build(b: *std.Build) void {
         });
         const check = b.step("check", "Check if vitellus compiles");
         check.dependOn(&lib_check.step);
+        for ([_]?*std.Build.Module{ dxc_mod, spirv_mod }) |shader_mod| {
+            check.dependOn(&b.addTest(.{ .root_module = shader_mod orelse continue, .use_llvm = use_llvm }).step);
+        }
     }
 
     // tests
@@ -197,12 +244,148 @@ pub fn build(b: *std.Build) void {
             .use_llvm = use_llvm,
         });
 
-        const run_mod_tests = b.addRunArtifact(mod_tests);
-        if (dxc_bin_dir) |dir| run_mod_tests.addPathDir(dir.getPath(b));
-
         const test_step = b.step("test", "Run tests");
-        test_step.dependOn(&run_mod_tests.step);
+        test_step.dependOn(&b.addRunArtifact(mod_tests).step);
+        for ([_]?*std.Build.Module{ dxc_mod, spirv_mod }) |shader_mod| {
+            const run = b.addRunArtifact(b.addTest(.{ .root_module = shader_mod orelse continue, .test_runner = test_runner, .use_llvm = use_llvm }));
+            // Windows finds dxcompiler.dll on PATH.
+            if (dxc_bin_dir) |dir| run.addPathDir(dir.getPath(b));
+            test_step.dependOn(&run.step);
+        }
     }
+}
+
+/// Web builds with Emscripten. Zig compiles the app into a static library and `em++` links it.
+pub const Emscripten = struct {
+    emsdk: []const u8,
+    /// Emscripten's libc headers; Zig ships none for Emscripten.
+    include: std.Build.LazyPath,
+
+    /// `emsdk` defaults to `$EMSDK`, then `~/emsdk`. For an Emscripten `target`, sets `b.sysroot` to
+    /// Emscripten's sysroot, which SDL's build reads, so call this before creating dependencies.
+    pub fn init(b: *std.Build, target: std.Build.ResolvedTarget, emsdk: ?[]const u8) Emscripten {
+        const root = emsdk orelse b.graph.environ_map.get("EMSDK") orelse
+            b.pathJoin(&.{ b.graph.environ_map.get("HOME") orelse "/", "emsdk" });
+        const sysroot = b.pathJoin(&.{ root, "upstream/emscripten/cache/sysroot" });
+        if (target.result.os.tag == .emscripten and b.sysroot == null) b.sysroot = sysroot;
+        return .{ .emsdk = root, .include = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "include" }) } };
+    }
+
+    pub const AppOptions = struct {
+        /// Names the page: `zig-out/web/<name>.html`, with `<name>.js` and `<name>.wasm` beside it.
+        name: []const u8,
+        /// Exports `main`, as `vitellus_sdl3.main_callbacks` does.
+        root_module: *std.Build.Module,
+        /// A page with a `<canvas id="canvas">` and the `{{{ SCRIPT }}}` placeholder, instead of Emscripten's.
+        shell_file: ?std.Build.LazyPath = null,
+        /// Extra `em++` flags.
+        args: []const []const u8 = &.{},
+    };
+
+    pub const App = struct {
+        install: *std.Build.Step.InstallDir,
+        /// Serves the installed page with `emrun` and opens it in a browser.
+        run: *std.Build.Step.Run,
+    };
+
+    /// Links the app, every static library it depends on, and Dawn's WebGPU bindings into a page.
+    pub fn addApp(self: Emscripten, b: *std.Build, options: AppOptions) App {
+        const lib = b.addLibrary(.{ .name = options.name, .linkage = .static, .root_module = options.root_module });
+        // em++, since Dawn's WebGPU bindings are C++.
+        const emcc = b.addSystemCommand(&.{b.pathJoin(&.{ self.emsdk, "upstream/emscripten/em++" })});
+        emcc.setEnvironmentVariable("EM_CONFIG", b.pathJoin(&.{ self.emsdk, ".emscripten" }));
+        for (lib.getCompileDependencies(false)) |dep| {
+            // C code in every module (SDL, FreeType, stb, ...) needs Emscripten's libc headers.
+            for (dep.root_module.getGraph().modules) |module| module.addSystemIncludePath(self.include);
+            // Zig static libraries don't bundle their dependencies, so pass each one.
+            if (dep.kind == .lib and dep.linkage == .static) emcc.addArtifactArg(dep);
+        }
+        emcc.addArgs(&.{
+            switch (options.root_module.optimize orelse .Debug) {
+                .Debug => "-O0",
+                .ReleaseSafe, .ReleaseFast => "-O2",
+                .ReleaseSmall => "-Oz",
+            },
+            "--use-port=emdawnwebgpu",
+            // Vitellus waits on WebGPU's async adapter, device and fence callbacks.
+            "-sASYNCIFY",
+            "-sASYNCIFY_STACK_SIZE=65536",
+            "-sSTACK_SIZE=1048576",
+            "-sALLOW_MEMORY_GROWTH",
+        });
+        if (options.shell_file) |shell| {
+            emcc.addArg("--shell-file");
+            emcc.addFileArg(shell);
+        }
+        emcc.addArgs(options.args);
+        emcc.addArg("-o");
+        const html = emcc.addOutputFileArg(b.fmt("{s}.html", .{options.name}));
+        const install = b.addInstallDirectory(.{ .source_dir = html.dirname(), .install_dir = .prefix, .install_subdir = "web" });
+        b.getInstallStep().dependOn(&install.step);
+
+        const run = b.addSystemCommand(&.{ b.pathJoin(&.{ self.emsdk, "upstream/emscripten/emrun" }), b.getInstallPath(.prefix, b.fmt("web/{s}.html", .{options.name})) });
+        run.setEnvironmentVariable("EM_CONFIG", b.pathJoin(&.{ self.emsdk, ".emscripten" }));
+        run.step.dependOn(&install.step);
+        if (b.args) |args| run.addArgs(args);
+        return .{ .install = install, .run = run };
+    }
+};
+
+/// Installs the shared libraries Vitellus loads at runtime (DXC with `enable_dxc`, Slang with
+/// `enable_slang`) beside your app: `zig-out/lib` on Linux and macOS, `zig-out/bin` on Windows.
+/// A dependency installs into its own prefix, so call this from your `build.zig`.
+pub fn installLibraries(b: *std.Build, vitellus: *std.Build.Dependency) void {
+    var it = vitellus.builder.named_lazy_paths.iterator();
+    while (it.next()) |entry| {
+        if (!std.mem.startsWith(u8, entry.key_ptr.*, runtime_library_prefix)) continue;
+        const dest = entry.key_ptr.*[runtime_library_prefix.len..];
+        b.getInstallStep().dependOn(&b.addInstallFile(entry.value_ptr.*, dest).step);
+    }
+}
+
+const runtime_library_prefix = "runtime:";
+
+/// A library loaded at runtime, installed at `dest` (relative to the prefix) by `installLibraries`.
+fn addRuntimeLibrary(b: *std.Build, path: std.Build.LazyPath, dest: []const u8) void {
+    b.addNamedLazyPath(b.fmt("{s}{s}", .{ runtime_library_prefix, dest }), path);
+    b.getInstallStep().dependOn(&b.addInstallFile(path, dest).step);
+}
+
+pub const SlangStage = enum { vertex, fragment, compute };
+
+/// Compiles one entry point of a Slang file at build time with the host's `slangc`: to WGSL for
+/// Emscripten targets, otherwise to SPIR-V (entry point renamed to `main`). Null until Zig has
+/// fetched Slang and rerun `build.zig`.
+pub fn compileSlang(b: *std.Build, vitellus: *std.Build.Dependency, target: std.Build.ResolvedTarget, source: std.Build.LazyPath, entry_point: []const u8, stage: SlangStage) ?std.Build.LazyPath {
+    const host = b.graph.host.result;
+    const slang = slangPackage(vitellus.builder, host) orelse return null;
+    const web = target.result.os.tag == .emscripten;
+    const run = b.addSystemCommand(&.{slang.path(if (host.os.tag == .windows) "bin/slangc.exe" else "bin/slangc").getPath(b)});
+    run.addFileArg(source);
+    run.addArgs(&.{ "-target", if (web) "wgsl" else "spirv", "-entry", entry_point, "-stage", @tagName(stage), "-o" });
+    return run.addOutputFileArg(b.fmt("{s}.{s}", .{ entry_point, if (web) "wgsl" else "spv" }));
+}
+
+fn slangPackage(b: *std.Build, target: std.Target) ?*std.Build.Dependency {
+    const name = switch (target.os.tag) {
+        .linux => switch (target.cpu.arch) {
+            .x86_64 => "slang_linux_x86_64",
+            .aarch64 => "slang_linux_aarch64",
+            else => @panic("Slang has no release for this Linux architecture"),
+        },
+        .macos => switch (target.cpu.arch) {
+            .x86_64 => "slang_macos_x86_64",
+            .aarch64 => "slang_macos_aarch64",
+            else => @panic("Slang has no release for this macOS architecture"),
+        },
+        .windows => switch (target.cpu.arch) {
+            .x86_64 => "slang_windows_x86_64",
+            .aarch64 => "slang_windows_aarch64",
+            else => @panic("Slang has no release for this Windows architecture"),
+        },
+        else => @panic("Slang has no release for this operating system"),
+    };
+    return b.lazyDependency(name, .{});
 }
 
 pub const AndroidSdl = struct {

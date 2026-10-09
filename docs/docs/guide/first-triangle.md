@@ -7,50 +7,52 @@ title: Your first triangle
 
 This guide opens an SDL3 window, clears it every frame and draws a triangle. It touches each object you need for presenting a frame. The full program is shown at the end.
 
-It assumes you have already set up the `vitellus` and `vitellus_sdl3` modules as described in [Getting started](../getting-started.md).
+It assumes you have already set up the `vitellus`, `vitellus_spirv` and `vitellus_sdl3` modules as described in [Getting started](../getting-started.md).
 
 ## 1. Shaders
 
-Vitellus passes SPIR-V straight to Vulkan. DirectX 12 can use the same SPIR-V if you build with `enable_spirv_cross` and `enable_dxc`, which translate it to HLSL and then compile that to DXIL. The vertex shader reads its positions from a constant array, so you don't need a vertex buffer. In Vitellus, +Y points up in clip space:
+The `vitellus_spirv` module passes SPIR-V straight to Vulkan. DirectX 12 can use the same SPIR-V if you build with `enable_spirv_cross` and `enable_dxc`, which translate it to HLSL and then compile that to DXIL. The vertex shader reads its positions from a constant array, so you don't need a vertex buffer. In Vitellus, +Y points up in clip space:
 
-```glsl title="triangle.vert"
-#version 450
-layout(location = 0) out vec3 color;
+```hlsl title="triangle.vert.hlsl"
+struct VSOut {
+    float4 position : SV_Position;
+    float3 color : COLOR0;
+};
 
-void main() {
-    vec2 positions[3] = vec2[](vec2(0.0, 0.5), vec2(0.5, -0.5), vec2(-0.5, -0.5));
-    vec3 colors[3] = vec3[](vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1));
-    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-    color = colors[gl_VertexIndex];
+VSOut main(uint id : SV_VertexID) {
+    const float2 positions[3] = { float2(0.0, 0.5), float2(0.5, -0.5), float2(-0.5, -0.5) };
+    const float3 colors[3] = { float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1) };
+    VSOut o;
+    o.position = float4(positions[id], 0.0, 1.0);
+    o.color = colors[id];
+    return o;
 }
 ```
 
-```glsl title="triangle.frag"
-#version 450
-layout(location = 0) in vec3 color;
-layout(location = 0) out vec4 out_color;
-
-void main() {
-    out_color = vec4(color, 1.0);
+```hlsl title="triangle.frag.hlsl"
+float4 main(float3 color : COLOR0) : SV_Target0 {
+    return float4(color, 1.0);
 }
 ```
 
-Compile them to SPIR-V next to your `main.zig` so that `@embedFile` can find them:
+Compile them to SPIR-V next to your `main.zig` so that `@embedFile` can find them. We recommend DXC or Slang:
 
 ```bash
-glslc triangle.vert -o triangle.vert.spv
-glslc triangle.frag -o triangle.frag.spv
+# DXC
+dxc -spirv -T vs_6_0 -E main triangle.vert.hlsl -Fo triangle.vert.spv
+dxc -spirv -T ps_6_0 -E main triangle.frag.hlsl -Fo triangle.frag.spv
+
+# or Slang
+slangc triangle.vert.hlsl -target spirv -entry main -stage vertex -o triangle.vert.spv
+slangc triangle.frag.hlsl -target spirv -entry main -stage fragment -o triangle.frag.spv
 ```
 
-Any compiler that emits SPIR-V will work, including Slang and DXC.
+Any compiler that emits SPIR-V will work, including glslc if you prefer GLSL.
 
 ## 2. Instance, adapter, device and queue
 
 ```zig
-const instance = try vit.Instance.init(gpa, .{
-    .backend = .{ .vulkan = true },
-    .validation = .core,
-});
+const instance = try vit.Instance.init(gpa, .{ .validation = .core });
 defer instance.deinit();
 
 const adapter = try vit.Adapter.init(instance, .{});
@@ -63,7 +65,7 @@ const queue = try vit.Queue.init(device, .{ .kind = .graphics });
 defer queue.deinit();
 ```
 
-- **`Instance`** loads a backend. `.backend` restricts which backends it may choose from, and `null` means the platform default. The `VITELLUS_BACKEND` environment variable can override the order. See [Backends and validation](../concepts/backends.md).
+- **`Instance`** loads a backend. `.backend` restricts which backends it may choose from. Leave it unset for the platform default. The `VITELLUS_BACKEND` environment variable can override the order. See [Backends and validation](../concepts/backends.md).
 - **`Adapter`** is a physical GPU. Use `instance.enumerateAdapters()` if you want to pick one yourself.
 - **`Device`** is the logical device that creates every other object.
 - **`Queue`** is where you submit finished command buffers.
@@ -104,12 +106,12 @@ const color_format: vit.Format = switch (caps.formats[0]) {
 ```zig
 const vs = try vit.Shader.init(device, .{
     .stage = .vertex,
-    .source = vit.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.vert.spv") }),
+    .source = spirv.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.vert.spv") }),
 });
 defer vs.deinit();
 const fs = try vit.Shader.init(device, .{
     .stage = .fragment,
-    .source = vit.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.frag.spv") }),
+    .source = spirv.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.frag.spv") }),
 });
 defer fs.deinit();
 
@@ -186,6 +188,7 @@ To keep the code short, this version waits for the GPU at the start of every fra
 const std = @import("std");
 const sdl3 = @import("sdl3");
 const vit = @import("vitellus");
+const spirv = @import("vitellus_spirv");
 const vitellus_sdl3 = @import("vitellus_sdl3");
 
 const max_images = 8;
@@ -203,7 +206,7 @@ pub fn main(init: std.process.Init) !void {
     ));
     defer window.deinit();
 
-    const instance = try vit.Instance.init(gpa, .{ .backend = null, .validation = .core });
+    const instance = try vit.Instance.init(gpa, .{ .validation = .core });
     defer instance.deinit();
     const adapter = try vit.Adapter.init(instance, .{});
     defer adapter.deinit();
@@ -231,12 +234,12 @@ pub fn main(init: std.process.Init) !void {
 
     const vs = try vit.Shader.init(device, .{
         .stage = .vertex,
-        .source = vit.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.vert.spv") }),
+        .source = spirv.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.vert.spv") }),
     });
     defer vs.deinit();
     const fs = try vit.Shader.init(device, .{
         .stage = .fragment,
-        .source = vit.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.frag.spv") }),
+        .source = spirv.SPIRVShaderModule.init(.{ .code = @embedFile("triangle.frag.spv") }),
     });
     defer fs.deinit();
     const layout = try vit.PipelineLayout.init(device, .{});

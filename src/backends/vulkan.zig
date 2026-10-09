@@ -12,6 +12,3 @@ pub const resource = @import("vulkan/resource.zig");
 pub const binding = @import("vulkan/binding.zig");
 pub const pipeline = @import("vulkan/pipeline.zig");
 pub const command = @import("vulkan/command.zig");
-
-pub const spirv = @import("vulkan/spirv.zig");
-pub const SPIRVShaderModule = spirv.SPIRVShaderModule;

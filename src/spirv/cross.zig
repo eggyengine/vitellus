@@ -1,9 +1,8 @@
 //! SPIR-V → HLSL via the SPIRV-Cross C API, then DXIL via DXC for DX12.
 
 const std = @import("std");
-const shader = @import("../../interface/shader.zig");
-const options = @import("shader_options");
-const hlsl_mod = @import("../dx12/hlsl_shader_module.zig");
+const vit = @import("vitellus");
+const hlsl_mod = @import("vitellus_dxc");
 
 const spvc = @cImport({
     @cInclude("spirv_cross_c.h");
@@ -11,27 +10,12 @@ const spvc = @cImport({
 
 const log = std.log.scoped(.spirv_cross);
 
-pub fn compile(
+pub fn compileDx12(
     code: []const u8,
     entry_point: []const u8,
     allocator: std.mem.Allocator,
-    request: shader.ShaderCompileRequest,
-) !shader.CompiledShader {
-    return switch (request.backend) {
-        .dx12 => try compileDx12(code, entry_point, allocator, request),
-        .metal => error.SpirvCrossTranslationNotImplemented,
-        .vulkan, .webgpu, .custom => unreachable,
-    };
-}
-
-fn compileDx12(
-    code: []const u8,
-    entry_point: []const u8,
-    allocator: std.mem.Allocator,
-    request: shader.ShaderCompileRequest,
-) !shader.CompiledShader {
-    if (comptime !options.enable_dxc) return error.ShaderCompilerUnavailable;
-
+    request: vit.ShaderCompileRequest,
+) !vit.CompiledShader {
     const hlsl = try translateToHlsl(code, entry_point, request.stage, allocator);
     defer allocator.free(hlsl);
 
@@ -57,7 +41,7 @@ fn compileDx12(
 fn translateToHlsl(
     code: []const u8,
     entry_point: []const u8,
-    stage: shader.ShaderStage,
+    stage: vit.ShaderStage,
     allocator: std.mem.Allocator,
 ) ![]u8 {
     if (code.len == 0 or code.len % @sizeOf(spvc.SpvId) != 0) return error.InvalidSpirv;
@@ -101,7 +85,7 @@ fn translateToHlsl(
     return allocator.dupe(u8, std.mem.span(source));
 }
 
-fn executionModel(stage: shader.ShaderStage) spvc.SpvExecutionModel {
+fn executionModel(stage: vit.ShaderStage) spvc.SpvExecutionModel {
     return switch (stage) {
         .vertex => spvc.SpvExecutionModelVertex,
         .fragment => spvc.SpvExecutionModelFragment,

@@ -17,7 +17,7 @@ It stays close to the hardware. You create the devices, queues, swapchains, pipe
 | Setup | `Instance`, `Adapter`, `Device`, `Queue` |
 | Presentation | `Window`, `Swapchain` |
 | Resources | `Buffer`, `Texture`, `TextureView`, `Sampler` |
-| Shaders | `Shader`, `SPIRVShaderModule`, `HLSLShaderModule`, `BinaryShaderModule` |
+| Shaders | `Shader`, `BinaryShaderModule`; `SPIRVShaderModule`, `HLSLShaderModule` and `SlangShaderModule` in their own modules |
 | Pipelines | `GraphicsPipeline`, `ComputePipeline`, `PipelineLayout` |
 | Bindings | `BindGroupLayout`, `BindGroup` |
 | Recording | `CommandPool`, `CommandBuffer`, `QuerySet` |

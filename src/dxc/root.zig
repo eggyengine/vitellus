@@ -2,13 +2,12 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const shader = @import("../../interface/shader.zig");
+const vit = @import("vitellus");
 const dxc = @import("dxc.zig");
-const options = @import("shader_options");
 
-const CompiledShader = shader.CompiledShader;
-const ShaderCompileRequest = shader.ShaderCompileRequest;
-const ShaderModule = shader.ShaderModule;
+const CompiledShader = vit.CompiledShader;
+const ShaderCompileRequest = vit.ShaderCompileRequest;
+const ShaderModule = vit.ShaderModule;
 const log = std.log.scoped(.dxc);
 
 pub const HLSLProfile = enum {
@@ -55,7 +54,7 @@ pub const HLSLProfile = enum {
         return @tagName(self);
     }
 
-    pub fn supportsStage(self: HLSLProfile, stage: shader.ShaderStage) bool {
+    pub fn supportsStage(self: HLSLProfile, stage: vit.ShaderStage) bool {
         if (std.mem.startsWith(u8, self.name(), "lib_")) return true;
         const prefix: []const u8 = switch (stage) {
             .vertex => "vs_",
@@ -68,10 +67,8 @@ pub const HLSLProfile = enum {
 
 /// HLSL shader module compilation backed by the [DirectX Shader Compiler](https://github.com/microsoft/directxshadercompiler).
 ///
-/// This requires the feature `-Denable_dxc`. If you do not wish to bundle `dxc` libraries,
-/// you might prefer to use `vit.BinaryShaderModule`, which allows for DXIL shaders instead.
-///
-/// It is currently only supported on Windows.
+/// Compiles to DXIL for DirectX 12 and SPIR-V for Vulkan. If you do not wish to bundle DXC,
+/// precompile and use `vit.BinaryShaderModule` instead.
 pub const HLSLShaderModule = struct {
     pub const Descriptor = struct {
         code: []const u8,
@@ -83,12 +80,10 @@ pub const HLSLShaderModule = struct {
             allocator: std.mem.Allocator,
             request: ShaderCompileRequest,
         ) anyerror!CompiledShader {
-            if (comptime !options.enable_dxc) return error.ShaderCompilerUnavailable;
-            const format: shader.ShaderBinaryFormat = switch (request.backend) {
+            const format: vit.ShaderBinaryFormat = switch (request.backend) {
                 .dx12 => .dxil,
                 .vulkan => .spirv,
-                .metal, .webgpu => return error.ShaderCompilerUnavailable,
-                .custom => return error.UnsupportedShaderBackend,
+                .metal, .webgpu => return error.UnsupportedShaderBackend,
             };
             if (!self.profile.supportsStage(request.stage)) return error.ShaderProfileStageMismatch;
 
@@ -207,8 +202,6 @@ fn logDiagnostics(result: *dxc.IDxcResult, failed: bool) void {
 }
 
 test "HLSL module compiles DXIL as an inline temporary" {
-    if (!options.enable_dxc) return error.SkipZigTest;
-
     const module = HLSLShaderModule.init(.{
         .code = "float4 main() : SV_Target { return 1; }",
         .entry_point = "main",
@@ -221,13 +214,11 @@ test "HLSL module compiles DXIL as an inline temporary" {
     });
     defer compiled.deinit(std.testing.allocator);
 
-    try std.testing.expect(compiled.format.eql(.dxil));
+    try std.testing.expect(compiled.format == .dxil);
     try std.testing.expectEqualStrings("DXBC", compiled.bytes[0..4]);
 }
 
 test "HLSL module compiles SPIR-V" {
-    if (!options.enable_dxc) return error.SkipZigTest;
-
     const module = HLSLShaderModule.init(.{
         .code = "float4 main() : SV_Target { return 1; }",
         .entry_point = "main",
@@ -240,6 +231,157 @@ test "HLSL module compiles SPIR-V" {
     });
     defer compiled.deinit(std.testing.allocator);
 
-    try std.testing.expect(compiled.format.eql(.spirv));
+    try std.testing.expect(compiled.format == .spirv);
     try std.testing.expectEqualSlices(u8, &.{ 0x03, 0x02, 0x23, 0x07 }, compiled.bytes[0..4]);
+}
+
+test "Vulkan device creates SPIR-V compiled from HLSL" {
+    const instance = vit.Instance.init(std.testing.allocator, .{
+        .backend = .{ .vulkan = true },
+        .validation = .none,
+    }) catch |err| switch (err) {
+        error.FileNotFound => return error.SkipZigTest,
+        else => return err,
+    };
+    defer instance.deinit();
+    const adapter = try instance.createAdapter(.{});
+    defer adapter.deinit();
+    const device = try vit.Device.init(adapter, .{});
+    defer device.deinit();
+
+    const value = try vit.Shader.init(device, .{
+        .stage = .compute,
+        .source = HLSLShaderModule.init(.{
+            .code = "[numthreads(1, 1, 1)] void main() {}",
+            .profile = .cs_6_7,
+        }),
+    });
+    value.deinit();
+}
+
+test "DX12 indexed draw binds uniforms and a sampled texture" {
+    if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
+
+    const instance = try vit.Instance.init(std.testing.allocator, .{
+        .backend = .{ .dx12 = true },
+        .validation = .none,
+    });
+    defer instance.deinit();
+    const adapter = try vit.Adapter.init(instance, .{});
+    defer adapter.deinit();
+    const device = try vit.Device.init(adapter, .{});
+    defer device.deinit();
+    const queue = try vit.Queue.init(device, .{ .kind = .graphics });
+    defer queue.deinit();
+
+    const layout = try vit.hal.binding.BindGroupLayout.init(device, .{ .entries = &.{
+        .{ .binding = 0, .kind = .{ .buffer = .{ .kind = .uniform } }, .visibility = .{ .fragment = true } },
+        .{ .binding = 1, .kind = .{ .sampled_texture = .{} }, .visibility = .{ .fragment = true } },
+        .{ .binding = 2, .kind = .{ .sampler = .filtering }, .visibility = .{ .fragment = true } },
+    } });
+    defer layout.deinit();
+
+    const tint = [4]f32{ 1, 1, 1, 1 };
+    const uniform = try vit.Buffer.init(device, .{
+        .size = 256,
+        .usage = .{ .uniform = true },
+        .memory = .upload,
+        .initial_data = std.mem.asBytes(&tint),
+    });
+    defer uniform.deinit();
+    const indices = [3]u16{ 0, 1, 2 };
+    const index_buffer = try vit.Buffer.init(device, .{
+        .size = @sizeOf(@TypeOf(indices)),
+        .usage = .{ .index = true },
+        .initial_data = std.mem.asBytes(&indices),
+    });
+    defer index_buffer.deinit();
+
+    const sampled_texture = try vit.hal.resource.Texture.init(device, .{
+        .width = 1,
+        .height = 1,
+        .format = .rgba8_unorm,
+        .usage = .{ .sampled = true },
+        .initial_data = &.{ 255, 255, 255, 255 },
+    });
+    defer sampled_texture.deinit();
+    const sampled_view = try vit.hal.resource.TextureView.init(device, .{ .texture = sampled_texture });
+    defer sampled_view.deinit();
+    const sampler = try vit.hal.resource.Sampler.init(device, .{});
+    defer sampler.deinit();
+    const group = try vit.hal.binding.BindGroup.init(device, .{
+        .layout = layout,
+        .entries = &.{
+            .{ .binding = 0, .resource = .{ .buffer = .{ .buffer = uniform } } },
+            .{ .binding = 1, .resource = .{ .texture_view = sampled_view } },
+            .{ .binding = 2, .resource = .{ .sampler = sampler } },
+        },
+    });
+    defer group.deinit();
+
+    const source =
+        \\struct Output { float4 position : SV_Position; float2 uv : TEXCOORD0; };
+        \\Output vsMain(uint id : SV_VertexID) {
+        \\    float2 p[3] = { float2(0, 0.5), float2(0.5, -0.5), float2(-0.5, -0.5) };
+        \\    Output o; o.position = float4(p[id], 0, 1); o.uv = p[id] + 0.5; return o;
+        \\}
+        \\cbuffer Uniforms : register(b0, space0) { float4 tint; };
+        \\Texture2D image : register(t1, space0);
+        \\SamplerState image_sampler : register(s2, space0);
+        \\float4 psMain(Output input) : SV_Target0 { return image.Sample(image_sampler, input.uv) * tint; }
+    ;
+    const vertex = try vit.Shader.init(device, .{
+        .stage = .vertex,
+        .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "vsMain", .profile = .vs_6_7 }),
+    });
+    defer vertex.deinit();
+    const fragment = try vit.Shader.init(device, .{
+        .stage = .fragment,
+        .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "psMain", .profile = .ps_6_7 }),
+    });
+    defer fragment.deinit();
+    const targets = [_]vit.hal.pipeline.ColorTargetState{.{ .format = .rgba8_unorm }};
+    const pipeline_layout = try vit.hal.pipeline.PipelineLayout.init(device, .{ .bind_group_layouts = &.{layout} });
+    defer pipeline_layout.deinit();
+    const pipeline = try vit.GraphicsPipeline.init(device, .{
+        .vertex = vertex,
+        .fragment = fragment,
+        .raster = .{ .cull_mode = .none },
+        .color_targets = &targets,
+        .layout = pipeline_layout,
+    });
+    defer pipeline.deinit();
+
+    const target = try vit.hal.resource.Texture.init(device, .{
+        .width = 16,
+        .height = 16,
+        .format = .rgba8_unorm,
+        .usage = .{ .color_attachment = true },
+    });
+    defer target.deinit();
+    const target_view = try vit.hal.resource.TextureView.init(device, .{ .texture = target });
+    defer target_view.deinit();
+    const pool = try vit.CommandPool.init(device, .{});
+    defer pool.deinit();
+    const commands = try vit.CommandBuffer.init(pool, .{});
+    try commands.barrier(&.{
+        .{ .texture = .{ .texture = target, .before = .common, .after = .color_attachment } },
+        .{ .texture = .{ .texture = sampled_texture, .before = .common, .after = .sampled } },
+        .{ .buffer = .{ .buffer = index_buffer, .before = .common, .after = .index } },
+    });
+    const attachments = [_]vit.hal.command.ColorAttachment{.{ .view = target_view }};
+    try commands.beginRenderPass(.{ .color_attachments = &attachments });
+    commands.setViewport(.{ .width = 16, .height = 16 });
+    commands.setScissor(.{ .width = 16, .height = 16 });
+    commands.setBlendConstant(.{ .r = 1, .g = 1, .b = 1 });
+    commands.setStencilReference(0);
+    commands.setGraphicsPipeline(pipeline);
+    commands.setBindGroup(0, group, &.{});
+    commands.setIndexBuffer(index_buffer, .uint16, 0);
+    commands.drawIndexed(3, 2, 0, 0, 0);
+    commands.endRenderPass();
+    try commands.finish();
+    try queue.submit(.{ .command_buffers = &.{commands} });
+    try queue.waitIdle();
+    commands.deinit();
 }

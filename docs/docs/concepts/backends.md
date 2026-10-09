@@ -11,10 +11,10 @@ title: Backends and validation
 
 ```zig
 const instance = try vit.Instance.init(gpa, .{
-    .backend = .{ .vulkan = true, .dx12 = true }, // null = platform default
+    .backend = .{ .vulkan = true, .dx12 = true }, // leave unset for the platform default
     .validation = .none,
 });
-std.log.info("using {s}", .{instance.selected_backend.name()});
+std.log.info("using {s}", .{@tagName(instance.selected_backend)});
 ```
 
 The default order depends on the platform:
@@ -59,18 +59,4 @@ const rgba8 = adapter.formatCapabilities(.rgba8_unorm);
 if (!rgba8.usage.storage) return error.NoStorageImages;
 ```
 
-`instance.enumerateAdapters()` returns every adapter on the selected backend. You own the slice and each adapter in it.
-
-## Custom backends
-
-Each `BackendFactory` in `custom_backends` is tried before the built-in backends. A factory returns an `Instance` whose vtable points at your implementation:
-
-```zig
-const instance = try vit.Instance.init(gpa, .{
-    .backend = null,
-    .validation = .none,
-    .custom_backends = &.{.{ .name = "software", .createInstanceFn = createSoftwareInstance }},
-});
-```
-
-Custom backends can consume their own shader format through `ShaderBinaryFormat.custom`.
+`instance.enumerateAdapters()` returns every adapter on the selected backend. You own the slice and each adapter in it: `deinit` each adapter, then free the slice with the instance's allocator.

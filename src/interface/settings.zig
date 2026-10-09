@@ -2,8 +2,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const Instance = @import("instance.zig").Instance;
-const Adapter = @import("adapter.zig").Adapter;
 
 /// Top-level configuration used while selecting an adapter.
 pub const VitellusConfig = struct {
@@ -18,139 +16,49 @@ pub const VitellusConfig = struct {
     /// - Linux: Vulkan
     /// - Web (Emscripten): WebGPU
     ///
-    /// When set to `vulkan`, `dx12`, or `metal`, the `VITELLUS_BACKEND`
-    /// environment variable promotes that backend to the front of the
-    /// fallback chain when it is included in this set.
-    ///
-    /// Pass an empty set (`.{}`) together with `custom_backends` to disable
-    /// every built-in backend.
-    backend: ?BackendType,
-    /// User-implemented backends tried, in listed order, before any built-in
-    /// backend. See `BackendFactory`.
-    custom_backends: []const BackendFactory = &.{},
+    /// The `VITELLUS_BACKEND` environment variable (`vulkan`, `dx12`, `metal`
+    /// or `webgpu`) moves that backend to the front when the platform has it
+    /// and this set allows it.
+    backend: ?BackendType = null,
     /// Validation features requested from the selected backend.
     validation: ValidationLevel,
 };
 
-/// Rendering backend implemented by Vitellus, or a user-implemented one.
-pub const Backend = union(enum) {
+/// Rendering backend implemented by Vitellus.
+pub const Backend = enum {
     dx12,
     vulkan,
     metal,
     /// WebGPU in the browser, through Emscripten.
     webgpu,
-    /// User-implemented backend identified by a stable, unique name
-    /// (e.g. "software"). The name is borrowed and must outlive this value.
-    custom: []const u8,
-
-    /// Returns whether two backend identities are the same. Custom backends
-    /// compare by name.
-    pub fn eql(self: Backend, other: Backend) bool {
-        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
-        return switch (self) {
-            .custom => |name_| std.mem.eql(u8, name_, other.custom),
-            else => true,
-        };
-    }
-
-    /// Returns a stable, human-readable backend name.
-    pub fn name(self: Backend) []const u8 {
-        return switch (self) {
-            .custom => |n| n,
-            else => @tagName(self),
-        };
-    }
 };
 
-/// Entry point for a user-implemented rendering backend.
-///
-/// A backend implements the type-erased vtables from `interface/` (`Instance`,
-/// `Adapter`, `Device`, `Queue`, ...) and exposes itself with a factory:
-///
-/// ```zig
-/// pub const factory = vitellus.BackendFactory{
-///     .name = "software",
-///     .createInstanceFn = SoftwareInstance.create,
-/// };
-/// ```
-///
-/// Callers opt in through `VitellusConfig.custom_backends`:
-///
-/// ```zig
-/// const instance = try vitellus.Instance.init(allocator, .{
-///     .backend = .{}, // or a built-in set to fall back to
-///     .custom_backends = &.{software.factory},
-///     .validation = .none,
-/// });
-/// ```
-pub const BackendFactory = struct {
-    /// Stable, unique backend name (e.g. "software"). This is the identity the
-    /// backend should use as `Backend{ .custom = name }` in shader compile
-    /// requests.
-    name: []const u8,
-    /// Creates the backend's `Instance`. Return an error to let selection
-    /// fall through to the next candidate backend.
-    createInstanceFn: *const fn (allocator: std.mem.Allocator, config: VitellusConfig) anyerror!Instance,
-    /// Optionally enumerates every adapter exposed by the backend. Used by
-    /// `Adapter.enumerateCustom`.
-    enumerateAdaptersFn: ?*const fn (allocator: std.mem.Allocator) anyerror![]Adapter = null,
+/// Set of backends a caller is willing to use, e.g. `.{ .vulkan = true, .webgpu = true }`.
+pub const BackendType = std.enums.EnumFieldStruct(Backend, bool, false);
 
-    /// Returns this backend's identity.
-    pub fn backend(self: BackendFactory) Backend {
-        return .{ .custom = self.name };
-    }
+/// The platform's backends, most preferred first.
+pub const platform_backends: []const Backend = switch (builtin.target.os.tag) {
+    .windows => &.{ .dx12, .vulkan },
+    .emscripten => &.{.webgpu},
+    .macos, .ios, .tvos, .visionos, .watchos => &.{ .metal, .vulkan },
+    // Zig models Android as Linux with an Android ABI.
+    else => &.{.vulkan},
 };
 
-/// Set of backends a caller is willing to use.
-pub const BackendType = packed struct(u32) {
-    vulkan: bool = false,
-    dx12: bool = false,
-    metal: bool = false,
-    webgpu: bool = false,
-    _pad: u28 = 0,
-
-    /// Returns a set containing every known backend.
-    ///
-    /// Currently the rules are:
-    /// - Windows:
-    ///     - DirectX 12
-    ///     - Vulkan
-    /// - Linux:
-    ///     - Vulkan
-    /// - macOS:
-    ///     - Metal
-    ///     - Vulkan
-    /// - Web (Emscripten):
-    ///     - WebGPU
-    pub fn all() BackendType {
-        return .{ .vulkan = true, .dx12 = true, .metal = true, .webgpu = true };
-    }
-
-    /// Returns whether this set contains `backend`. Custom backends are
-    /// selected through `VitellusConfig.custom_backends`, never this set.
-    pub fn contains(self: BackendType, backend: Backend) bool {
-        return switch (backend) {
-            .dx12 => self.dx12,
-            .vulkan => self.vulkan,
-            .metal => self.metal,
-            .webgpu => self.webgpu,
-            .custom => false,
+/// The backends to try, most preferred first: the platform's backends that `requested` allows (all of
+/// them when null), with `preferred` moved to the front.
+pub fn backendOrder(buffer: *[platform_backends.len]Backend, requested: ?BackendType, preferred: ?Backend) []Backend {
+    var len: usize = 0;
+    for (platform_backends) |backend| {
+        if (requested) |set| switch (backend) {
+            inline else => |tag| if (!@field(set, @tagName(tag))) continue,
         };
+        buffer[len] = backend;
+        len += 1;
     }
-
-    /// Returns whether no backend is enabled.
-    pub fn isEmpty(self: BackendType) bool {
-        return !self.dx12 and !self.vulkan and !self.metal and !self.webgpu;
-    }
-};
-
-/// Parses a built-in backend name, returning null for unknown names.
-pub fn parseBackendName(name: []const u8) ?Backend {
-    if (std.mem.eql(u8, name, "vulkan")) return .vulkan;
-    if (std.mem.eql(u8, name, "dx12")) return .dx12;
-    if (std.mem.eql(u8, name, "metal")) return .metal;
-    if (std.mem.eql(u8, name, "webgpu")) return .webgpu;
-    return null;
+    const order = buffer[0..len];
+    if (preferred) |backend| if (std.mem.indexOfScalar(Backend, order, backend)) |i| std.mem.rotate(Backend, order[0 .. i + 1], i);
+    return order;
 }
 
 fn processEnviron() std.process.Environ {
@@ -167,108 +75,25 @@ fn processEnviron() std.process.Environ {
 
 /// Returns the backend requested through `VITELLUS_BACKEND`, if any.
 pub fn environmentBackend(allocator: std.mem.Allocator) !?Backend {
-    const environ = processEnviron();
-    const value = environ.getAlloc(allocator, "VITELLUS_BACKEND") catch |err| switch (err) {
+    const value = processEnviron().getAlloc(allocator, "VITELLUS_BACKEND") catch |err| switch (err) {
         error.EnvironmentVariableMissing => return null,
         else => return err,
     };
     defer allocator.free(value);
-
-    const backend = parseBackendName(value) orelse {
+    return std.meta.stringToEnum(Backend, value) orelse {
         std.log.warn("ignoring unknown VITELLUS_BACKEND value '{s}'", .{value});
         return null;
     };
-    return backend;
 }
 
-/// Fixed-capacity backend preference list.
-pub const BackendFallbackOrder = struct {
-    items: [4]Backend = undefined,
-    len: usize = 0,
-
-    /// Returns the initialised entries in preference order.
-    pub fn slice(self: *const BackendFallbackOrder) []const Backend {
-        return self.items[0..self.len];
-    }
-};
-
-/// Returns the backends normally considered on the target platform.
-pub fn platformDefaultBackends() BackendType {
-    return switch (builtin.target.os.tag) {
-        .windows => .{ .dx12 = true, .vulkan = true },
-        // Zig models Android as Linux with an Android ABI. Vulkan is the only backend.
-        .linux => .{ .vulkan = true },
-        .emscripten => .{ .webgpu = true },
-        else => if (builtin.target.os.tag.isDarwin())
-            .{ .metal = true, .vulkan = true }
-        else
-            .{ .vulkan = true },
-    };
-}
-
-/// Returns platform backends from most to least preferred.
-pub fn platformBackendOrder() []const Backend {
-    return switch (builtin.target.os.tag) {
-        .windows => &.{ .dx12, .vulkan },
-        // Zig models Android as a Linux OS with an Android ABI.
-        .linux => &.{.vulkan},
-        .emscripten => &.{.webgpu},
-        else => if (builtin.target.os.tag.isDarwin())
-            &.{ .metal, .vulkan }
-        else
-            &.{.vulkan},
-    };
-}
-
-/// Returns the ordered backends to try for this platform, filtered by the
-/// caller's requested backend set. If `requested` is null, the platform default
-/// fallback set is used.
-pub fn backendFallbackOrder(requested: ?BackendType) BackendFallbackOrder {
-    return backendFallbackOrderWithPreference(requested, null);
-}
-
-/// Returns the ordered backends to try, promoting `preferred` when it is in
-/// the requested set. The remaining backends retain platform preference order.
-pub fn backendFallbackOrderWithPreference(
-    requested: ?BackendType,
-    preferred: ?Backend,
-) BackendFallbackOrder {
-    const allowed = requested orelse platformDefaultBackends();
-    var order = BackendFallbackOrder{};
-
-    if (allowed.isEmpty()) return order;
-
-    if (preferred) |backend| {
-        if (allowed.contains(backend)) {
-            order.items[order.len] = backend;
-            order.len += 1;
-        }
-    }
-
-    for (platformBackendOrder()) |backend| {
-        if (preferred) |preferred_backend| {
-            if (backend.eql(preferred_backend)) continue;
-        }
-        if (allowed.contains(backend)) {
-            order.items[order.len] = backend;
-            order.len += 1;
-        }
-    }
-
-    return order;
-}
-
-test "built-in backend names can be parsed" {
-    try std.testing.expect(parseBackendName("vulkan").?.eql(.vulkan));
-    try std.testing.expect(parseBackendName("dx12").?.eql(.dx12));
-    try std.testing.expect(parseBackendName("metal").?.eql(.metal));
-    try std.testing.expectEqual(@as(?Backend, null), parseBackendName("unknown"));
-}
-
-test "preferred backend is first in fallback order" {
-    const order = backendFallbackOrderWithPreference(BackendType.all(), .metal);
-    try std.testing.expect(order.len > 0);
-    try std.testing.expect(order.slice()[0].eql(.metal));
+test "backend order filters the platform list and promotes the preferred backend" {
+    var buffer: [platform_backends.len]Backend = undefined;
+    try std.testing.expectEqualSlices(Backend, platform_backends, backendOrder(&buffer, null, null));
+    try std.testing.expectEqual(@as(usize, 0), backendOrder(&buffer, .{}, null).len);
+    const last = platform_backends[platform_backends.len - 1];
+    try std.testing.expectEqual(last, backendOrder(&buffer, null, last)[0]);
+    // A preferred backend the platform doesn't have changes nothing.
+    try std.testing.expectEqualSlices(Backend, platform_backends, backendOrder(&buffer, null, if (last == .webgpu) .dx12 else .webgpu));
 }
 
 /// Amount of backend and API validation requested by the application.
