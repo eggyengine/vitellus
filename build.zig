@@ -296,7 +296,17 @@ pub const Emscripten = struct {
         emcc.setEnvironmentVariable("EM_CONFIG", b.pathJoin(&.{ self.emsdk, ".emscripten" }));
         for (lib.getCompileDependencies(false)) |dep| {
             // C code in every module (SDL, FreeType, stb, ...) needs Emscripten's libc headers.
-            for (dep.root_module.getGraph().modules) |module| module.addSystemIncludePath(self.include);
+            for (dep.root_module.getGraph().modules) |module| {
+                module.addSystemIncludePath(self.include);
+                // emcc links no UBSan runtime, so C undefined behaviour traps instead of reporting.
+                if (module.sanitize_c == .full or (module.sanitize_c == null and module.optimize != .ReleaseFast and module.optimize != .ReleaseSmall)) module.sanitize_c = .trap;
+                // Lower setjmp/longjmp as emcc does; FreeType validates fonts with them.
+                for (module.link_objects.items) |object| switch (object) {
+                    .c_source_file => |source| source.flags = withSjlj(b, source.flags),
+                    .c_source_files => |sources| sources.flags = withSjlj(b, sources.flags),
+                    else => {},
+                };
+            }
             // Zig static libraries don't bundle their dependencies, so pass each one.
             if (dep.kind == .lib and dep.linkage == .static) emcc.addArtifactArg(dep);
         }
@@ -328,6 +338,14 @@ pub const Emscripten = struct {
         run.step.dependOn(&install.step);
         if (b.args) |args| run.addArgs(args);
         return .{ .install = install, .run = run };
+    }
+
+    const sjlj = [_][]const u8{ "-mllvm", "-enable-emscripten-sjlj" };
+
+    fn withSjlj(b: *std.Build, flags: []const []const u8) []const []const u8 {
+        // A module shared by several libraries is visited once per library.
+        if (flags.len > 0 and std.mem.eql(u8, flags[flags.len - 1], sjlj[1])) return flags;
+        return std.mem.concat(b.allocator, []const u8, &.{ flags, &sjlj }) catch @panic("OOM");
     }
 };
 
