@@ -22,6 +22,8 @@ const vit = b.dependency("vitellus", .{
 });
 
 exe.root_module.addImport("vitellus", vit.module("vitellus"));
+// Shader languages are separate modules; add the ones you use (see Shaders).
+exe.root_module.addImport("vitellus_spirv", vit.module("vitellus_spirv"));
 ```
 
 And in your code:
@@ -36,8 +38,9 @@ const vit = @import("vitellus");
 | --- | --- | --- |
 | `vk` | `true` | Compile the Vulkan backend. |
 | `dx12` | `true` | Compile the DirectX 12 backend. This only applies to Windows targets. |
-| `enable_dxc` | `false` | Fetch DXC so that `HLSLShaderModule` can compile HLSL at runtime. Supported on Windows and x86_64 Linux. |
-| `enable_spirv_cross` | `false` | Link SPIRV-Cross so that SPIR-V shaders also run on DirectX 12. This also needs `enable_dxc`. |
+| `enable_dxc` | `false` | Fetch DXC and add the `vitellus_dxc` module, which compiles HLSL at runtime. Supported on Windows and x86_64 Linux. |
+| `enable_spirv_cross` | `false` | Link SPIRV-Cross into `vitellus_spirv` so that SPIR-V shaders also run on DirectX 12. This also needs `enable_dxc`. |
+| `enable_slang` | `false` | Add the `vitellus_slangc` module, which compiles Slang at runtime. Supported on Windows, Linux and macOS (x86_64 and aarch64). |
 
 You pass the options to `b.dependency`:
 
@@ -50,22 +53,13 @@ const vit = b.dependency("vitellus", .{
 });
 ```
 
-### Shipping DXC with your app
+### Shipping shader compilers with your app
 
-DXC is a shared library (`dxcompiler.dll` on Windows, `libdxcompiler.so` on Linux), and a dependency's install step never runs for your app. Install it yourself from the `dxcompiler` named path. On Linux, Vitellus sets the rpath to `$ORIGIN/../lib`, so put the library in `zig-out/lib`:
+DXC and Slang are shared libraries that Vitellus loads at runtime. A dependency installs into its own prefix, never your app's, so call `installLibraries` from your `build.zig`. It copies every library the enabled options need into `zig-out/lib` (Linux and macOS, found through the rpath Vitellus sets) or `zig-out/bin` (Windows, beside the exe):
 
 ```zig
-// DXC is a lazy dependency: the path exists once Zig has fetched it and rerun build.zig.
-if (vit.builder.named_lazy_paths.get("dxcompiler")) |lib| {
-    const install = if (target.result.os.tag == .windows)
-        b.addInstallBinFile(lib, "dxcompiler.dll")
-    else
-        b.addInstallLibFile(lib, "libdxcompiler.so");
-    b.getInstallStep().dependOn(&install.step);
-}
+@import("vitellus").installLibraries(b, vit);
 ```
-
-Install the `dxil` named path the same way (`dxil.dll` or `libdxil.so`) if you compile DXIL for DirectX 12. It's the validator that signs the output.
 
 ## Windowing
 

@@ -55,7 +55,7 @@ pub const Dx12Instance = struct {
         return Dx12Adapter.init(ptr, allocator, desc);
     }
 
-    fn enumerateAdaptersImpl(ptr: *anyopaque, allocator: std.mem.Allocator) !@import("../../interface/instance.zig").Adapters {
+    fn enumerateAdaptersImpl(ptr: *anyopaque, allocator: std.mem.Allocator) ![]@import("../../interface/adapter.zig").Adapter {
         return Dx12Adapter.enumerateForInstance(ptr, allocator);
     }
 };

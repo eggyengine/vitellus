@@ -222,7 +222,9 @@ pub const vkInstance = struct {
         self.release(allocator);
     }
 
-    pub fn retain(self: *vkInstance) void { self.ref_count += 1; }
+    pub fn retain(self: *vkInstance) void {
+        self.ref_count += 1;
+    }
     pub fn release(self: *vkInstance, allocator: std.mem.Allocator) void {
         self.ref_count -= 1;
         if (self.ref_count != 0) return;
@@ -239,7 +241,7 @@ pub const vkInstance = struct {
         return vkAdapter.init(ptr, allocator, desc);
     }
 
-    fn enumerateAdaptersImpl(ptr: *anyopaque, allocator: std.mem.Allocator) !@import("../../interface/instance.zig").Adapters {
+    fn enumerateAdaptersImpl(ptr: *anyopaque, allocator: std.mem.Allocator) ![]@import("../../interface/adapter.zig").Adapter {
         return vkAdapter.enumerate(ptr, allocator);
     }
 };

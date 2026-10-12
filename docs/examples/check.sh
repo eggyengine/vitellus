@@ -13,8 +13,15 @@ for name, code in re.findall(r'```\w+ title="([^"]+)"\n(.*?)```', text, re.S):
     path = name if name.startswith("src/") else os.path.join("src", name)
     open(path, "w").write(code)
 PY
-    for shader in src/*.vert src/*.frag; do
-        if [ -e "$shader" ]; then glslangValidator -V -o "$shader.spv" "$shader"; fi
+    # DXC is the recommended compiler; glslangValidator's HLSL frontend (-D) is the fallback.
+    for shader in src/*.vert.hlsl src/*.frag.hlsl; do
+        [ -e "$shader" ] || continue
+        stage=${shader%.hlsl}; stage=${stage##*.}
+        if command -v dxc >/dev/null; then
+            dxc -spirv -T "$([ "$stage" = vert ] && echo vs || echo ps)_6_0" -E main "$shader" -Fo "${shader%.hlsl}.spv"
+        else
+            glslangValidator -V -D -e main -S "$stage" -o "${shader%.hlsl}.spv" "$shader"
+        fi
     done
     zig build
 done

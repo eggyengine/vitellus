@@ -22,14 +22,15 @@ const log = std.log.scoped(.vitellus);
 /// the machine (no host or user names, serials, or device UUIDs).
 fn logSystem(instance: Instance, gpu: AdapterInfo) void {
     var brand: [48]u8 = undefined;
-    log.info("backend {s}, validation {s}", .{ instance.selected_backend.name(), @tagName(instance.config.validation) });
+    log.info("backend {s}, validation {s}", .{ @tagName(instance.selected_backend), @tagName(instance.config.validation) });
     // Integrated GPUs report the system memory they share, not dedicated VRAM.
     const memory = if (gpu.kind == .integrated) "shared memory" else "VRAM";
     log.info("GPU {s} ({s}, {s}, {d} MiB {s})", .{ gpu.nameSlice(), @tagName(gpu.vendor), @tagName(gpu.kind), gpu.dedicated_vram / (1024 * 1024), memory });
     log.info("CPU {s} ({s}, {d} threads), {s} {s}", .{
         cpuName(&brand),
         @tagName(builtin.cpu.arch),
-        std.Thread.getCpuCount() catch 0,
+        // Zig 0.16's Emscripten std cannot compile getCpuCount's error path.
+        if (comptime builtin.os.tag == .emscripten) 0 else std.Thread.getCpuCount() catch 0,
         @tagName(builtin.os.tag),
         @tagName(builtin.abi),
     });
@@ -168,31 +169,16 @@ pub const Adapter = struct {
     ///
     /// The caller owns the returned slice and every adapter in it. Call
     /// `deinit` on each adapter, then free the slice with `allocator`.
-    pub fn enumerate(allocator: std.mem.Allocator, backend: BackendType) ![]Adapter {
-        const preferred_backend = try settings_mod.environmentBackend(allocator);
-        const order = settings_mod.backendFallbackOrderWithPreference(backend, preferred_backend);
-        var last_error: ?anyerror = null;
-
-        for (order.slice()) |candidate| {
+    pub fn enumerate(allocator: std.mem.Allocator, backend: ?BackendType) ![]Adapter {
+        var last_error: anyerror = error.NoSupportedBackend;
+        var buffer: [settings_mod.platform_backends.len]Backend = undefined;
+        for (settings_mod.backendOrder(&buffer, backend, try settings_mod.environmentBackend(allocator))) |candidate| {
             return enumerateBackend(candidate, allocator) catch |err| {
                 last_error = err;
                 continue;
             };
         }
-
-        if (last_error) |err| return err;
-        return error.NoSupportedBackend;
-    }
-
-    /// Enumerates adapters from a user-implemented backend. Fails with
-    /// `error.EnumerationUnsupported` when the factory does not implement
-    /// adapter enumeration.
-    ///
-    /// The caller owns the returned slice and every adapter in it, as with
-    /// `enumerate`.
-    pub fn enumerateCustom(allocator: std.mem.Allocator, factory: settings_mod.BackendFactory) ![]Adapter {
-        const enumerateFn = factory.enumerateAdaptersFn orelse return error.EnumerationUnsupported;
-        return enumerateFn(allocator);
+        return last_error;
     }
 
     fn enumerateBackend(backend: Backend, allocator: std.mem.Allocator) ![]Adapter {
@@ -206,7 +192,8 @@ pub const Adapter = struct {
             else
                 error.VulkanUnavailable,
             .metal => error.MetalNotImplemented,
-            .custom => unreachable, // custom backends never enter the built-in fallback order
+            // A browser exposes one adapter; use `Instance.createAdapter`.
+            .webgpu => error.EnumerationUnsupported,
         };
     }
 

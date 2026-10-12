@@ -18,11 +18,14 @@ const vit = b.dependency("vitellus", .{
     .target = target,
     .optimize = optimize,
 
-    .enable_dxc = true, // default is false
+    .enable_dxc = true, // default is false; adds the vitellus_dxc module
     .enable_spirv_cross = true, // default is false
+    .enable_slang = true, // default is false; adds the vitellus_slangc module
 });
 
 exe.root_module.addImport("vitellus", vit.module("vitellus"));
+exe.root_module.addImport("vitellus_spirv", vit.module("vitellus_spirv")); // or vitellus_dxc, vitellus_slangc
+@import("vitellus").installLibraries(b, vit); // ships DXC and Slang beside your app
 ```
 
 and lastly in your library/executable:

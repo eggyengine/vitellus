@@ -300,14 +300,11 @@ pub const Dx12Adapter = struct {
     /// Returns adapters owned by an existing DX12 instance. The adapters keep
     /// their own factory reference, but the instance must outlive them because
     /// device creation reads its configuration.
-    pub fn enumerateForInstance(instance_ptr: *anyopaque, allocator: std.mem.Allocator) !@import("../../interface/instance.zig").Adapters {
+    pub fn enumerateForInstance(instance_ptr: *anyopaque, allocator: std.mem.Allocator) ![]Adapter {
         const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
         log.debug("enumerating adapters from DX12 instance", .{});
 
-        return .{
-            .inner = try enumerateWithFactory(instance, allocator, instance.factory),
-            .alloc = allocator,
-        };
+        return enumerateWithFactory(instance, allocator, instance.factory);
     }
 
     fn enumerateWithFactory(instance: ?*Dx12Instance, allocator: std.mem.Allocator, factory: ComPtr(dx.IDXGIFactory4)) ![]Adapter {

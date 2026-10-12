@@ -157,3 +157,67 @@ fn borrowedWindowHandle(raw: candler.RawWindowHandle) candler.WindowHandle {
 fn borrowedDisplayHandle(raw: candler.RawDisplayHandle) candler.DisplayHandle {
     return candler.DisplayHandle.borrowRaw(raw);
 }
+
+/// zig-sdl3's `main_callbacks`, also for Emscripten. Reference it from the root file with
+/// `comptime { _ = vitellus_sdl3.main_callbacks; }` and write the same `init`, `iterate`, `event`
+/// and `quit` functions. zig-sdl3's version builds a `std.Io.Threaded`, which Zig 0.16 cannot
+/// compile for Emscripten, so on the web `Init.io` is `std.Io.failing` and `Init.gpa` is libc's.
+pub const main_callbacks = if (builtin.os.tag == .emscripten) WebMainCallbacks else sdl.main_callbacks;
+
+const WebMainCallbacks = struct {
+    const c = sdl.c;
+    const root = @import("root");
+    const AppState = @typeInfo(@typeInfo(@typeInfo(@TypeOf(root.init)).@"fn".return_type.?).error_union.payload).@"struct".fields[0].type;
+    const State = struct { arena: std.heap.ArenaAllocator, app: AppState };
+    const gpa = std.heap.c_allocator;
+
+    // SDL drives frames from requestAnimationFrame once `main` hands it the callbacks.
+    export fn main(argc: c_int, argv: [*c][*c]u8) c_int {
+        return c.SDL_EnterAppMainCallbacks(argc, argv, appInit, appIterate, appEvent, appQuit);
+    }
+
+    fn appInit(app_state: [*c]?*anyopaque, argc: c_int, argv: [*c][*c]u8) callconv(.c) c.SDL_AppResult {
+        const state = gpa.create(State) catch return c.SDL_APP_FAILURE;
+        state.arena = .init(gpa);
+        state.app, const result = root.init(.{
+            .arena = &state.arena,
+            .gpa = gpa,
+            .io = std.Io.failing,
+            .args = @ptrCast(argv[0..@intCast(argc)]),
+        }) catch |err| {
+            log.err("init: {s}", .{@errorName(err)});
+            state.arena.deinit();
+            gpa.destroy(state);
+            return c.SDL_APP_FAILURE;
+        };
+        app_state.* = state;
+        return @intFromEnum(result);
+    }
+
+    fn appIterate(app_state: ?*anyopaque) callconv(.c) c.SDL_AppResult {
+        if (!@hasDecl(root, "iterate")) return c.SDL_APP_CONTINUE;
+        const state: *State = @ptrCast(@alignCast(app_state));
+        return @intFromEnum(root.iterate(&state.app) catch |err| {
+            log.err("iterate: {s}", .{@errorName(err)});
+            return c.SDL_APP_FAILURE;
+        });
+    }
+
+    fn appEvent(app_state: ?*anyopaque, event: [*c]c.SDL_Event) callconv(.c) c.SDL_AppResult {
+        if (!@hasDecl(root, "event")) return c.SDL_APP_CONTINUE;
+        const state: *State = @ptrCast(@alignCast(app_state));
+        return @intFromEnum(root.event(&state.app, sdl.events.Event.fromSdl(event.*)) catch |err| {
+            log.err("event: {s}", .{@errorName(err)});
+            return c.SDL_APP_FAILURE;
+        });
+    }
+
+    fn appQuit(app_state: ?*anyopaque, result: c.SDL_AppResult) callconv(.c) void {
+        const state: ?*State = @ptrCast(@alignCast(app_state));
+        if (@hasDecl(root, "quit")) root.quit(if (state) |s| &s.app else null, @enumFromInt(result));
+        if (state) |s| {
+            s.arena.deinit();
+            gpa.destroy(s);
+        }
+    }
+};

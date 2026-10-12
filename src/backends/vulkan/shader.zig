@@ -32,7 +32,7 @@ pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: shader.Shader
         .label = desc.label,
     });
     defer compiled.deinit(allocator);
-    if (!compiled.format.eql(.spirv)) return error.UnsupportedShaderFormat;
+    if (compiled.format != .spirv) return error.UnsupportedShaderFormat;
     if (compiled.bytes.len == 0 or compiled.bytes.len % @sizeOf(u32) != 0) return error.InvalidSpirv;
 
     const words = try allocator.alloc(u32, compiled.bytes.len / @sizeOf(u32));
@@ -88,30 +88,4 @@ test "reflects a combined image sampler" {
     try std.testing.expectEqual(@as(u32, 0), reflected[0].entry.binding);
     try std.testing.expect(reflected[0].entry.kind == .combined_texture_sampler);
     try std.testing.expect(reflected[0].entry.visibility.fragment);
-}
-
-test "Vulkan device creates SPIR-V compiled from HLSL" {
-    if (comptime !@import("shader_options").enable_dxc) return error.SkipZigTest;
-
-    const instance = @import("instance.zig").vkInstance.init(std.testing.allocator, .{
-        .backend = .{ .vulkan = true },
-        .validation = .none,
-    }) catch |err| switch (err) {
-        error.FileNotFound => return error.SkipZigTest,
-        else => return err,
-    };
-    defer instance.deinit();
-    const adapter = try instance.createAdapter(.{});
-    defer adapter.deinit();
-    const device = try @import("../../interface/device.zig").Device.init(adapter, .{});
-    defer device.deinit();
-
-    const value = try shader.Shader.init(device, .{
-        .stage = .compute,
-        .source = @import("../dx12/hlsl_shader_module.zig").HLSLShaderModule.init(.{
-            .code = "[numthreads(1, 1, 1)] void main() {}",
-            .profile = .cs_6_7,
-        }),
-    });
-    value.deinit();
 }

@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize }),
     });
     exe.root_module.addImport("vitellus", vit.module("vitellus"));
+    exe.root_module.addImport("vitellus_spirv", vit.module("vitellus_spirv"));
     exe.root_module.addImport("vitellus_sdl3", vitellus_sdl3);
     exe.root_module.addImport("sdl3", sdl3.module("sdl3"));
     b.installArtifact(exe);

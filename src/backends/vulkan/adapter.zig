@@ -57,11 +57,8 @@ pub const vkAdapter = struct {
         return selected;
     }
 
-    pub fn enumerate(instance_ptr: *anyopaque, allocator: std.mem.Allocator) !@import("../../interface/instance.zig").Adapters {
-        return .{
-            .inner = try enumerateSlice(instance_ptr, allocator),
-            .alloc = allocator,
-        };
+    pub fn enumerate(instance_ptr: *anyopaque, allocator: std.mem.Allocator) ![]Adapter {
+        return enumerateSlice(instance_ptr, allocator);
     }
 
     pub fn enumerateStandalone(allocator: std.mem.Allocator) ![]Adapter {
@@ -388,11 +385,14 @@ test "Vulkan instance enumerates and describes adapters" {
     defer instance.deinit();
 
     const adapters = try instance.enumerateAdapters();
-    defer adapters.deinit();
+    defer {
+        for (adapters) |adapter| adapter.deinit();
+        std.testing.allocator.free(adapters);
+    }
 
-    try std.testing.expect(adapters.inner.len > 0);
-    const info = adapters.inner[0].info();
+    try std.testing.expect(adapters.len > 0);
+    const info = adapters[0].info();
     try std.testing.expect(info.nameSlice().len > 0);
-    try std.testing.expect(adapters.inner[0].capabilities().limits.max_texture_dimension_2d > 0);
-    try std.testing.expect(adapters.inner[0].formatCapabilities(.rgba8_unorm).usage.sampled);
+    try std.testing.expect(adapters[0].capabilities().limits.max_texture_dimension_2d > 0);
+    try std.testing.expect(adapters[0].formatCapabilities(.rgba8_unorm).usage.sampled);
 }

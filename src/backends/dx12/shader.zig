@@ -32,7 +32,7 @@ pub fn create(_: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDe
     });
     errdefer compiled.deinit(allocator);
 
-    if (!compiled.format.eql(.dxil)) return error.UnsupportedShaderFormat;
+    if (compiled.format != .dxil) return error.UnsupportedShaderFormat;
 
     const bindings = if (compiled.reflection_spirv) |spirv|
         try spirv_reflect.reflectBindingsBytes(allocator, spirv, desc.stage)
