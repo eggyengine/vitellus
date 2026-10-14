@@ -4,6 +4,9 @@ vitellus is a native-first rendering hardware interface written in Zig for build
 
 guides and API reference: https://eggyengine.github.io/vitellus/
 
+> [!NOTE]
+> **Needed**: Metal developers or really anyone with a mac should consider contributing to this
+
 ## add to project
 requires zig `0.16.0`
 
