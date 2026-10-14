@@ -43,6 +43,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     mod.addImport("candler", candler.module("candler"));
+    mod.addImport("better_dynlib", b.dependency("better_dynlib", .{ .target = target }).module("better_dynlib"));
 
     // directx
     if (enable_dx12) {

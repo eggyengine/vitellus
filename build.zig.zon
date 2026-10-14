@@ -77,6 +77,10 @@
             .hash = "eggenvector-0.0.0-UyZb9CMkAgCXysMEx0f2nRlTRCMzRwo32F1vsDULsLYV",
             .lazy = true,
         },
+        .better_dynlib = .{
+            .url = "git+https://github.com/eggyengine/better-dynlib#8d45e065337f486d32ce7d63dd0a18fd4363e481",
+            .hash = "better_dynlib-0.1.0-_pGZeoIZAACBUt3s3UMPTXcMVplZO8XbzJOjrShycqFJ",
+        },
     },
     .paths = .{
         "build.zig",

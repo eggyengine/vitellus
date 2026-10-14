@@ -2,7 +2,7 @@ const options = @import("shader_options");
 
 pub const candler = @import("candler");
 /// `std.DynLib`, plus Windows.
-pub const DynLib = @import("utils/dynlib.zig").DynLib;
+pub const DynLib = @import("better_dynlib").DynLib;
 
 pub const windowing = struct {
     pub const Window = @import("windowing/windowing.zig").Window;

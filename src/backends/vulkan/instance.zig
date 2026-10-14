@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const vk = @import("vulkan");
-const DynLib = @import("../../utils/dynlib.zig").DynLib;
+const DynLib = @import("better_dynlib").DynLib;
 
 const Instance = @import("../../interface/instance.zig").Instance;
 const Adapter = @import("../../interface/adapter.zig").Adapter;
