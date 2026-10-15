@@ -17,7 +17,9 @@ pub const vkSemaphore = struct {
 };
 
 pub const vkFence = struct {
-    allocator: std.mem.Allocator, device: vk.DeviceProxy, handle: vk.Semaphore,
+    allocator: std.mem.Allocator,
+    device: vk.DeviceProxy,
+    handle: vk.Semaphore,
     fn fromInterface(value: sync.Fence) !*vkFence {
         if (value.handle == 0) return error.InvalidFence;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -38,11 +40,20 @@ pub fn createFence(ptr: *anyopaque, desc: sync.FenceDescriptor) anyerror!sync.Fe
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &fence_vtable };
 }
 
-fn destroyFence(value: sync.Fence) void { const self = vkFence.fromInterface(value) catch return; const a = self.allocator; self.device.destroySemaphore(self.handle, null); a.destroy(self); }
-fn currentFenceValue(value: sync.Fence) u64 { const self = vkFence.fromInterface(value) catch return 0; return self.device.getSemaphoreCounterValue(self.handle) catch 0; }
+fn destroyFence(value: sync.Fence) void {
+    const self = vkFence.fromInterface(value) catch return;
+    const a = self.allocator;
+    self.device.destroySemaphore(self.handle, null);
+    a.destroy(self);
+}
+fn currentFenceValue(value: sync.Fence) u64 {
+    const self = vkFence.fromInterface(value) catch return 0;
+    return self.device.getSemaphoreCounterValue(self.handle) catch 0;
+}
 fn waitFence(point: sync.FencePoint, timeout_ns: ?u64) anyerror!bool {
     const self = try vkFence.fromInterface(point.fence);
-    const handles = [_]vk.Semaphore{self.handle}; const values = [_]u64{point.value};
+    const handles = [_]vk.Semaphore{self.handle};
+    const values = [_]u64{point.value};
     const result = try self.device.waitSemaphores(&.{ .semaphore_count = 1, .p_semaphores = &handles, .p_values = &values }, timeout_ns orelse std.math.maxInt(u64));
     return result == .success;
 }
@@ -74,4 +85,6 @@ pub fn rawSemaphore(value: sync.Semaphore) !vk.Semaphore {
     return (try vkSemaphore.fromInterface(value)).handle;
 }
 
-pub fn rawFence(value: sync.Fence) !vk.Semaphore { return (try vkFence.fromInterface(value)).handle; }
+pub fn rawFence(value: sync.Fence) !vk.Semaphore {
+    return (try vkFence.fromInterface(value)).handle;
+}

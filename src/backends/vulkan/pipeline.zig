@@ -32,7 +32,10 @@ pub const vkGraphicsPipeline = struct {
 };
 
 pub const vkComputePipeline = struct {
-    allocator: std.mem.Allocator, device: vk.DeviceProxy, handle: vk.Pipeline, layout: vk.PipelineLayout,
+    allocator: std.mem.Allocator,
+    device: vk.DeviceProxy,
+    handle: vk.Pipeline,
+    layout: vk.PipelineLayout,
     pub fn fromHandle(value: pipeline.ComputePipeline) !*vkComputePipeline {
         if (value.handle == 0) return error.InvalidComputePipeline;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -113,7 +116,11 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
     const raster: vk.PipelineRasterizationStateCreateInfo = .{
         .depth_clamp_enable = if (desc.raster.depth_clip) .false else .true,
         .rasterizer_discard_enable = .false,
-        .polygon_mode = switch (desc.raster.polygon_mode) { .fill => .fill, .line => .line, .point => .point },
+        .polygon_mode = switch (desc.raster.polygon_mode) {
+            .fill => .fill,
+            .line => .line,
+            .point => .point,
+        },
         .cull_mode = switch (desc.raster.cull_mode) {
             .none => .{},
             .front => .{ .front_bit = true },
@@ -164,15 +171,16 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         .stencil_attachment_format = if (depth_format != .undefined and resource_impl.formatAspects(depth_format).stencil_bit) depth_format else .undefined,
     };
     const depth_state: vk.PipelineDepthStencilStateCreateInfo = if (desc.depth_stencil) |depth| .{
-        .depth_test_enable = .true, .depth_write_enable = if (depth.depth_write) .true else .false,
-        .depth_compare_op = resource_impl.compare(depth.depth_compare), .depth_bounds_test_enable = .false,
+        .depth_test_enable = .true,
+        .depth_write_enable = if (depth.depth_write) .true else .false,
+        .depth_compare_op = resource_impl.compare(depth.depth_compare),
+        .depth_bounds_test_enable = .false,
         .stencil_test_enable = if (adapter_impl.toVkFormat(depth.format) == .d24_unorm_s8_uint or adapter_impl.toVkFormat(depth.format) == .d32_sfloat_s8_uint) .true else .false,
         .front = stencilState(depth.stencil_front, depth.stencil_read_mask, depth.stencil_write_mask),
         .back = stencilState(depth.stencil_back, depth.stencil_read_mask, depth.stencil_write_mask),
-        .min_depth_bounds = 0, .max_depth_bounds = 1,
-    } else .{ .depth_test_enable = .false, .depth_write_enable = .false, .depth_compare_op = .always,
-        .depth_bounds_test_enable = .false, .stencil_test_enable = .false, .front = stencilState(.{}, 0xff, 0xff),
-        .back = stencilState(.{}, 0xff, 0xff), .min_depth_bounds = 0, .max_depth_bounds = 1 };
+        .min_depth_bounds = 0,
+        .max_depth_bounds = 1,
+    } else .{ .depth_test_enable = .false, .depth_write_enable = .false, .depth_compare_op = .always, .depth_bounds_test_enable = .false, .stencil_test_enable = .false, .front = stencilState(.{}, 0xff, 0xff), .back = stencilState(.{}, 0xff, 0xff), .min_depth_bounds = 0, .max_depth_bounds = 1 };
     var native: vk.Pipeline = .null_handle;
     const result = try device.proxy.createGraphicsPipelines(.null_handle, &.{.{
         .p_next = &rendering,
@@ -227,13 +235,28 @@ fn destroyGraphics(value: pipeline.GraphicsPipeline) void {
     self.device.destroyPipeline(self.handle, null);
     allocator.destroy(self);
 }
-fn destroyCompute(value: pipeline.ComputePipeline) void { const self = vkComputePipeline.fromHandle(value) catch return; const a = self.allocator; self.device.destroyPipeline(self.handle, null); a.destroy(self); }
+fn destroyCompute(value: pipeline.ComputePipeline) void {
+    const self = vkComputePipeline.fromHandle(value) catch return;
+    const a = self.allocator;
+    self.device.destroyPipeline(self.handle, null);
+    a.destroy(self);
+}
 
 fn stencilState(value: pipeline.StencilFaceState, read_mask: u8, write_mask: u8) vk.StencilOpState {
-    return .{ .fail_op = stencilOp(value.fail), .pass_op = stencilOp(value.pass), .depth_fail_op = stencilOp(value.depth_fail),
-        .compare_op = resource_impl.compare(value.compare), .compare_mask = read_mask, .write_mask = write_mask, .reference = 0 };
+    return .{ .fail_op = stencilOp(value.fail), .pass_op = stencilOp(value.pass), .depth_fail_op = stencilOp(value.depth_fail), .compare_op = resource_impl.compare(value.compare), .compare_mask = read_mask, .write_mask = write_mask, .reference = 0 };
 }
-fn stencilOp(value: pipeline.StencilOp) vk.StencilOp { return switch (value) { .keep => .keep, .zero => .zero, .replace => .replace, .invert => .invert, .increment_clamp => .increment_and_clamp, .decrement_clamp => .decrement_and_clamp, .increment_wrap => .increment_and_wrap, .decrement_wrap => .decrement_and_wrap }; }
+fn stencilOp(value: pipeline.StencilOp) vk.StencilOp {
+    return switch (value) {
+        .keep => .keep,
+        .zero => .zero,
+        .replace => .replace,
+        .invert => .invert,
+        .increment_clamp => .increment_and_clamp,
+        .decrement_clamp => .decrement_and_clamp,
+        .increment_wrap => .increment_and_wrap,
+        .decrement_wrap => .decrement_and_wrap,
+    };
+}
 
 fn shaderStage(value: *shader_impl.vkShader) vk.PipelineShaderStageCreateInfo {
     return .{
@@ -259,9 +282,14 @@ fn primitiveTopology(value: pipeline.PrimitiveTopology) vk.PrimitiveTopology {
 
 fn sampleCount(value: u32) vk.SampleCountFlags {
     return switch (value) {
-        1 => .{ .@"1_bit" = true }, 2 => .{ .@"2_bit" = true }, 4 => .{ .@"4_bit" = true },
-        8 => .{ .@"8_bit" = true }, 16 => .{ .@"16_bit" = true }, 32 => .{ .@"32_bit" = true },
-        64 => .{ .@"64_bit" = true }, else => .{},
+        1 => .{ .@"1_bit" = true },
+        2 => .{ .@"2_bit" = true },
+        4 => .{ .@"4_bit" = true },
+        8 => .{ .@"8_bit" = true },
+        16 => .{ .@"16_bit" = true },
+        32 => .{ .@"32_bit" = true },
+        64 => .{ .@"64_bit" = true },
+        else => .{},
     };
 }
 
@@ -276,35 +304,73 @@ fn colorBlend(target: pipeline.ColorTargetState) vk.PipelineColorBlendAttachment
         .dst_alpha_blend_factor = blendFactor(blend.alpha.destination),
         .alpha_blend_op = blendOp(blend.alpha.operation),
         .color_write_mask = .{
-            .r_bit = target.write_mask.red, .g_bit = target.write_mask.green,
-            .b_bit = target.write_mask.blue, .a_bit = target.write_mask.alpha,
+            .r_bit = target.write_mask.red,
+            .g_bit = target.write_mask.green,
+            .b_bit = target.write_mask.blue,
+            .a_bit = target.write_mask.alpha,
         },
     };
 }
 
 fn blendFactor(value: pipeline.BlendFactor) vk.BlendFactor {
     return switch (value) {
-        .zero => .zero, .one => .one, .src => .src_color, .one_minus_src => .one_minus_src_color,
-        .src_alpha => .src_alpha, .one_minus_src_alpha => .one_minus_src_alpha, .dst => .dst_color,
-        .one_minus_dst => .one_minus_dst_color, .dst_alpha => .dst_alpha,
-        .one_minus_dst_alpha => .one_minus_dst_alpha, .src_alpha_saturated => .src_alpha_saturate,
-        .constant => .constant_color, .one_minus_constant => .one_minus_constant_color,
+        .zero => .zero,
+        .one => .one,
+        .src => .src_color,
+        .one_minus_src => .one_minus_src_color,
+        .src_alpha => .src_alpha,
+        .one_minus_src_alpha => .one_minus_src_alpha,
+        .dst => .dst_color,
+        .one_minus_dst => .one_minus_dst_color,
+        .dst_alpha => .dst_alpha,
+        .one_minus_dst_alpha => .one_minus_dst_alpha,
+        .src_alpha_saturated => .src_alpha_saturate,
+        .constant => .constant_color,
+        .one_minus_constant => .one_minus_constant_color,
     };
 }
 
 fn blendOp(value: pipeline.BlendOp) vk.BlendOp {
-    return switch (value) { .add => .add, .subtract => .subtract, .reverse_subtract => .reverse_subtract, .min => .min, .max => .max };
+    return switch (value) {
+        .add => .add,
+        .subtract => .subtract,
+        .reverse_subtract => .reverse_subtract,
+        .min => .min,
+        .max => .max,
+    };
 }
 
 fn vertexFormat(value: pipeline.VertexFormat) vk.Format {
     return switch (value) {
-        .uint8x2 => .r8g8_uint, .uint8x4 => .r8g8b8a8_uint, .sint8x2 => .r8g8_sint, .sint8x4 => .r8g8b8a8_sint,
-        .unorm8x2 => .r8g8_unorm, .unorm8x4 => .r8g8b8a8_unorm, .snorm8x2 => .r8g8_snorm, .snorm8x4 => .r8g8b8a8_snorm,
-        .uint16x2 => .r16g16_uint, .uint16x4 => .r16g16b16a16_uint, .sint16x2 => .r16g16_sint, .sint16x4 => .r16g16b16a16_sint,
-        .unorm16x2 => .r16g16_unorm, .unorm16x4 => .r16g16b16a16_unorm, .snorm16x2 => .r16g16_snorm, .snorm16x4 => .r16g16b16a16_snorm,
-        .float16x2 => .r16g16_sfloat, .float16x4 => .r16g16b16a16_sfloat, .float32 => .r32_sfloat,
-        .float32x2 => .r32g32_sfloat, .float32x3 => .r32g32b32_sfloat, .float32x4 => .r32g32b32a32_sfloat,
-        .uint32 => .r32_uint, .uint32x2 => .r32g32_uint, .uint32x3 => .r32g32b32_uint, .uint32x4 => .r32g32b32a32_uint,
-        .sint32 => .r32_sint, .sint32x2 => .r32g32_sint, .sint32x3 => .r32g32b32_sint, .sint32x4 => .r32g32b32a32_sint,
+        .uint8x2 => .r8g8_uint,
+        .uint8x4 => .r8g8b8a8_uint,
+        .sint8x2 => .r8g8_sint,
+        .sint8x4 => .r8g8b8a8_sint,
+        .unorm8x2 => .r8g8_unorm,
+        .unorm8x4 => .r8g8b8a8_unorm,
+        .snorm8x2 => .r8g8_snorm,
+        .snorm8x4 => .r8g8b8a8_snorm,
+        .uint16x2 => .r16g16_uint,
+        .uint16x4 => .r16g16b16a16_uint,
+        .sint16x2 => .r16g16_sint,
+        .sint16x4 => .r16g16b16a16_sint,
+        .unorm16x2 => .r16g16_unorm,
+        .unorm16x4 => .r16g16b16a16_unorm,
+        .snorm16x2 => .r16g16_snorm,
+        .snorm16x4 => .r16g16b16a16_snorm,
+        .float16x2 => .r16g16_sfloat,
+        .float16x4 => .r16g16b16a16_sfloat,
+        .float32 => .r32_sfloat,
+        .float32x2 => .r32g32_sfloat,
+        .float32x3 => .r32g32b32_sfloat,
+        .float32x4 => .r32g32b32a32_sfloat,
+        .uint32 => .r32_uint,
+        .uint32x2 => .r32g32_uint,
+        .uint32x3 => .r32g32b32_uint,
+        .uint32x4 => .r32g32b32a32_uint,
+        .sint32 => .r32_sint,
+        .sint32x2 => .r32g32_sint,
+        .sint32x3 => .r32g32b32_sint,
+        .sint32x4 => .r32g32b32a32_sint,
     };
 }
