@@ -347,13 +347,13 @@ fn copyBufferToTexture(ptr: *anyopaque, v: command.BufferTextureCopyRegion) !voi
     const s: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
     const b = try resource.vkBuffer.fromHandle(v.buffer);
     const t = try resource.vkTexture.fromHandle(v.texture.texture);
-    s.device.cmdCopyBufferToImage(s.handle, b.buffer, t.image, .transfer_dst_optimal, &.{bufferImageCopy(v, t.format)});
+    s.device.cmdCopyBufferToImage(s.handle, b.buffer, t.image, .transfer_dst_optimal, &.{try bufferImageCopy(v, t.format)});
 }
 fn copyTextureToBuffer(ptr: *anyopaque, v: command.BufferTextureCopyRegion) !void {
     const s: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
     const b = try resource.vkBuffer.fromHandle(v.buffer);
     const t = try resource.vkTexture.fromHandle(v.texture.texture);
-    s.device.cmdCopyImageToBuffer(s.handle, t.image, .transfer_src_optimal, b.buffer, &.{bufferImageCopy(v, t.format)});
+    s.device.cmdCopyImageToBuffer(s.handle, t.image, .transfer_src_optimal, b.buffer, &.{try bufferImageCopy(v, t.format)});
 }
 fn resolveTexture(ptr: *anyopaque, v: command.TextureResolveRegion) !void {
     const s: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
@@ -440,8 +440,10 @@ fn vkViewport(v: command.Viewport) vk.Viewport {
 fn subresource(format: vk.Format, mip: u32, layer: u32) vk.ImageSubresourceLayers {
     return .{ .aspect_mask = formatAspect(format), .mip_level = mip, .base_array_layer = layer, .layer_count = 1 };
 }
-fn bufferImageCopy(v: command.BufferTextureCopyRegion, format: vk.Format) vk.BufferImageCopy {
-    return .{ .buffer_offset = v.buffer_offset, .buffer_row_length = 0, .buffer_image_height = v.rows_per_image, .image_subresource = subresource(format, v.texture.mip_level, v.texture.array_layer), .image_offset = vkOffset(v.texture.origin), .image_extent = vkExtent(v.extent) };
+fn bufferImageCopy(v: command.BufferTextureCopyRegion, format: vk.Format) !vk.BufferImageCopy {
+    const row_length = try resource.bufferRowLength(format, v.bytes_per_row);
+    if (row_length != 0 and row_length < v.extent.width) return error.InvalidBytesPerRow;
+    return .{ .buffer_offset = v.buffer_offset, .buffer_row_length = row_length, .buffer_image_height = v.rows_per_image, .image_subresource = subresource(format, v.texture.mip_level, v.texture.array_layer), .image_offset = vkOffset(v.texture.origin), .image_extent = vkExtent(v.extent) };
 }
 fn formatAspect(f: vk.Format) vk.ImageAspectFlags {
     return switch (f) {
@@ -489,4 +491,38 @@ test "Vulkan viewports preserve the D3D and Metal coordinate convention" {
     try std.testing.expectEqual(@as(f32, -480), result.height);
     try std.testing.expectEqual(@as(f32, 0), result.min_depth);
     try std.testing.expectEqual(@as(f32, 1), result.max_depth);
+}
+
+test "Vulkan texture copies preserve row pitch subresources and tightly packed requests" {
+    var region = command.BufferTextureCopyRegion{
+        .buffer = undefined,
+        .buffer_offset = 512,
+        .bytes_per_row = 256,
+        .rows_per_image = 40,
+        .texture = .{ .texture = undefined, .mip_level = 2, .array_layer = 3 },
+        .extent = .{ .width = 32, .height = 17 },
+    };
+    const copy = try bufferImageCopy(region, .r8g8b8a8_unorm);
+    try std.testing.expectEqual(@as(u64, 512), copy.buffer_offset);
+    try std.testing.expectEqual(@as(u32, 64), copy.buffer_row_length);
+    try std.testing.expectEqual(@as(u32, 40), copy.buffer_image_height);
+    try std.testing.expectEqual(@as(u32, 2), copy.image_subresource.mip_level);
+    try std.testing.expectEqual(@as(u32, 3), copy.image_subresource.base_array_layer);
+    region.bytes_per_row = 0;
+    try std.testing.expectEqual(@as(u32, 0), (try bufferImageCopy(region, .r8g8b8a8_unorm)).buffer_row_length);
+    region.bytes_per_row = 127;
+    try std.testing.expectError(error.InvalidBytesPerRow, bufferImageCopy(region, .r8g8b8a8_unorm));
+    region.bytes_per_row = 64;
+    try std.testing.expectError(error.InvalidBytesPerRow, bufferImageCopy(region, .r8g8b8a8_unorm));
+}
+
+test "Vulkan byte pitches account for texel sizes and compressed blocks" {
+    try std.testing.expectEqual(@as(u32, 256), try resource.bufferRowLength(.r8_unorm, 256));
+    try std.testing.expectEqual(@as(u32, 64), try resource.bufferRowLength(.b8g8r8a8_srgb, 256));
+    try std.testing.expectEqual(@as(u32, 32), try resource.bufferRowLength(.r16g16b16a16_sfloat, 256));
+    try std.testing.expectEqual(@as(u32, 16), try resource.bufferRowLength(.r32g32b32a32_sfloat, 256));
+    try std.testing.expectEqual(@as(u32, 128), try resource.bufferRowLength(.bc1_rgba_unorm_block, 256));
+    try std.testing.expectEqual(@as(u32, 64), try resource.bufferRowLength(.bc3_unorm_block, 256));
+    try std.testing.expectError(error.InvalidBytesPerRow, resource.bufferRowLength(.r32g32b32_sfloat, 256));
+    try std.testing.expectError(error.UnsupportedCopyFormat, resource.bufferRowLength(.undefined, 256));
 }

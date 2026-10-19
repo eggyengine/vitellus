@@ -297,9 +297,7 @@ fn uploadTexture(device: *vkDevice, image: vk.Image, format: vk.Format, desc: re
     const aspect = aspectMask(.all, format);
     const range: vk.ImageSubresourceRange = .{ .aspect_mask = aspect, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 };
     device.proxy.cmdPipelineBarrier(cmd, .{ .top_of_pipe_bit = true }, .{ .transfer_bit = true }, .{}, null, null, &.{.{ .src_access_mask = .{}, .dst_access_mask = .{ .transfer_write_bit = true }, .old_layout = .undefined, .new_layout = .transfer_dst_optimal, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
-    const block = formatBlock(desc.format);
-    if (desc.bytes_per_row != 0 and desc.bytes_per_row % block.bytes != 0) return error.InvalidBytesPerRow;
-    const row_length = if (desc.bytes_per_row == 0) 0 else desc.bytes_per_row / block.bytes * block.width;
+    const row_length = try bufferRowLength(format, desc.bytes_per_row);
     device.proxy.cmdCopyBufferToImage(cmd, staging, image, .transfer_dst_optimal, &.{.{ .buffer_offset = 0, .buffer_row_length = row_length, .buffer_image_height = 0, .image_subresource = .{ .aspect_mask = aspect, .mip_level = 0, .base_array_layer = 0, .layer_count = 1 }, .image_offset = .{ .x = 0, .y = 0, .z = 0 }, .image_extent = .{ .width = desc.width, .height = desc.height, .depth = if (desc.dimension == .d3) desc.depth_or_layers else 1 } }});
     device.proxy.cmdPipelineBarrier(cmd, .{ .transfer_bit = true }, .{ .all_commands_bit = true }, .{}, null, null, &.{.{ .src_access_mask = .{ .transfer_write_bit = true }, .dst_access_mask = .{ .memory_read_bit = true, .memory_write_bit = true }, .old_layout = .transfer_dst_optimal, .new_layout = .general, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
     try device.proxy.endCommandBuffer(cmd);
@@ -309,18 +307,26 @@ fn uploadTexture(device: *vkDevice, image: vk.Image, format: vk.Format, desc: re
 }
 
 const FormatBlock = struct { width: u32 = 1, bytes: u32 };
-fn formatBlock(format: resource.Format) FormatBlock {
+fn formatBlock(format: vk.Format) !FormatBlock {
     return switch (format) {
-        .r8_unorm, .r8_snorm, .r8_uint, .r8_sint, .stencil8 => .{ .bytes = 1 },
-        .rg8_unorm, .rg8_snorm, .rg8_uint, .rg8_sint, .r16_unorm, .r16_snorm, .r16_uint, .r16_sint, .r16_float, .d16_unorm => .{ .bytes = 2 },
-        .rgba8_unorm, .rgba8_snorm, .rgba8_uint, .rgba8_sint, .rgba8_unorm_srgb, .bgra8_unorm, .bgra8_unorm_srgb, .rg16_unorm, .rg16_snorm, .rg16_uint, .rg16_sint, .rg16_float, .r32_uint, .r32_sint, .r32_float, .rgb10a2_unorm, .rg11b10_float, .d24_unorm_s8_uint, .d32_float => .{ .bytes = 4 },
-        .rgba16_unorm, .rgba16_snorm, .rgba16_uint, .rgba16_sint, .rgba16_float, .rg32_uint, .rg32_sint, .rg32_float, .d32_float_s8_uint => .{ .bytes = 8 },
-        .rgb32_uint, .rgb32_sint, .rgb32_float => .{ .bytes = 12 },
-        .rgba32_uint, .rgba32_sint, .rgba32_float => .{ .bytes = 16 },
-        .bc1_rgba_unorm, .bc1_rgba_unorm_srgb, .bc4_r_unorm, .bc4_r_snorm => .{ .width = 4, .bytes = 8 },
-        .bc2_rgba_unorm, .bc2_rgba_unorm_srgb, .bc3_rgba_unorm, .bc3_rgba_unorm_srgb, .bc5_rg_unorm, .bc5_rg_snorm, .bc6h_rgb_ufloat, .bc6h_rgb_float, .bc7_rgba_unorm, .bc7_rgba_unorm_srgb => .{ .width = 4, .bytes = 16 },
-        .undefined => .{ .bytes = 1 },
+        .r8_unorm, .r8_snorm, .r8_uint, .r8_sint, .s8_uint => .{ .bytes = 1 },
+        .r8g8_unorm, .r8g8_snorm, .r8g8_uint, .r8g8_sint, .r16_unorm, .r16_snorm, .r16_uint, .r16_sint, .r16_sfloat, .d16_unorm => .{ .bytes = 2 },
+        .r8g8b8a8_unorm, .r8g8b8a8_snorm, .r8g8b8a8_uint, .r8g8b8a8_sint, .r8g8b8a8_srgb, .b8g8r8a8_unorm, .b8g8r8a8_srgb, .r16g16_unorm, .r16g16_snorm, .r16g16_uint, .r16g16_sint, .r16g16_sfloat, .r32_uint, .r32_sint, .r32_sfloat, .a2b10g10r10_unorm_pack32, .b10g11r11_ufloat_pack32, .d24_unorm_s8_uint, .d32_sfloat => .{ .bytes = 4 },
+        .r16g16b16a16_unorm, .r16g16b16a16_snorm, .r16g16b16a16_uint, .r16g16b16a16_sint, .r16g16b16a16_sfloat, .r32g32_uint, .r32g32_sint, .r32g32_sfloat, .d32_sfloat_s8_uint => .{ .bytes = 8 },
+        .r32g32b32_uint, .r32g32b32_sint, .r32g32b32_sfloat => .{ .bytes = 12 },
+        .r32g32b32a32_uint, .r32g32b32a32_sint, .r32g32b32a32_sfloat => .{ .bytes = 16 },
+        .bc1_rgba_unorm_block, .bc1_rgba_srgb_block, .bc4_unorm_block, .bc4_snorm_block => .{ .width = 4, .bytes = 8 },
+        .bc2_unorm_block, .bc2_srgb_block, .bc3_unorm_block, .bc3_srgb_block, .bc5_unorm_block, .bc5_snorm_block, .bc6h_ufloat_block, .bc6h_sfloat_block, .bc7_unorm_block, .bc7_srgb_block => .{ .width = 4, .bytes = 16 },
+        else => error.UnsupportedCopyFormat,
     };
+}
+
+/// Convert a byte row pitch to Vulkan's texel count, accounting for compressed blocks.
+pub fn bufferRowLength(format: vk.Format, bytes_per_row: u32) !u32 {
+    if (bytes_per_row == 0) return 0;
+    const block = try formatBlock(format);
+    if (bytes_per_row % block.bytes != 0) return error.InvalidBytesPerRow;
+    return bytes_per_row / block.bytes * block.width;
 }
 fn sampleCount(n: u32) vk.SampleCountFlags {
     return switch (n) {
