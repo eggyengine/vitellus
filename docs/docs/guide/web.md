@@ -93,7 +93,7 @@ pub fn build(b: *std.Build) void {
 `addApp` adds Emscripten's libc headers to every C dependency, passes every static library to `em++`, and sets the flags Vitellus needs (`--use-port=emdawnwebgpu`, `-sASYNCIFY`, ...). Add your own with `.args`, or use your own page with `.shell_file`. The page needs a `<canvas id="canvas">` and the `{{{ SCRIPT }}}` placeholder.
 
 ```bash
-zig build -Dtarget=wasm32-emscripten -Doptimize=ReleaseSmall
+zig build -Dtarget=wasm32-emscripten -Doptimize=small
 zig build run -Dtarget=wasm32-emscripten   # serves and opens the page with emrun
 ```
 
