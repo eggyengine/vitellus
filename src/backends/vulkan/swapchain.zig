@@ -18,12 +18,12 @@ pub const vkSwapchain = struct {
     adapter: *vkAdapter,
     queue: *vkQueue,
     surface: vk.SurfaceKHR,
-    handle: vk.SwapchainKHR = .null_handle,
+    handle: vk.SwapchainKHR = .null,
     images: []vk.Image = &.{},
     image_views: []vk.ImageView = &.{},
     view_impls: []resource_impl.vkTextureView = &.{},
     views: []resource.TextureView = &.{},
-    acquire_fence: vk.Fence = .null_handle,
+    acquire_fence: vk.Fence = .null,
     current_image: ?u32 = null,
     extent: swapchain_interface.Extent2D,
     format: swapchain_interface.SwapchainFormat,
@@ -85,8 +85,8 @@ pub const vkSwapchain = struct {
         const self: *vkSwapchain = @ptrCast(@alignCast(ptr));
         _ = self.queue.device.deviceWaitIdle() catch {};
         self.releaseImages();
-        if (self.handle != .null_handle) self.queue.device.destroySwapchainKHR(self.handle, null);
-        if (self.acquire_fence != .null_handle) self.queue.device.destroyFence(self.acquire_fence, null);
+        if (self.handle != .null) self.queue.device.destroySwapchainKHR(self.handle, null);
+        if (self.acquire_fence != .null) self.queue.device.destroyFence(self.acquire_fence, null);
         self.adapter.instance.wrapper.destroySurfaceKHR(self.adapter.instance.instance, self.surface, null);
         if (self.label) |label| allocator.free(label);
         allocator.destroy(self);
@@ -95,8 +95,8 @@ pub const vkSwapchain = struct {
 
     fn acquireNextImageImpl(ptr: *anyopaque, signal: ?sync.Semaphore) anyerror!swapchain_interface.AcquireResult {
         const self: *vkSwapchain = @ptrCast(@alignCast(ptr));
-        const semaphore: vk.Semaphore = if (signal) |value| try sync_impl.rawSemaphore(value) else .null_handle;
-        const fence: vk.Fence = if (signal == null) self.acquire_fence else .null_handle;
+        const semaphore: vk.Semaphore = if (signal) |value| try sync_impl.rawSemaphore(value) else .null;
+        const fence: vk.Fence = if (signal == null) self.acquire_fence else .null;
         const acquired = while (true) {
             break self.queue.device.acquireNextImageKHR(self.handle, std.math.maxInt(u64), semaphore, fence) catch |err| switch (err) {
                 error.OutOfDateKHR => {
@@ -122,8 +122,9 @@ pub const vkSwapchain = struct {
     fn presentImpl(ptr: *anyopaque, waits: []const sync.Semaphore) anyerror!swapchain_interface.PresentStatus {
         const self: *vkSwapchain = @ptrCast(@alignCast(ptr));
         const image_index = self.current_image orelse return error.NoAcquiredImage;
-        var fallback = std.heap.stackFallback(8 * @sizeOf(vk.Semaphore), self.allocator);
-        const allocator = fallback.get();
+        var stack_buf: [8 * @sizeOf(vk.Semaphore)]u8 align(16) = undefined;
+        var fallback: std.heap.BufferFirstAllocator = .init(&stack_buf, self.allocator);
+        const allocator = fallback.allocator();
         const semaphores = try allocator.alloc(vk.Semaphore, waits.len);
         defer allocator.free(semaphores);
         for (waits, semaphores) |wait, *semaphore| semaphore.* = try sync_impl.rawSemaphore(wait);
@@ -184,7 +185,7 @@ pub const vkSwapchain = struct {
         const usage = toVkUsage(self.usage);
         if (!caps.supported_usage_flags.contains(usage)) return error.UnsupportedImageUsage;
         // Identity lets the compositor rotate for us (Android); desktops are always identity anyway.
-        const pre_transform: vk.SurfaceTransformFlagsKHR = if (caps.supported_transforms.identity_bit_khr) .{ .identity_bit_khr = true } else caps.current_transform;
+        const pre_transform: vk.SurfaceTransformFlagsKHR = if (caps.supported_transforms.identity_khr) .{ .identity_khr = true } else caps.current_transform;
         const extent = chooseExtent(caps, requested_extent, pre_transform);
         if (extent.width == 0 or extent.height == 0) return error.InvalidExtent;
         var image_count = @max(self.requested_image_count, caps.min_image_count);
@@ -225,7 +226,7 @@ pub const vkSwapchain = struct {
                 .format = surface_impl.toVkFormat(self.format),
                 .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
                 .subresource_range = .{
-                    .aspect_mask = .{ .color_bit = true },
+                    .aspect_mask = .{ .color = true },
                     .base_mip_level = 0,
                     .level_count = 1,
                     .base_array_layer = 0,
@@ -247,7 +248,7 @@ pub const vkSwapchain = struct {
         }
 
         self.releaseImages();
-        if (self.handle != .null_handle) self.queue.device.destroySwapchainKHR(self.handle, null);
+        if (self.handle != .null) self.queue.device.destroySwapchainKHR(self.handle, null);
         self.handle = new_handle;
         self.images = new_images;
         self.image_views = new_image_views;
@@ -259,7 +260,7 @@ pub const vkSwapchain = struct {
             self.allocator,
             self.queue.device,
             .swapchain_khr,
-            @intFromEnum(self.handle),
+            @backingInt(self.handle),
             self.label,
         );
     }
@@ -279,10 +280,10 @@ pub const vkSwapchain = struct {
 
 fn toVkUsage(usage: swapchain_interface.ImageUsage) vk.ImageUsageFlags {
     return .{
-        .color_attachment_bit = usage.render_target,
-        .sampled_bit = usage.sampled,
-        .transfer_src_bit = usage.transfer_src,
-        .transfer_dst_bit = usage.transfer_dst,
+        .color_attachment = usage.render_target,
+        .sampled = usage.sampled,
+        .transfer_src = usage.transfer_src,
+        .transfer_dst = usage.transfer_dst,
     };
 }
 
@@ -293,9 +294,9 @@ fn chooseExtent(caps: vk.SurfaceCapabilitiesKHR, requested: swapchain_interface.
         // screen turns, when it can already be turned; so take the way round `requested` (the
         // window's size) is, and only swap blindly for a square window.
         const current = caps.current_extent;
-        const turned = caps.current_transform.rotate_90_bit_khr or caps.current_transform.rotate_270_bit_khr or
-            caps.current_transform.horizontal_mirror_rotate_90_bit_khr or caps.current_transform.horizontal_mirror_rotate_270_bit_khr;
-        if (!turned or !pre_transform.identity_bit_khr) return current;
+        const turned = caps.current_transform.rotate_90_khr or caps.current_transform.rotate_270_khr or
+            caps.current_transform.horizontal_mirror_rotate_90_khr or caps.current_transform.horizontal_mirror_rotate_270_khr;
+        if (!turned or !pre_transform.identity_khr) return current;
         const swapped = vk.Extent2D{ .width = current.height, .height = current.width };
         if (requested.width == requested.height) return swapped;
         return if ((requested.width > requested.height) == (current.width > current.height)) current else swapped;
@@ -307,9 +308,9 @@ fn chooseExtent(caps: vk.SurfaceCapabilitiesKHR, requested: swapchain_interface.
 }
 
 test "a quarter-turned surface without pre-rotation takes the window's shape, however its extent is reported" {
-    const identity = vk.SurfaceTransformFlagsKHR{ .identity_bit_khr = true };
+    const identity = vk.SurfaceTransformFlagsKHR{ .identity_khr = true };
     var caps = std.mem.zeroes(vk.SurfaceCapabilitiesKHR);
-    caps.current_transform = .{ .rotate_90_bit_khr = true };
+    caps.current_transform = .{ .rotate_90_khr = true };
     // Reported in the native (portrait) orientation, as Android usually does: swapped.
     caps.current_extent = .{ .width = 1080, .height = 2424 };
     try std.testing.expectEqual(vk.Extent2D{ .width = 2424, .height = 1080 }, chooseExtent(caps, .{ .width = 2424, .height = 1080 }, identity));

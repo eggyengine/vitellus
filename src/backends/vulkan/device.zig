@@ -100,7 +100,7 @@ pub const vkDevice = struct {
         self.queues = adapter.queues;
         self.memory_props = adapter.memory_props;
 
-        self.instance.nameObject(allocator, self.proxy, .device, @intFromEnum(handle), desc.label);
+        self.instance.nameObject(allocator, self.proxy, .device, @intFromPtr(handle), desc.label);
         log.debug("created Vulkan logical device with {} queue family/families", .{queue_info_count});
         return .{ .ptr = self, .vtable = &vtable, .allocator = allocator };
     }
@@ -119,13 +119,13 @@ pub const vkDevice = struct {
 };
 
 fn deviceExtensions(adapter: *vkAdapter, allocator: std.mem.Allocator, buf: *[2][*:0]const u8) ![]const [*:0]const u8 {
-    return fillDeviceExtensions(try hasDeviceExtension(adapter, allocator, vk.extensions.khr_portability_subset.name), buf);
+    return fillDeviceExtensions(try hasDeviceExtension(adapter, allocator, vk.device_extensions.khr_portability_subset.name), buf);
 }
 
 fn fillDeviceExtensions(portability: bool, buf: *[2][*:0]const u8) []const [*:0]const u8 {
-    buf[0] = vk.extensions.khr_swapchain.name.ptr;
+    buf[0] = vk.device_extensions.khr_swapchain.name.ptr;
     if (!portability) return buf[0..1];
-    buf[1] = vk.extensions.khr_portability_subset.name.ptr;
+    buf[1] = vk.device_extensions.khr_portability_subset.name.ptr;
     return buf[0..2];
 }
 
@@ -158,7 +158,7 @@ test "device extensions include portability subset when advertised" {
     var buf: [2][*:0]const u8 = undefined;
     try std.testing.expectEqual(@as(usize, 1), fillDeviceExtensions(false, &buf).len);
     try std.testing.expectEqual(@as(usize, 2), fillDeviceExtensions(true, &buf).len);
-    try std.testing.expectEqualStrings(vk.extensions.khr_portability_subset.name, std.mem.span(buf[1]));
+    try std.testing.expectEqualStrings(vk.device_extensions.khr_portability_subset.name, std.mem.span(buf[1]));
 }
 
 test "Vulkan logical device creates queues and semaphores" {

@@ -16,7 +16,7 @@ const Dx12Device = @import("device.zig").Dx12Device;
 const Dx12Swapchain = @import("swapchain.zig").Dx12Swapchain;
 const dx_resource = @import("resource.zig");
 
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;

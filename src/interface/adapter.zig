@@ -123,7 +123,7 @@ pub const Kind = enum { discrete, integrated, software, unknown };
 /// Stable, backend-independent information about a physical adapter.
 pub const AdapterInfo = struct {
     /// GPU name encoded as UTF-8. Use `nameSlice()` to read it.
-    name: [256]u8 = [_]u8{0} ** 256,
+    name: [256]u8 = @splat(0),
     name_len: usize = 0,
     /// Reported dedicated video memory in bytes.
     dedicated_vram: usize = 0,

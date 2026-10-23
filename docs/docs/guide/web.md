@@ -69,7 +69,7 @@ Write the same `init`, `iterate`, `event` and `quit` functions as for zig-sdl3. 
 
 ## 5. Build and link
 
-Vitellus's `build.zig` exports an `Emscripten` helper. `init` finds emsdk (`-Demsdk`, then `$EMSDK`, then `~/emsdk`) and, for a web target, points `b.sysroot` at Emscripten's sysroot, which SDL's build reads. Call it before creating dependencies. `addApp` links your root module into a page with `em++`:
+Vitellus's `build.zig` exports an `Emscripten` helper. `init` finds emsdk (`-Demsdk`, then `$EMSDK`, then `~/emsdk`); pass its `include` to C dependencies such as SDL (`sdl_system_include_path`), since a build script cannot set a sysroot. `addApp` links your root module into a page with `em++`:
 
 ```zig title="build.zig"
 const Emscripten = @import("vitellus").Emscripten;
@@ -93,7 +93,7 @@ pub fn build(b: *std.Build) void {
 `addApp` adds Emscripten's libc headers to every C dependency, passes every static library to `em++`, and sets the flags Vitellus needs (`--use-port=emdawnwebgpu`, `-sASYNCIFY`, ...). Add your own with `.args`, or use your own page with `.shell_file`. The page needs a `<canvas id="canvas">` and the `{{{ SCRIPT }}}` placeholder.
 
 ```bash
-zig build -Dtarget=wasm32-emscripten -Doptimize=ReleaseSmall
+zig build -Dtarget=wasm32-emscripten -Doptimize=small
 zig build run -Dtarget=wasm32-emscripten   # serves and opens the page with emrun
 ```
 

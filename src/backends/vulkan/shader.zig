@@ -45,7 +45,7 @@ pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: shader.Shader
         .p_code = words.ptr,
     }, null);
     errdefer device.proxy.destroyShaderModule(handle, null);
-    const entry_point = try allocator.dupeZ(u8, compiled.entry_point);
+    const entry_point = try allocator.dupeSentinel(u8, compiled.entry_point, 0);
     errdefer allocator.free(entry_point);
 
     const self = try allocator.create(vkShader);
@@ -57,7 +57,7 @@ pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: shader.Shader
         .entry_point = entry_point,
         .bindings = reflected,
     };
-    device.instance.nameObject(allocator, device.proxy, .shader_module, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(allocator, device.proxy, .shader_module, @backingInt(handle), desc.label);
     log.debug("created Vulkan {s} shader module", .{@tagName(desc.stage)});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &vtable };
 }

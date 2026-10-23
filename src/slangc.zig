@@ -65,15 +65,15 @@ pub fn compileSource(allocator: std.mem.Allocator, source: []const u8, entry_poi
     defer destroy_session(session);
     const request = create_request(session) orelse return error.SlangInitializationFailed;
     defer destroy_request(request);
-    set_target(request, @intFromEnum(target));
+    set_target(request, @backingInt(target));
     const unit = add_unit(request, 1, null); // SLANG_SOURCE_LANGUAGE_SLANG
     if (unit < 0) return error.ShaderCompilationFailed;
-    const source_z = try allocator.dupeZ(u8, source);
+    const source_z = try allocator.dupeSentinel(u8, source, 0);
     defer allocator.free(source_z);
-    const entry_z = try allocator.dupeZ(u8, entry_point);
+    const entry_z = try allocator.dupeSentinel(u8, entry_point, 0);
     defer allocator.free(entry_z);
     add_source(request, unit, "shader.slang", source_z);
-    const index = add_entry(request, unit, entry_z, @intFromEnum(stage));
+    const index = add_entry(request, unit, entry_z, @backingInt(stage));
     if (index < 0) return error.ShaderCompilationFailed;
     if (compile_request(request) < 0) {
         if (diagnostics(request)) |message| std.log.scoped(.slang).err("{s}", .{std.mem.span(message)});

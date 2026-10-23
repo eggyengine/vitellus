@@ -123,7 +123,7 @@ pub const vkAdapter = struct {
         defer allocator.free(extensions);
 
         for (extensions) |*extension| {
-            if (fixedStringEquals(extension.extension_name.len, &extension.extension_name, vk.extensions.khr_swapchain.name)) return true;
+            if (fixedStringEquals(extension.extension_name.len, &extension.extension_name, vk.device_extensions.khr_swapchain.name)) return true;
         }
         return false;
     }
@@ -140,13 +140,13 @@ pub const vkAdapter = struct {
         for (families, 0..) |family, index| {
             if (family.queue_count == 0) continue;
             const family_index: u32 = @intCast(index);
-            if (graphics == null and family.queue_flags.graphics_bit) graphics = family_index;
-            if (compute == null and family.queue_flags.compute_bit) compute = family_index;
-            if (dedicated_compute == null and family.queue_flags.compute_bit and !family.queue_flags.graphics_bit)
+            if (graphics == null and family.queue_flags.graphics) graphics = family_index;
+            if (compute == null and family.queue_flags.compute) compute = family_index;
+            if (dedicated_compute == null and family.queue_flags.compute and !family.queue_flags.graphics)
                 dedicated_compute = family_index;
-            if (copy == null and family.queue_flags.transfer_bit) copy = family_index;
-            if (dedicated_copy == null and family.queue_flags.transfer_bit and
-                !family.queue_flags.graphics_bit and !family.queue_flags.compute_bit)
+            if (copy == null and family.queue_flags.transfer) copy = family_index;
+            if (dedicated_copy == null and family.queue_flags.transfer and
+                !family.queue_flags.graphics and !family.queue_flags.compute)
                 dedicated_copy = family_index;
         }
         const graphics_family = graphics orelse return null;
@@ -178,7 +178,7 @@ pub const vkAdapter = struct {
 
         var device_memory: u64 = 0;
         for (self.memory_props.memory_heaps[0..self.memory_props.memory_heap_count]) |heap| {
-            if (heap.flags.device_local_bit) device_memory +|= heap.size;
+            if (heap.flags.device_local) device_memory +|= heap.size;
         }
         info.dedicated_vram = @intCast(@min(device_memory, std.math.maxInt(usize)));
         return info;
@@ -232,25 +232,25 @@ pub const vkAdapter = struct {
         const self: *vkAdapter = @ptrCast(@alignCast(ptr));
         const properties = self.instance.wrapper.getPhysicalDeviceFormatProperties(self.physical_device, toVkFormat(format));
         const features = properties.optimal_tiling_features;
-        const counts = if (features.depth_stencil_attachment_bit)
+        const counts = if (features.depth_stencil_attachment)
             self.props.limits.framebuffer_depth_sample_counts
         else
             self.props.limits.framebuffer_color_sample_counts;
 
         return .{
             .usage = .{
-                .sampled = features.sampled_image_bit,
-                .storage = features.storage_image_bit,
-                .color_attachment = features.color_attachment_bit,
-                .depth_stencil_attachment = features.depth_stencil_attachment_bit,
-                .transfer_src = features.transfer_src_bit,
-                .transfer_dst = features.transfer_dst_bit,
+                .sampled = features.sampled_image,
+                .storage = features.storage_image,
+                .color_attachment = features.color_attachment,
+                .depth_stencil_attachment = features.depth_stencil_attachment,
+                .transfer_src = features.transfer_src,
+                .transfer_dst = features.transfer_dst,
             },
             .sample_counts = .{
-                .one = counts.@"1_bit",
-                .two = counts.@"2_bit",
-                .four = counts.@"4_bit",
-                .eight = counts.@"8_bit",
+                .one = counts.@"1",
+                .two = counts.@"2",
+                .four = counts.@"4",
+                .eight = counts.@"8",
             },
         };
     }

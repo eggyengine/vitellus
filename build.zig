@@ -20,8 +20,6 @@ pub fn build(b: *std.Build) void {
     const is_web = target.result.cpu.arch.isWasm();
     const enable_vk = b.option(bool, "vk", "Enable Vulkan backend") orelse !is_web;
     const enable_webgpu = target.result.os.tag == .emscripten;
-    // Zig 0.16's self-hosted linker rejects R_X86_64_PC64 in glibc/GCC .sframe.
-    const use_llvm = target.result.os.tag == .linux;
 
     const mod = b.addModule("vitellus", .{
         .root_source_file = b.path("src/root.zig"),
@@ -48,7 +46,9 @@ pub fn build(b: *std.Build) void {
     // directx
     if (enable_dx12) {
         if (b.lazyDependency("directx-headers", .{})) |dep| {
-            mod.addIncludePath(dep.path("include/directx"));
+            const dx12_c = b.addTranslateC(.{ .root_source_file = b.path("src/backends/dx12/dx12.h"), .target = target, .optimize = optimize });
+            dx12_c.addIncludePath(dep.path("include/directx"));
+            mod.addImport("dx12_c", dx12_c.createModule());
         }
         mod.linkSystemLibrary("dxgi", .{});
         mod.linkSystemLibrary("d3d12", .{});
@@ -147,8 +147,8 @@ pub fn build(b: *std.Build) void {
                 .linkage = .static,
                 .root_module = spirv_cross_mod,
             });
-            // For @cImport("spirv_cross_c.h").
-            spirv_mod.addIncludePath(dep.path(""));
+            const spirv_cross_c = b.addTranslateC(.{ .root_source_file = dep.path("spirv_cross_c.h"), .target = target, .optimize = optimize });
+            spirv_mod.addImport("spirv_cross_c", spirv_cross_c.createModule());
             spirv_mod.linkLibrary(spirv_cross);
         }
     }
@@ -156,7 +156,7 @@ pub fn build(b: *std.Build) void {
     // webgpu, through the emdawnwebgpu port that `emcc --use-port=emdawnwebgpu` downloads
     const emsdk_option = b.option([]const u8, "emsdk", "Path to emsdk for web builds (default: $EMSDK, then ~/emsdk)");
     if (enable_webgpu) {
-        const cache = b.pathJoin(&.{ Emscripten.init(b, target, emsdk_option).emsdk, "upstream/emscripten/cache" });
+        const cache = b.pathJoin(&.{ Emscripten.init(b, emsdk_option).emsdk, "upstream/emscripten/cache" });
         const port_include = b.pathJoin(&.{ cache, "ports/emdawnwebgpu/emdawnwebgpu_pkg/webgpu/include" });
         const header = b.pathJoin(&.{ port_include, "webgpu/webgpu.h" });
         std.Io.Dir.cwd().access(b.graph.io, header, .{}) catch std.debug.panic(
@@ -210,8 +210,8 @@ pub fn build(b: *std.Build) void {
             if (target.result.os.tag != .windows) slangc.addRPath(dep.path("lib"));
             addRuntimeLibrary(b, dep.path(file), installed);
         }
-        const slang_tests = b.addRunArtifact(b.addTest(.{ .root_module = slangc, .use_llvm = use_llvm }));
-        if (slang) |dep| if (target.result.os.tag == .windows) slang_tests.addPathDir(dep.path("bin").getPath(b));
+        const slang_tests = b.addRunArtifact(b.addTest(.{ .root_module = slangc }));
+        if (slang) |dep| if (target.result.os.tag == .windows) slang_tests.setCwd(dep.path("bin"));
         b.step("test-slang", "Run vitellus_slangc tests").dependOn(&slang_tests.step);
     }
 
@@ -221,36 +221,26 @@ pub fn build(b: *std.Build) void {
         const lib_check = b.addTest(.{
             .name = "vitellus",
             .root_module = mod,
-            .use_llvm = use_llvm,
         });
         const check = b.step("check", "Check if vitellus compiles");
         check.dependOn(&lib_check.step);
         for ([_]?*std.Build.Module{ dxc_mod, spirv_mod }) |shader_mod| {
-            check.dependOn(&b.addTest(.{ .root_module = shader_mod orelse continue, .use_llvm = use_llvm }).step);
+            check.dependOn(&b.addTest(.{ .root_module = shader_mod orelse continue }).step);
         }
     }
 
     // tests
     {
-        const test_runner: std.Build.Step.Compile.TestRunner = .{
-            .path = .{ .cwd_relative = b.graph.zig_lib_directory.join(
-                b.allocator,
-                &.{ "compiler", "test_runner.zig" },
-            ) catch @panic("OOM") },
-            .mode = .simple,
-        };
         const mod_tests = b.addTest(.{
             .root_module = mod,
-            .test_runner = test_runner,
-            .use_llvm = use_llvm,
         });
 
         const test_step = b.step("test", "Run tests");
         test_step.dependOn(&b.addRunArtifact(mod_tests).step);
         for ([_]?*std.Build.Module{ dxc_mod, spirv_mod }) |shader_mod| {
-            const run = b.addRunArtifact(b.addTest(.{ .root_module = shader_mod orelse continue, .test_runner = test_runner, .use_llvm = use_llvm }));
-            // Windows finds dxcompiler.dll on PATH.
-            if (dxc_bin_dir) |dir| run.addPathDir(dir.getPath(b));
+            const run = b.addRunArtifact(b.addTest(.{ .root_module = shader_mod orelse continue }));
+            // Windows also looks for dxcompiler.dll in the working directory.
+            if (dxc_bin_dir) |dir| run.setCwd(dir);
             test_step.dependOn(&run.step);
         }
     }
@@ -262,13 +252,12 @@ pub const Emscripten = struct {
     /// Emscripten's libc headers; Zig ships none for Emscripten.
     include: std.Build.LazyPath,
 
-    /// `emsdk` defaults to `$EMSDK`, then `~/emsdk`. For an Emscripten `target`, sets `b.sysroot` to
-    /// Emscripten's sysroot, which SDL's build reads, so call this before creating dependencies.
-    pub fn init(b: *std.Build, target: std.Build.ResolvedTarget, emsdk: ?[]const u8) Emscripten {
+    /// `emsdk` defaults to `$EMSDK`, then `~/emsdk`. Hand `include` to C dependencies (SDL's
+    /// `sdl_system_include_path`), since Zig 0.17 build scripts can't set a sysroot.
+    pub fn init(b: *std.Build, emsdk: ?[]const u8) Emscripten {
         const root = emsdk orelse b.graph.environ_map.get("EMSDK") orelse
             b.pathJoin(&.{ b.graph.environ_map.get("HOME") orelse "/", "emsdk" });
         const sysroot = b.pathJoin(&.{ root, "upstream/emscripten/cache/sysroot" });
-        if (target.result.os.tag == .emscripten and b.sysroot == null) b.sysroot = sysroot;
         return .{ .emsdk = root, .include = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "include" }) } };
     }
 
@@ -279,6 +268,8 @@ pub const Emscripten = struct {
         root_module: *std.Build.Module,
         /// A page with a `<canvas id="canvas">` and the `{{{ SCRIPT }}}` placeholder, instead of Emscripten's.
         shell_file: ?std.Build.LazyPath = null,
+        /// JavaScript the app calls into, each passed as `--js-library`.
+        js_libraries: []const std.Build.LazyPath = &.{},
         /// Extra `em++` flags.
         args: []const []const u8 = &.{},
     };
@@ -300,7 +291,7 @@ pub const Emscripten = struct {
             for (dep.root_module.getGraph().modules) |module| {
                 module.addSystemIncludePath(self.include);
                 // emcc links no UBSan runtime, so C undefined behaviour traps instead of reporting.
-                if (module.sanitize_c == .full or (module.sanitize_c == null and module.optimize != .ReleaseFast and module.optimize != .ReleaseSmall)) module.sanitize_c = .trap;
+                if (module.sanitize_c == .full or (module.sanitize_c == null and module.optimize != .fast and module.optimize != .small)) module.sanitize_c = .trap;
                 // Lower setjmp/longjmp as emcc does; FreeType validates fonts with them.
                 for (module.link_objects.items) |object| switch (object) {
                     .c_source_file => |source| source.flags = withSjlj(b, source.flags),
@@ -312,10 +303,10 @@ pub const Emscripten = struct {
             if (dep.kind == .lib and dep.linkage == .static) emcc.addArtifactArg(dep);
         }
         emcc.addArgs(&.{
-            switch (options.root_module.optimize orelse .Debug) {
-                .Debug => "-O0",
-                .ReleaseSafe, .ReleaseFast => "-O2",
-                .ReleaseSmall => "-Oz",
+            switch (options.root_module.optimize orelse .debug) {
+                .debug => "-O0",
+                .safe, .fast => "-O2",
+                .small => "-Oz",
             },
             "--use-port=emdawnwebgpu",
             // Vitellus waits on WebGPU's async adapter, device and fence callbacks.
@@ -328,16 +319,21 @@ pub const Emscripten = struct {
             emcc.addArg("--shell-file");
             emcc.addFileArg(shell);
         }
+        for (options.js_libraries) |library| {
+            emcc.addArg("--js-library");
+            emcc.addFileArg(library);
+        }
         emcc.addArgs(options.args);
         emcc.addArg("-o");
         const html = emcc.addOutputFileArg(b.fmt("{s}.html", .{options.name}));
         const install = b.addInstallDirectory(.{ .source_dir = html.dirname(), .install_dir = .prefix, .install_subdir = "web" });
         b.getInstallStep().dependOn(&install.step);
 
-        const run = b.addSystemCommand(&.{ b.pathJoin(&.{ self.emsdk, "upstream/emscripten/emrun" }), b.getInstallPath(.prefix, b.fmt("web/{s}.html", .{options.name})) });
+        const run = b.addSystemCommand(&.{b.pathJoin(&.{ self.emsdk, "upstream/emscripten/emrun" })});
+        run.addFileArg(b.graph.path(.install_prefix, b.fmt("web/{s}.html", .{options.name})));
         run.setEnvironmentVariable("EM_CONFIG", b.pathJoin(&.{ self.emsdk, ".emscripten" }));
         run.step.dependOn(&install.step);
-        if (b.args) |args| run.addArgs(args);
+        run.addPassthruArgs();
         return .{ .install = install, .run = run };
     }
 
@@ -379,7 +375,7 @@ pub fn compileSlang(b: *std.Build, vitellus: *std.Build.Dependency, target: std.
     const host = b.graph.host.result;
     const slang = slangPackage(vitellus.builder, host) orelse return null;
     const web = target.result.os.tag == .emscripten;
-    const run = b.addSystemCommand(&.{slang.path(if (host.os.tag == .windows) "bin/slangc.exe" else "bin/slangc").getPath(b)});
+    const run = b.addRunFile(slang.path(if (host.os.tag == .windows) "bin/slangc.exe" else "bin/slangc"));
     run.addFileArg(source);
     run.addArgs(&.{ "-target", if (web) "wgsl" else "spirv", "-entry", entry_point, "-stage", @tagName(stage), "-o" });
     return run.addOutputFileArg(b.fmt("{s}.{s}", .{ entry_point, if (web) "wgsl" else "spv" }));
@@ -433,20 +429,21 @@ pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *
         "sh", "-c",
         \\set -e
         \\work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
-        \\libc=$(realpath "$7"); cp -R "$1"/. "$work"; chmod -R u+w "$work"; cd "$work"
-        \\patch -p1 < "$3"
+        \\libc=$(realpath "$7"); patchfile=$(realpath "$3"); mkdir -p "$2"; prefix=$(realpath "$2")
+        \\cp -R "$1"/. "$work"; chmod -R u+w "$work"; cd "$work"
+        \\patch -p1 < "$patchfile"
         \\mkdir .ndk; ln -s "$(sed -n 's/^crt_dir=//p' "$libc")" .ndk/lib # liblog, libandroid, ... live beside the CRT
-        \\"$4" build -Dtarget="$5" -Doptimize="$6" -Dpreferred_linkage=dynamic --prefix "$2" --libc "$libc" --search-prefix .ndk
+        \\"$4" build -Dtarget="$5" -Doptimize="$6" -Dpreferred_linkage=dynamic --prefix "$prefix" --libc "$libc" --search-prefix .ndk
         ,
         "sh",
     });
     run.setName("build patched SDL for Android");
-    run.addDirectoryArg(.{ .cwd_relative = desktop.step.owner.build_root.path orelse "." });
+    run.addDirectoryArg(desktop.step.owner.path(""));
     const out = run.addOutputDirectoryArg("sdl");
     run.addFileArg(vitellus.path("patches/sdl-android.patch"));
     run.addArg(b.graph.zig_exe);
     run.addArg(desktop.root_module.resolved_target.?.query.zigTriple(b.allocator) catch @panic("OOM"));
-    run.addArg(@tagName(desktop.root_module.optimize orelse .Debug));
+    run.addArg(@tagName(desktop.root_module.optimize orelse .debug));
     const built = out.path(b, "lib/libSDL3.so");
     objects[index] = .{ .static_path = built };
     // `linkLibrary` also added the desktop build as an include dir; the headers are the same, so drop it.
@@ -459,7 +456,7 @@ pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *
     // APK packagers want the file name at configure time, so hand them the installed copy.
     const install = b.addInstallFileWithDir(built, .{ .custom = "android" }, "libSDL3.so");
     for (apps) |app| app.step.dependOn(&install.step);
-    return .{ .run = run, .library = .{ .cwd_relative = b.getInstallPath(.{ .custom = "android" }, "libSDL3.so") } };
+    return .{ .run = run, .library = b.graph.path(.install_prefix, "android/libSDL3.so") };
 }
 
 /// `zig build docs`: Zig's HTML API docs for `mod` in zig-out/docs, which

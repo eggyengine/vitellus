@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const windows = std.os.windows;
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 
 const log = std.log.scoped(.dx12_names);
 
@@ -202,7 +202,7 @@ pub fn setRenderDocDescriptorName(allocator: std.mem.Allocator, heap: *dx.ID3D12
 
     const namer: *RenderDocDescriptorNamer = @ptrCast(@alignCast(raw.?));
     defer _ = namer.lpVtbl.Release(namer);
-    const terminated = allocator.dupeZ(u8, name) catch return;
+    const terminated = allocator.dupeSentinel(u8, name, 0) catch return;
     defer allocator.free(terminated);
     _ = namer.lpVtbl.SetName(namer, index, terminated.ptr);
 }

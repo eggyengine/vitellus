@@ -1,11 +1,11 @@
-Android support for castholm/SDL v0.4.0+3.4.0 (hash sdl-0.4.0+3.4.0-SDL--u6yowGyvoiJ5qkFm_T1-MpmvnHShh2q2mTZf1fo).
+Android support for castholm/SDL v0.6.0+3.4.18 (hash sdl-0.6.0+3.4.18-SDL--p-gqAGWpnfTLlhs0dgjDtc4P4_CHeNLGY_SX_Fv).
 Applied by vitellus's androidSdl() build helper; regenerate against the new build.zig when bumping SDL.
 
 diff --git a/build.zig b/build.zig
-index db7d224..b41045e 100644
+index 934b53d..d0dad37 100644
 --- a/build.zig
 +++ b/build.zig
-@@ -55,12 +55,12 @@ pub fn build(b: *std.Build) void {
+@@ -76,6 +76,7 @@ pub fn build(b: *std.Build) void {
  
      var windows = false;
      var linux = false;
@@ -13,13 +13,7 @@ index db7d224..b41045e 100644
      var linux_deps_values: ?LinuxDepsValues = null;
      var macos = false;
      var emscripten = false;
-     var system_include_path: ?std.Build.LazyPath = null;
-     var system_framework_path: ?std.Build.LazyPath = null;
--    var library_path: ?std.Build.LazyPath = null;
-     var msvc = false; // Assume mingw-w64 as the default for Windows
-     var musl = false; // Assume glibc as the default for Linux
-     switch (target.result.os.tag) {
-@@ -69,18 +69,21 @@ pub fn build(b: *std.Build) void {
+@@ -88,14 +89,18 @@ pub fn build(b: *std.Build) void {
              msvc = target.result.abi == .msvc;
          },
          .linux => {
@@ -33,20 +27,19 @@ index db7d224..b41045e 100644
 +                if (b.lazyImport(@This(), "sdl_linux_deps")) |build_zig| {
 +                    linux_deps_values = LinuxDepsValues.fromBuildZig(b, build_zig);
 +                }
++                if (target.result.os.versionRange().gnuLibCVersion()) |v| {
++                    if (v.major == 2) glibc_2_x = @min(v.minor, 255);
++                }
 +                musl = target.result.abi.isMusl();
              }
+-            if (target.result.os.versionRange().gnuLibCVersion()) |v| {
+-                if (v.major == 2) glibc_2_x = @min(v.minor, 255);
+-            }
 -            musl = target.result.abi.isMusl();
          },
          .macos => {
              macos = true;
-             if (b.sysroot) |sysroot| {
-                 system_include_path = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "usr/include" }) };
-                 system_framework_path = .{ .cwd_relative = b.pathJoin(&.{ sysroot, "System/Library/Frameworks" }) };
--                library_path = .{ .cwd_relative = "/usr/lib" }; // ???
-             } else if (!target.query.isNative()) {
-                 std.log.err("'--sysroot' is required when building SDL for non-native macOS targets", .{});
-                 std.process.exit(1);
-@@ -109,152 +112,152 @@ pub fn build(b: *std.Build) void {
+@@ -125,151 +130,151 @@ pub fn build(b: *std.Build) void {
              .include_path = "SDL_build_config.h",
          }, .{
              .SDL_PLATFORM_PRIVATE = false,
@@ -125,8 +118,8 @@ index db7d224..b41045e 100644
 +            .HAVE_MEMCMP = windows or linux or android or macos or emscripten,
 +            .HAVE_WCSLEN = windows or linux or android or macos or emscripten,
 +            .HAVE_WCSNLEN = windows or linux or android or macos or emscripten,
-             .HAVE_WCSLCPY = macos,
-             .HAVE_WCSLCAT = macos,
+             .HAVE_WCSLCPY = (linux and glibc_2_x >= 38) or macos,
+             .HAVE_WCSLCAT = (linux and glibc_2_x >= 38) or macos,
 -            .HAVE_WCSSTR = windows or linux or macos or emscripten,
 -            .HAVE_WCSCMP = windows or linux or macos or emscripten,
 -            .HAVE_WCSNCMP = windows or linux or macos or emscripten,
@@ -139,8 +132,8 @@ index db7d224..b41045e 100644
 +            .HAVE_WCSTOL = windows or linux or android or macos or emscripten,
 +            .HAVE_STRLEN = windows or linux or android or macos or emscripten,
 +            .HAVE_STRNLEN = windows or linux or android or macos or emscripten,
-             .HAVE_STRLCPY = (linux and musl) or macos or emscripten,
-             .HAVE_STRLCAT = (linux and musl) or macos or emscripten,
+             .HAVE_STRLCPY = (linux and (musl or glibc_2_x >= 38)) or macos or emscripten,
+             .HAVE_STRLCAT = (linux and (musl or glibc_2_x >= 38)) or macos or emscripten,
 -            .HAVE_STRPBRK = windows or linux or macos or emscripten,
 +            .HAVE_STRPBRK = windows or linux or android or macos or emscripten,
              .HAVE__STRREV = windows,
@@ -159,7 +152,6 @@ index db7d224..b41045e 100644
 +            .HAVE_STRTOK_R = (windows and !msvc) or linux or android or macos or emscripten,
              .HAVE_ITOA = windows,
              .HAVE__LTOA = windows,
-             .HAVE__UITOA = false,
              .HAVE__ULTOA = windows,
 -            .HAVE_STRTOL = windows or linux or macos or emscripten,
 -            .HAVE_STRTOUL = windows or linux or macos or emscripten,
@@ -289,7 +281,7 @@ index db7d224..b41045e 100644
 -            .HAVE_FSEEKO = (windows and !msvc) or linux or macos or emscripten,
 +            .HAVE_FSEEKO = (windows and !msvc) or linux or android or macos or emscripten,
              .HAVE_FSEEKO64 = (windows and !msvc) or (linux and !musl) or emscripten,
-             .HAVE_MEMFD_CREATE = linux,
+             .HAVE_MEMFD_CREATE = (linux and glibc_2_x >= 27),
 -            .HAVE_POSIX_FALLOCATE = linux or emscripten,
 -            .HAVE_SIGACTION = linux or macos or emscripten,
 -            .HAVE_SIGTIMEDWAIT = linux or emscripten,
@@ -322,7 +314,7 @@ index db7d224..b41045e 100644
              .SDL_USE_LIBICONV = false,
              .HAVE_PTHREAD_SETNAME_NP = linux or macos,
              .HAVE_PTHREAD_SET_NAME_NP = false,
-@@ -262,16 +265,16 @@ pub fn build(b: *std.Build) void {
+@@ -277,16 +282,16 @@ pub fn build(b: *std.Build) void {
              .HAVE_GETAUXVAL = linux,
              .HAVE_ELF_AUX_INFO = false,
              .HAVE_PPOLL = linux,
@@ -343,16 +335,16 @@ index db7d224..b41045e 100644
              .HAVE_LINUX_INPUT_H = linux,
              .HAVE_LIBUDEV_H = linux,
              .HAVE_LIBDECOR_H = linux,
-@@ -295,7 +298,7 @@ pub fn build(b: *std.Build) void {
+@@ -310,7 +315,7 @@ pub fn build(b: *std.Build) void {
              .HAVE_SHELLSCALINGAPI_H = windows,
              .USE_POSIX_SPAWN = false,
              .HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR = macos,
--            .HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP = linux or macos or emscripten,
-+            .HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP = linux or android or macos or emscripten,
+-            .HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP = (linux and glibc_2_x >= 29) or macos or emscripten,
++            .HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP = (linux and glibc_2_x >= 29) or android or macos or emscripten,
              .SDL_DISABLE_DLOPEN_NOTES = false,
              .SDL_DEFAULT_ASSERT_LEVEL_CONFIGURED = false,
              .SDL_DEFAULT_ASSERT_LEVEL = null,
-@@ -313,12 +316,12 @@ pub fn build(b: *std.Build) void {
+@@ -328,12 +333,12 @@ pub fn build(b: *std.Build) void {
              .SDL_THREADS_DISABLED = (emscripten and !emscripten_pthreads),
              .SDL_AUDIO_DRIVER_ALSA = linux,
              .SDL_AUDIO_DRIVER_ALSA_DYNAMIC = if (linux_deps_values) |x| b.fmt("\"{s}\"", .{x.alsa_soname}) else "",
@@ -369,7 +361,7 @@ index db7d224..b41045e 100644
              .SDL_AUDIO_DRIVER_EMSCRIPTEN = emscripten,
              .SDL_AUDIO_DRIVER_HAIKU = false,
              .SDL_AUDIO_DRIVER_JACK = linux,
-@@ -344,13 +347,13 @@ pub fn build(b: *std.Build) void {
+@@ -359,13 +364,13 @@ pub fn build(b: *std.Build) void {
              .SDL_INPUT_FBSDKBIO = false,
              .SDL_INPUT_WSCONS = false,
              .SDL_HAVE_MACHINE_JOYSTICK_H = false,
@@ -385,7 +377,7 @@ index db7d224..b41045e 100644
              .SDL_JOYSTICK_IOKIT = macos,
              .SDL_JOYSTICK_LINUX = linux,
              .SDL_JOYSTICK_MFI = macos,
-@@ -359,7 +362,7 @@ pub fn build(b: *std.Build) void {
+@@ -374,7 +379,7 @@ pub fn build(b: *std.Build) void {
              .SDL_JOYSTICK_PSP = false,
              .SDL_JOYSTICK_RAWINPUT = windows,
              .SDL_JOYSTICK_USBHID = false,
@@ -394,7 +386,7 @@ index db7d224..b41045e 100644
              .SDL_JOYSTICK_VITA = false,
              .SDL_JOYSTICK_WGI = false,
              .SDL_JOYSTICK_XINPUT = windows,
-@@ -368,15 +371,15 @@ pub fn build(b: *std.Build) void {
+@@ -383,15 +388,15 @@ pub fn build(b: *std.Build) void {
              .SDL_HAPTIC_LINUX = linux,
              .SDL_HAPTIC_IOKIT = macos,
              .SDL_HAPTIC_DINPUT = windows,
@@ -413,7 +405,7 @@ index db7d224..b41045e 100644
              .SDL_SENSOR_COREMOTION = false,
              .SDL_SENSOR_WINDOWS = windows,
              .SDL_SENSOR_DUMMY = linux or macos,
-@@ -384,14 +387,14 @@ pub fn build(b: *std.Build) void {
+@@ -399,14 +404,14 @@ pub fn build(b: *std.Build) void {
              .SDL_SENSOR_N3DS = false,
              .SDL_SENSOR_EMSCRIPTEN = emscripten,
              .SDL_SENSOR_PRIVATE = false,
@@ -431,7 +423,7 @@ index db7d224..b41045e 100644
              .SDL_THREAD_PTHREAD_RECURSIVE_MUTEX_NP = false,
              .SDL_THREAD_WINDOWS = windows,
              .SDL_THREAD_VITA = false,
-@@ -399,7 +402,7 @@ pub fn build(b: *std.Build) void {
+@@ -414,7 +419,7 @@ pub fn build(b: *std.Build) void {
              .SDL_THREAD_PS2 = false,
              .SDL_THREAD_N3DS = false,
              .SDL_THREAD_PRIVATE = false,
@@ -440,7 +432,7 @@ index db7d224..b41045e 100644
              .SDL_TIME_WINDOWS = windows,
              .SDL_TIME_VITA = false,
              .SDL_TIME_PSP = false,
-@@ -408,14 +411,14 @@ pub fn build(b: *std.Build) void {
+@@ -423,14 +428,14 @@ pub fn build(b: *std.Build) void {
              .SDL_TIME_NGAGE = false,
              .SDL_TIME_PRIVATE = false,
              .SDL_TIMER_HAIKU = false,
@@ -457,7 +449,7 @@ index db7d224..b41045e 100644
              .SDL_VIDEO_DRIVER_COCOA = macos,
              .SDL_VIDEO_DRIVER_DUMMY = windows or linux or macos or emscripten,
              .SDL_VIDEO_DRIVER_EMSCRIPTEN = emscripten,
-@@ -471,32 +474,32 @@ pub fn build(b: *std.Build) void {
+@@ -486,32 +491,32 @@ pub fn build(b: *std.Build) void {
              .SDL_VIDEO_RENDER_D3D = windows,
              .SDL_VIDEO_RENDER_D3D11 = windows,
              .SDL_VIDEO_RENDER_D3D12 = windows,
@@ -499,7 +491,7 @@ index db7d224..b41045e 100644
              .SDL_POWER_LINUX = linux,
              .SDL_POWER_WINDOWS = windows,
              .SDL_POWER_MACOSX = macos,
-@@ -508,7 +511,7 @@ pub fn build(b: *std.Build) void {
+@@ -523,7 +528,7 @@ pub fn build(b: *std.Build) void {
              .SDL_POWER_PSP = false,
              .SDL_POWER_N3DS = false,
              .SDL_POWER_PRIVATE = false,
@@ -508,7 +500,7 @@ index db7d224..b41045e 100644
              .SDL_FILESYSTEM_HAIKU = false,
              .SDL_FILESYSTEM_COCOA = macos,
              .SDL_FILESYSTEM_DUMMY = false,
-@@ -523,14 +526,14 @@ pub fn build(b: *std.Build) void {
+@@ -538,14 +543,14 @@ pub fn build(b: *std.Build) void {
              .SDL_FILESYSTEM_PRIVATE = false,
              .SDL_STORAGE_STEAM = windows or linux or macos,
              .SDL_STORAGE_PRIVATE = false,
@@ -525,7 +517,7 @@ index db7d224..b41045e 100644
              .SDL_CAMERA_DRIVER_EMSCRIPTEN = emscripten,
              .SDL_CAMERA_DRIVER_MEDIAFOUNDATION = windows,
              .SDL_CAMERA_DRIVER_PIPEWIRE = linux,
-@@ -538,9 +541,9 @@ pub fn build(b: *std.Build) void {
+@@ -553,9 +558,9 @@ pub fn build(b: *std.Build) void {
              .SDL_CAMERA_DRIVER_VITA = false,
              .SDL_CAMERA_DRIVER_PRIVATE = false,
              .SDL_DIALOG_DUMMY = false,
@@ -537,7 +529,7 @@ index db7d224..b41045e 100644
              .SDL_USE_IME = linux,
              .SDL_DISABLE_WINDOWS_IME = false,
              .SDL_GDK_TEXTINPUT = false,
-@@ -599,13 +602,14 @@ pub fn build(b: *std.Build) void {
+@@ -627,13 +632,14 @@ pub fn build(b: *std.Build) void {
          .link_libc = true,
          .strip = strip,
          .sanitize_c = sanitize_c,
@@ -554,7 +546,7 @@ index db7d224..b41045e 100644
              .major = 0,
              .minor = version.minor,
              .patch = version.patch,
-@@ -670,9 +674,6 @@ pub fn build(b: *std.Build) void {
+@@ -692,9 +698,6 @@ pub fn build(b: *std.Build) void {
      if (system_framework_path) |path| {
          sdl_mod.addSystemFrameworkPath(path);
      }
@@ -564,7 +556,7 @@ index db7d224..b41045e 100644
  
      var sdl_c_flags_buf: [common_c_flags.len + 3][]const u8 = undefined;
      var sdl_c_flags: std.ArrayList([]const u8) = .initBuffer(&sdl_c_flags_buf);
-@@ -680,7 +681,7 @@ pub fn build(b: *std.Build) void {
+@@ -702,7 +705,7 @@ pub fn build(b: *std.Build) void {
      if (sdl_lib.linkage.? == .dynamic) {
          sdl_c_flags.appendAssumeCapacity("-fvisibility=hidden");
      }
@@ -573,7 +565,7 @@ index db7d224..b41045e 100644
          sdl_c_flags.appendAssumeCapacity("-pthread");
      }
      if (macos) {
-@@ -1172,6 +1173,109 @@ pub fn build(b: *std.Build) void {
+@@ -1195,6 +1198,109 @@ pub fn build(b: *std.Build) void {
              });
          }
      }

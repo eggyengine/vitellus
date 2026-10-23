@@ -191,13 +191,13 @@ const WebMainCallbacks = struct {
             return c.SDL_APP_FAILURE;
         };
         app_state.* = state;
-        return @intFromEnum(result);
+        return @backingInt(result);
     }
 
     fn appIterate(app_state: ?*anyopaque) callconv(.c) c.SDL_AppResult {
         if (!@hasDecl(root, "iterate")) return c.SDL_APP_CONTINUE;
         const state: *State = @ptrCast(@alignCast(app_state));
-        return @intFromEnum(root.iterate(&state.app) catch |err| {
+        return @backingInt(root.iterate(&state.app) catch |err| {
             log.err("iterate: {s}", .{@errorName(err)});
             return c.SDL_APP_FAILURE;
         });
@@ -206,7 +206,7 @@ const WebMainCallbacks = struct {
     fn appEvent(app_state: ?*anyopaque, event: [*c]c.SDL_Event) callconv(.c) c.SDL_AppResult {
         if (!@hasDecl(root, "event")) return c.SDL_APP_CONTINUE;
         const state: *State = @ptrCast(@alignCast(app_state));
-        return @intFromEnum(root.event(&state.app, sdl.events.Event.fromSdl(event.*)) catch |err| {
+        return @backingInt(root.event(&state.app, sdl.events.Event.fromSdl(event.*)) catch |err| {
             log.err("event: {s}", .{@errorName(err)});
             return c.SDL_APP_FAILURE;
         });
@@ -214,7 +214,7 @@ const WebMainCallbacks = struct {
 
     fn appQuit(app_state: ?*anyopaque, result: c.SDL_AppResult) callconv(.c) void {
         const state: ?*State = @ptrCast(@alignCast(app_state));
-        if (@hasDecl(root, "quit")) root.quit(if (state) |s| &s.app else null, @enumFromInt(result));
+        if (@hasDecl(root, "quit")) root.quit(if (state) |s| &s.app else null, @fromBackingInt(@intCast(result)));
         if (state) |s| {
             s.arena.deinit();
             gpa.destroy(s);
