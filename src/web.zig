@@ -17,7 +17,7 @@ extern fn emscripten_console_error(message: [*:0]const u8) void;
 fn consoleLog(comptime level: std.log.Level, comptime scope: @EnumLiteral(), comptime format: []const u8, args: anytype) void {
     var buffer: [1024]u8 = undefined;
     const prefix = "[" ++ @tagName(level) ++ "] " ++ (if (scope == .default) "" else @tagName(scope) ++ ": ");
-    const message = std.fmt.bufPrintZ(&buffer, prefix ++ format, args) catch "[log message too long]";
+    const message = std.fmt.bufPrintSentinel(&buffer, prefix ++ format, args, 0) catch "[log message too long]";
     if (@backingInt(level) <= @backingInt(std.log.Level.warn)) emscripten_console_error(message) else emscripten_console_log(message);
 }
 

@@ -268,6 +268,8 @@ pub const Emscripten = struct {
         root_module: *std.Build.Module,
         /// A page with a `<canvas id="canvas">` and the `{{{ SCRIPT }}}` placeholder, instead of Emscripten's.
         shell_file: ?std.Build.LazyPath = null,
+        /// JavaScript the app calls into, each passed as `--js-library`.
+        js_libraries: []const std.Build.LazyPath = &.{},
         /// Extra `em++` flags.
         args: []const []const u8 = &.{},
     };
@@ -317,16 +319,21 @@ pub const Emscripten = struct {
             emcc.addArg("--shell-file");
             emcc.addFileArg(shell);
         }
+        for (options.js_libraries) |library| {
+            emcc.addArg("--js-library");
+            emcc.addFileArg(library);
+        }
         emcc.addArgs(options.args);
         emcc.addArg("-o");
         const html = emcc.addOutputFileArg(b.fmt("{s}.html", .{options.name}));
         const install = b.addInstallDirectory(.{ .source_dir = html.dirname(), .install_dir = .prefix, .install_subdir = "web" });
         b.getInstallStep().dependOn(&install.step);
 
-        const run = b.addSystemCommand(&.{ b.pathJoin(&.{ self.emsdk, "upstream/emscripten/emrun" }), b.getInstallPath(.prefix, b.fmt("web/{s}.html", .{options.name})) });
+        const run = b.addSystemCommand(&.{b.pathJoin(&.{ self.emsdk, "upstream/emscripten/emrun" })});
+        run.addFileArg(b.graph.path(.install_prefix, b.fmt("web/{s}.html", .{options.name})));
         run.setEnvironmentVariable("EM_CONFIG", b.pathJoin(&.{ self.emsdk, ".emscripten" }));
         run.step.dependOn(&install.step);
-        if (b.args) |args| run.addArgs(args);
+        run.addPassthruArgs();
         return .{ .install = install, .run = run };
     }
 
@@ -422,10 +429,11 @@ pub fn androidSdl(b: *std.Build, vitellus: *std.Build.Dependency, sdl3_module: *
         "sh", "-c",
         \\set -e
         \\work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
-        \\libc=$(realpath "$7"); cp -R "$1"/. "$work"; chmod -R u+w "$work"; cd "$work"
-        \\patch -p1 < "$3"
+        \\libc=$(realpath "$7"); patchfile=$(realpath "$3"); mkdir -p "$2"; prefix=$(realpath "$2")
+        \\cp -R "$1"/. "$work"; chmod -R u+w "$work"; cd "$work"
+        \\patch -p1 < "$patchfile"
         \\mkdir .ndk; ln -s "$(sed -n 's/^crt_dir=//p' "$libc")" .ndk/lib # liblog, libandroid, ... live beside the CRT
-        \\"$4" build -Dtarget="$5" -Doptimize="$6" -Dpreferred_linkage=dynamic --prefix "$2" --libc "$libc" --search-prefix .ndk
+        \\"$4" build -Dtarget="$5" -Doptimize="$6" -Dpreferred_linkage=dynamic --prefix "$prefix" --libc "$libc" --search-prefix .ndk
         ,
         "sh",
     });
