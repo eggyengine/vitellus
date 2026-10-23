@@ -59,7 +59,7 @@ pub const ShaderModule = struct {
     const inline_capacity = 128;
     const inline_alignment = 16;
 
-    storage: [inline_capacity]u8 align(inline_alignment) = [_]u8{0} ** inline_capacity,
+    storage: [inline_capacity]u8 align(inline_alignment) = @splat(0),
     vtable: *const VTable,
 
     pub const VTable = struct {
@@ -230,7 +230,7 @@ test "large custom shader modules can be borrowed by pointer" {
         }
     };
 
-    const implementation = LargeModule{ .payload = [_]u8{7} ** 256 };
+    const implementation = LargeModule{ .payload = @splat(7) };
     const module = ShaderModule.init(&implementation);
     var compiled = try module.compile(std.testing.allocator, .{
         .backend = .dx12,

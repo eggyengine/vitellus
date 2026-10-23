@@ -6,7 +6,7 @@ const shader = @import("shader.zig");
 const resource = @import("resource.zig");
 const binding = @import("binding.zig");
 const Dx12Device = @import("device.zig").Dx12Device;
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
@@ -15,8 +15,8 @@ const log = std.log.scoped(.dx12_pipeline);
 pub const BindGroupRoots = struct { resources: ?u32 = null, samplers: ?u32 = null };
 pub const Dx12PipelineLayout = struct {
     allocator: std.mem.Allocator,
-    bind_group_layouts: [8]?*binding.Dx12BindGroupLayout = [_]?*binding.Dx12BindGroupLayout{null} ** 8,
-    bind_group_roots: [8]BindGroupRoots = [_]BindGroupRoots{.{}} ** 8,
+    bind_group_layouts: [8]?*binding.Dx12BindGroupLayout = @splat(null),
+    bind_group_roots: [8]BindGroupRoots = @splat(.{}),
     bind_group_count: u32 = 0,
     root_signature: ComPtr(dx.ID3D12RootSignature) = .{},
     pub fn fromHandle(value: pipeline.PipelineLayout) !*Dx12PipelineLayout {
@@ -29,10 +29,10 @@ pub const Dx12GraphicsPipeline = struct {
     root_signature: ComPtr(dx.ID3D12RootSignature) = .{},
     state: ComPtr(dx.ID3D12PipelineState) = .{},
     topology: dx.D3D12_PRIMITIVE_TOPOLOGY,
-    vertex_strides: [32]u32 = [_]u32{0} ** 32,
+    vertex_strides: [32]u32 = @splat(0),
     vertex_buffer_count: usize = 0,
-    bind_group_layouts: [8]?*binding.Dx12BindGroupLayout = [_]?*binding.Dx12BindGroupLayout{null} ** 8,
-    bind_group_roots: [8]BindGroupRoots = [_]BindGroupRoots{.{}} ** 8,
+    bind_group_layouts: [8]?*binding.Dx12BindGroupLayout = @splat(null),
+    bind_group_roots: [8]BindGroupRoots = @splat(.{}),
     bind_group_count: u32 = 0,
 
     pub fn fromHandle(value: pipeline.GraphicsPipeline) !*Dx12GraphicsPipeline {

@@ -19,7 +19,7 @@ const checkHr = utils.checkHr;
 
 const log = std.log.scoped(.dx12_device);
 
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 
 pub const Dx12Device = struct {
     allocator: std.mem.Allocator,
@@ -28,10 +28,10 @@ pub const Dx12Device = struct {
     sampler_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
     rtv_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
     dsv_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
-    resource_used: [4096]bool = [_]bool{false} ** 4096,
-    sampler_used: [256]bool = [_]bool{false} ** 256,
-    rtv_used: [256]bool = [_]bool{false} ** 256,
-    dsv_used: [256]bool = [_]bool{false} ** 256,
+    resource_used: [4096]bool = @splat(false),
+    sampler_used: [256]bool = @splat(false),
+    rtv_used: [256]bool = @splat(false),
+    dsv_used: [256]bool = @splat(false),
     debug_device: debug.Dx12DebugDevice = .{},
 
     pub const resource_capacity = 4096;

@@ -16,7 +16,7 @@ const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
 const Dx12Adapter = adapter_mod.Dx12Adapter;
 const Dx12Queue = @import("queue.zig").Dx12Queue;
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 
 const log = std.log.scoped(.dx12_swapchain);
 

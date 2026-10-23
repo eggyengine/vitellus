@@ -1,8 +1,4 @@
-const dx = @cImport({
-    @cDefine("WIN32_LEAN_AND_MEAN", "");
-    @cInclude("d3d12.h");
-    @cInclude("dxgi1_6.h");
-});
+const dx = @import("dx12_c");
 
 pub const adapter = @import("dx12/adapter.zig");
 pub const instance = @import("dx12/instance.zig");

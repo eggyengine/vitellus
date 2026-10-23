@@ -2,7 +2,7 @@
     .name = .vitellus,
     .version = "0.1.0",
     .fingerprint = 0x7b2b2e688c822d24, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .@"directx-headers" = .{
             .url = "git+https://github.com/microsoft/DirectX-Headers#443ff511fd3fe30b55d3c10c9e8d6376b0496eac",
@@ -55,8 +55,8 @@
             .lazy = true,
         },
         .vulkan = .{
-            .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.16-compat#b496a6a561ffbbeb530b0f9ed4e059f88c0723a5",
-            .hash = "vulkan-0.0.0-r7Ytx7N9AwD7IZt5_XNHtkJ4G9qY0pCH-cpcOsbL8wzD",
+            .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.17-compat#0859c23d80a41463eb570119b8d47c1660af5a9f",
+            .hash = "vulkan-0.0.0-r7YtxySBAwCCf-g7TObns83sMJ5CnFhL2LRKbCSyMikM",
         },
         .vulkan_headers = .{
             .url = "git+https://github.com/KhronosGroup/Vulkan-Headers#8d6039a455a7ecc7d2a592ff97f62db4e59b70bf",

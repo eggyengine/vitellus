@@ -27,7 +27,7 @@ pub const vkTextureView = struct {
     image: vk.Image,
     format: vk.Format,
     extent: vk.Extent2D,
-    aspect: vk.ImageAspectFlags = .{ .color_bit = true },
+    aspect: vk.ImageAspectFlags = .{ .color = true },
     layout: vk.ImageLayout = .undefined,
 
     pub fn fromHandle(value: resource.TextureView) !*vkTextureView {
@@ -90,18 +90,18 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     const requirements = device.proxy.getBufferMemoryRequirements(buffer);
     const properties: vk.MemoryPropertyFlags = switch (desc.memory) {
         .device => if (desc.initial_data != null)
-            .{ .host_visible_bit = true, .host_coherent_bit = true }
+            .{ .host_visible = true, .host_coherent = true }
         else
-            .{ .device_local_bit = true },
-        .upload => .{ .host_visible_bit = true, .host_coherent_bit = true },
-        .readback => .{ .host_visible_bit = true, .host_coherent_bit = true, .host_cached_bit = true },
+            .{ .device_local = true },
+        .upload => .{ .host_visible = true, .host_coherent = true },
+        .readback => .{ .host_visible = true, .host_coherent = true, .host_cached = true },
     };
     const memory_type = findMemoryType(device, requirements.memory_type_bits, properties) orelse memory_type: {
         if (desc.memory == .readback) {
             break :memory_type findMemoryType(
                 device,
                 requirements.memory_type_bits,
-                .{ .host_visible_bit = true, .host_coherent_bit = true },
+                .{ .host_visible = true, .host_coherent = true },
             ) orelse return error.NoSuitableMemoryType;
         }
         return error.NoSuitableMemoryType;
@@ -124,7 +124,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     };
     errdefer device.allocator.destroy(self);
     if (desc.initial_data) |data| try writeMemory(self, data);
-    device.instance.nameObject(device.allocator, device.proxy, .buffer, @intFromEnum(buffer), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .buffer, @backingInt(buffer), desc.label);
     log.debug("created Vulkan buffer size={}", .{desc.size});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &buffer_vtable };
 }
@@ -167,13 +167,13 @@ fn findMemoryType(device: *vkDevice, bits: u32, required: vk.MemoryPropertyFlags
 
 fn toVkBufferUsage(usage: resource.BufferUsage) vk.BufferUsageFlags {
     return .{
-        .vertex_buffer_bit = usage.vertex,
-        .index_buffer_bit = usage.index,
-        .uniform_buffer_bit = usage.uniform,
-        .storage_buffer_bit = usage.storage,
-        .indirect_buffer_bit = usage.indirect,
-        .transfer_src_bit = usage.transfer_src,
-        .transfer_dst_bit = usage.transfer_dst,
+        .vertex_buffer = usage.vertex,
+        .index_buffer = usage.index,
+        .uniform_buffer = usage.uniform,
+        .storage_buffer = usage.storage,
+        .indirect_buffer = usage.indirect,
+        .transfer_src = usage.transfer_src,
+        .transfer_dst = usage.transfer_dst,
     };
 }
 
@@ -192,20 +192,20 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) !resourc
         .array_layers = if (desc.dimension == .d3) 1 else desc.depth_or_layers,
         .samples = sampleCount(desc.sample_count),
         .tiling = .optimal,
-        .usage = .{ .sampled_bit = desc.usage.sampled, .storage_bit = desc.usage.storage, .color_attachment_bit = desc.usage.color_attachment, .depth_stencil_attachment_bit = desc.usage.depth_stencil_attachment, .transfer_src_bit = desc.usage.transfer_src, .transfer_dst_bit = desc.usage.transfer_dst or desc.initial_data != null },
+        .usage = .{ .sampled = desc.usage.sampled, .storage = desc.usage.storage, .color_attachment = desc.usage.color_attachment, .depth_stencil_attachment = desc.usage.depth_stencil_attachment, .transfer_src = desc.usage.transfer_src, .transfer_dst = desc.usage.transfer_dst or desc.initial_data != null },
         .sharing_mode = .exclusive,
         .initial_layout = .undefined,
     }, null);
     errdefer device.proxy.destroyImage(image, null);
     const req = device.proxy.getImageMemoryRequirements(image);
-    const memory_type = findMemoryType(device, req.memory_type_bits, .{ .device_local_bit = true }) orelse return error.NoSuitableMemoryType;
+    const memory_type = findMemoryType(device, req.memory_type_bits, .{ .device_local = true }) orelse return error.NoSuitableMemoryType;
     const memory = try device.proxy.allocateMemory(&.{ .allocation_size = req.size, .memory_type_index = memory_type }, null);
     errdefer device.proxy.freeMemory(memory, null);
     try device.proxy.bindImageMemory(image, memory, 0);
     if (desc.initial_data) |data| try uploadTexture(device, image, adapter_impl.toVkFormat(desc.format), desc, data);
     const self = try device.allocator.create(vkTexture);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .image = image, .memory = memory, .format = adapter_impl.toVkFormat(desc.format), .extent = .{ .width = desc.width, .height = desc.height, .depth = if (desc.dimension == .d3) desc.depth_or_layers else 1 }, .mip_levels = desc.mip_levels, .layers = if (desc.dimension == .d3) 1 else desc.depth_or_layers, .dimension = desc.dimension, .layout = if (desc.initial_data != null) .general else .undefined };
-    device.instance.nameObject(device.allocator, device.proxy, .image, @intFromEnum(image), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .image, @backingInt(image), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
 
@@ -226,7 +226,7 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
     errdefer device.proxy.destroyImageView(handle, null);
     const self = try device.allocator.create(vkTextureView);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .view = handle, .image = texture.image, .format = texture.format, .extent = .{ .width = texture.extent.width, .height = texture.extent.height }, .aspect = aspect, .layout = texture.layout };
-    device.instance.nameObject(device.allocator, device.proxy, .image_view, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .image_view, @backingInt(handle), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_view_vtable };
 }
 
@@ -253,7 +253,7 @@ pub fn createSampler(ptr: *anyopaque, desc: resource.SamplerDescriptor) !resourc
     errdefer device.proxy.destroySampler(handle, null);
     const self = try device.allocator.create(vkSampler);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = handle };
-    device.instance.nameObject(device.allocator, device.proxy, .sampler, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .sampler, @backingInt(handle), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &sampler_vtable };
 }
 
@@ -279,30 +279,30 @@ fn destroySampler(value: resource.Sampler) void {
 
 fn uploadTexture(device: *vkDevice, image: vk.Image, format: vk.Format, desc: resource.TextureDescriptor, data: []const u8) !void {
     if (data.len == 0) return error.InvalidInitialData;
-    const staging = try device.proxy.createBuffer(&.{ .size = data.len, .usage = .{ .transfer_src_bit = true }, .sharing_mode = .exclusive }, null);
+    const staging = try device.proxy.createBuffer(&.{ .size = data.len, .usage = .{ .transfer_src = true }, .sharing_mode = .exclusive }, null);
     defer device.proxy.destroyBuffer(staging, null);
     const req = device.proxy.getBufferMemoryRequirements(staging);
-    const memory_type = findMemoryType(device, req.memory_type_bits, .{ .host_visible_bit = true, .host_coherent_bit = true }) orelse return error.NoSuitableMemoryType;
+    const memory_type = findMemoryType(device, req.memory_type_bits, .{ .host_visible = true, .host_coherent = true }) orelse return error.NoSuitableMemoryType;
     const memory = try device.proxy.allocateMemory(&.{ .allocation_size = req.size, .memory_type_index = memory_type }, null);
     defer device.proxy.freeMemory(memory, null);
     try device.proxy.bindBufferMemory(staging, memory, 0);
     const mapped = try device.proxy.mapMemory(memory, 0, data.len, .{});
     @memcpy(@as([*]u8, @ptrCast(mapped))[0..data.len], data);
     device.proxy.unmapMemory(memory);
-    const pool = try device.proxy.createCommandPool(&.{ .flags = .{ .transient_bit = true }, .queue_family_index = device.queues.graphics_family }, null);
+    const pool = try device.proxy.createCommandPool(&.{ .flags = .{ .transient = true }, .queue_family_index = device.queues.graphics_family }, null);
     defer device.proxy.destroyCommandPool(pool, null);
     var cmd: vk.CommandBuffer = undefined;
     try device.proxy.allocateCommandBuffers(&.{ .command_pool = pool, .level = .primary, .command_buffer_count = 1 }, @ptrCast(&cmd));
-    try device.proxy.beginCommandBuffer(cmd, &.{ .flags = .{ .one_time_submit_bit = true } });
+    try device.proxy.beginCommandBuffer(cmd, &.{ .flags = .{ .one_time_submit = true } });
     const aspect = aspectMask(.all, format);
     const range: vk.ImageSubresourceRange = .{ .aspect_mask = aspect, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 };
-    device.proxy.cmdPipelineBarrier(cmd, .{ .top_of_pipe_bit = true }, .{ .transfer_bit = true }, .{}, null, null, &.{.{ .src_access_mask = .{}, .dst_access_mask = .{ .transfer_write_bit = true }, .old_layout = .undefined, .new_layout = .transfer_dst_optimal, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
+    device.proxy.cmdPipelineBarrier(cmd, .{ .top_of_pipe = true }, .{ .transfer = true }, .{}, null, null, &.{.{ .src_access_mask = .{}, .dst_access_mask = .{ .transfer_write = true }, .old_layout = .undefined, .new_layout = .transfer_dst_optimal, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
     const row_length = try bufferRowLength(format, desc.bytes_per_row);
     device.proxy.cmdCopyBufferToImage(cmd, staging, image, .transfer_dst_optimal, &.{.{ .buffer_offset = 0, .buffer_row_length = row_length, .buffer_image_height = 0, .image_subresource = .{ .aspect_mask = aspect, .mip_level = 0, .base_array_layer = 0, .layer_count = 1 }, .image_offset = .{ .x = 0, .y = 0, .z = 0 }, .image_extent = .{ .width = desc.width, .height = desc.height, .depth = if (desc.dimension == .d3) desc.depth_or_layers else 1 } }});
-    device.proxy.cmdPipelineBarrier(cmd, .{ .transfer_bit = true }, .{ .all_commands_bit = true }, .{}, null, null, &.{.{ .src_access_mask = .{ .transfer_write_bit = true }, .dst_access_mask = .{ .memory_read_bit = true, .memory_write_bit = true }, .old_layout = .transfer_dst_optimal, .new_layout = .general, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
+    device.proxy.cmdPipelineBarrier(cmd, .{ .transfer = true }, .{ .all_commands = true }, .{}, null, null, &.{.{ .src_access_mask = .{ .transfer_write = true }, .dst_access_mask = .{ .memory_read = true, .memory_write = true }, .old_layout = .transfer_dst_optimal, .new_layout = .general, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
     try device.proxy.endCommandBuffer(cmd);
     const queue = device.proxy.getDeviceQueue(device.queues.graphics_family, 0);
-    try device.proxy.queueSubmit(queue, &.{.{ .command_buffer_count = 1, .p_command_buffers = @ptrCast(&cmd) }}, .null_handle);
+    try device.proxy.queueSubmit(queue, &.{.{ .command_buffer_count = 1, .p_command_buffers = @ptrCast(&cmd) }}, .null);
     try device.proxy.queueWaitIdle(queue);
 }
 
@@ -330,13 +330,13 @@ pub fn bufferRowLength(format: vk.Format, bytes_per_row: u32) !u32 {
 }
 fn sampleCount(n: u32) vk.SampleCountFlags {
     return switch (n) {
-        1 => .{ .@"1_bit" = true },
-        2 => .{ .@"2_bit" = true },
-        4 => .{ .@"4_bit" = true },
-        8 => .{ .@"8_bit" = true },
-        16 => .{ .@"16_bit" = true },
-        32 => .{ .@"32_bit" = true },
-        64 => .{ .@"64_bit" = true },
+        1 => .{ .@"1" = true },
+        2 => .{ .@"2" = true },
+        4 => .{ .@"4" = true },
+        8 => .{ .@"8" = true },
+        16 => .{ .@"16" = true },
+        32 => .{ .@"32" = true },
+        64 => .{ .@"64" = true },
         else => .{},
     };
 }
@@ -365,14 +365,14 @@ pub fn formatAspects(format: vk.Format) vk.ImageAspectFlags {
 
 fn aspectMask(a: resource.TextureAspect, format: vk.Format) vk.ImageAspectFlags {
     return switch (a) {
-        .color => .{ .color_bit = true },
-        .depth => .{ .depth_bit = true },
-        .stencil => .{ .stencil_bit = true },
+        .color => .{ .color = true },
+        .depth => .{ .depth = true },
+        .stencil => .{ .stencil = true },
         .all => switch (format) {
-            .s8_uint => .{ .stencil_bit = true },
-            .d16_unorm, .d32_sfloat => .{ .depth_bit = true },
-            .d24_unorm_s8_uint, .d32_sfloat_s8_uint => .{ .depth_bit = true, .stencil_bit = true },
-            else => .{ .color_bit = true },
+            .s8_uint => .{ .stencil = true },
+            .d16_unorm, .d32_sfloat => .{ .depth = true },
+            .d24_unorm_s8_uint, .d32_sfloat_s8_uint => .{ .depth = true, .stencil = true },
+            else => .{ .color = true },
         },
     };
 }

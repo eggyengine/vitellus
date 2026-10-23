@@ -1,7 +1,7 @@
 const ComPtr = @import("utils.zig").ComPtr;
 const std = @import("std");
 
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 const ValidationLevel = @import("../../interface/settings.zig").ValidationLevel;
 
 const log = std.log.scoped(.dx12_debug);

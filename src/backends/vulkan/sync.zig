@@ -36,7 +36,7 @@ pub fn createFence(ptr: *anyopaque, desc: sync.FenceDescriptor) anyerror!sync.Fe
     errdefer device.proxy.destroySemaphore(handle, null);
     const self = try device.allocator.create(vkFence);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = handle };
-    device.instance.nameObject(device.allocator, device.proxy, .semaphore, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .semaphore, @backingInt(handle), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &fence_vtable };
 }
 
@@ -68,7 +68,7 @@ pub fn createSemaphore(ptr: *anyopaque, desc: sync.SemaphoreDescriptor) anyerror
         .device = device.proxy,
         .handle = handle,
     };
-    device.instance.nameObject(device.allocator, device.proxy, .semaphore, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .semaphore, @backingInt(handle), desc.label);
     log.debug("created Vulkan binary semaphore", .{});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &semaphore_vtable };
 }

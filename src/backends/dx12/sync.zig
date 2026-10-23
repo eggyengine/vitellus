@@ -6,7 +6,7 @@ const command = @import("command.zig");
 const queue_impl = @import("queue.zig");
 const Dx12Queue = queue_impl.Dx12Queue;
 const Dx12Device = @import("device.zig").Dx12Device;
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
@@ -107,7 +107,7 @@ pub fn submit(ptr: *anyopaque, desc: sync.SubmitDescriptor) anyerror!void {
     for (desc.command_buffers) |value| {
         const buffer = command.Dx12CommandBuffer.fromCommandBuffer(value);
         if (!buffer.finished) return error.CommandBufferNotFinished;
-        if (@intFromEnum(buffer.pool.kind) != @intFromEnum(self.kind)) return error.CommandBufferQueueKindMismatch;
+        if (@backingInt(buffer.pool.kind) != @backingInt(self.kind)) return error.CommandBufferQueueKindMismatch;
         var list: ?*dx.ID3D12CommandList = @ptrCast(buffer.list.unwrap());
         queue.lpVtbl.*.ExecuteCommandLists.?(queue, 1, @ptrCast(&list));
     }

@@ -18,7 +18,7 @@ fn consoleLog(comptime level: std.log.Level, comptime scope: @EnumLiteral(), com
     var buffer: [1024]u8 = undefined;
     const prefix = "[" ++ @tagName(level) ++ "] " ++ (if (scope == .default) "" else @tagName(scope) ++ ": ");
     const message = std.fmt.bufPrintZ(&buffer, prefix ++ format, args) catch "[log message too long]";
-    if (@intFromEnum(level) <= @intFromEnum(std.log.Level.warn)) emscripten_console_error(message) else emscripten_console_log(message);
+    if (@backingInt(level) <= @backingInt(std.log.Level.warn)) emscripten_console_error(message) else emscripten_console_log(message);
 }
 
 fn consolePanic(message: []const u8, _: ?usize) noreturn {

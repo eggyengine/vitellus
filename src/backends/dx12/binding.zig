@@ -5,7 +5,7 @@ const binding = @import("../../interface/binding.zig");
 const resource_interface = @import("../../interface/resource.zig");
 const resource = @import("resource.zig");
 const Dx12Device = @import("device.zig").Dx12Device;
-const dx = @import("dx.zig").c;
+const dx = @import("dx12_c");
 const utils = @import("utils.zig");
 const log = std.log.scoped(.dx12_binding);
 

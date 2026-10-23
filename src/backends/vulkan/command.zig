@@ -22,8 +22,8 @@ pub const vkCommandBuffer = struct {
     device: vk.DeviceProxy,
     handle: vk.CommandBuffer,
     pool: *vkCommandPool,
-    graphics_layout: vk.PipelineLayout = .null_handle,
-    compute_layout: vk.PipelineLayout = .null_handle,
+    graphics_layout: vk.PipelineLayout = .null,
+    compute_layout: vk.PipelineLayout = .null,
     rendering: bool = false,
     finished: bool = false,
     debug_utils: bool = false,
@@ -97,11 +97,11 @@ pub fn createPool(ptr: *anyopaque, desc: command.CommandPoolDescriptor) !command
         .compute => device.queues.compute_family orelse return error.QueueKindUnsupported,
         .copy => device.queues.copy_family,
     };
-    const handle = try device.proxy.createCommandPool(&.{ .flags = .{ .transient_bit = desc.transient, .reset_command_buffer_bit = desc.reset_individually }, .queue_family_index = family }, null);
+    const handle = try device.proxy.createCommandPool(&.{ .flags = .{ .transient = desc.transient, .reset_command_buffer = desc.reset_individually }, .queue_family_index = family }, null);
     errdefer device.proxy.destroyCommandPool(handle, null);
     const self = try device.allocator.create(vkCommandPool);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = handle, .family = family };
-    device.instance.nameObject(device.allocator, device.proxy, .command_pool, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .command_pool, @backingInt(handle), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &pool_vtable };
 }
 fn destroyPool(value: command.CommandPool) void {
@@ -120,7 +120,7 @@ fn createBuffer(value: command.CommandPool, _: command.CommandBufferDescriptor) 
     var handle: vk.CommandBuffer = undefined;
     try pool.device.allocateCommandBuffers(&.{ .command_pool = pool.handle, .level = .primary, .command_buffer_count = 1 }, @ptrCast(&handle));
     errdefer pool.device.freeCommandBuffers(pool.handle, @as([]const vk.CommandBuffer, (&handle)[0..1]));
-    try pool.device.beginCommandBuffer(handle, &.{ .flags = .{ .one_time_submit_bit = true } });
+    try pool.device.beginCommandBuffer(handle, &.{ .flags = .{ .one_time_submit = true } });
     const self = try pool.allocator.create(vkCommandBuffer);
     self.* = .{ .allocator = pool.allocator, .device = pool.device, .handle = handle, .pool = pool, .debug_utils = pool.device.wrapper.dispatch.vkCmdBeginDebugUtilsLabelEXT != null };
     pool.live += 1;
@@ -140,7 +140,7 @@ pub fn createQuerySet(ptr: *anyopaque, desc: command.QuerySetDescriptor) !comman
     errdefer device.proxy.destroyQueryPool(handle, null);
     const self = try device.allocator.create(vkQuerySet);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = handle, .kind = desc.kind, .count = desc.count };
-    device.instance.nameObject(device.allocator, device.proxy, .query_pool, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .query_pool, @backingInt(handle), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &query_vtable };
 }
 fn destroyQuerySet(value: command.QuerySet) void {
@@ -157,7 +157,7 @@ fn beginRenderPass(ptr: *anyopaque, desc: command.RenderPassDescriptor) !void {
     defer self.allocator.free(colors);
     for (desc.color_attachments, colors) |attachment, *out| {
         const view = try resource.vkTextureView.fromHandle(attachment.view);
-        out.* = .{ .image_view = view.view, .image_layout = .color_attachment_optimal, .resolve_mode = if (attachment.resolve_target != null) .{ .average_bit = true } else .{}, .resolve_image_view = if (attachment.resolve_target) |v| (try resource.vkTextureView.fromHandle(v)).view else .null_handle, .resolve_image_layout = .color_attachment_optimal, .load_op = loadOp(attachment.load_op), .store_op = storeOp(attachment.store_op), .clear_value = .{ .color = .{ .float_32 = .{ attachment.clear_value.r, attachment.clear_value.g, attachment.clear_value.b, attachment.clear_value.a } } } };
+        out.* = .{ .image_view = view.view, .image_layout = .color_attachment_optimal, .resolve_mode = if (attachment.resolve_target != null) .{ .average = true } else .{}, .resolve_image_view = if (attachment.resolve_target) |v| (try resource.vkTextureView.fromHandle(v)).view else .null, .resolve_image_layout = .color_attachment_optimal, .load_op = loadOp(attachment.load_op), .store_op = storeOp(attachment.store_op), .clear_value = .{ .color = .{ .float_32 = .{ attachment.clear_value.r, attachment.clear_value.g, attachment.clear_value.b, attachment.clear_value.a } } } };
     }
     var depth: vk.RenderingAttachmentInfo = undefined;
     var stencil: vk.RenderingAttachmentInfo = undefined;
@@ -167,15 +167,15 @@ fn beginRenderPass(ptr: *anyopaque, desc: command.RenderPassDescriptor) !void {
         const view = try resource.vkTextureView.fromHandle(attachment.view);
         // Only bind the aspects the format has: a depth-only view as the stencil attachment is invalid.
         const aspects = resource.formatAspects(view.format);
-        const read_only = (!aspects.depth_bit or attachment.depth_read_only) and (!aspects.stencil_bit or attachment.stencil_read_only);
+        const read_only = (!aspects.depth or attachment.depth_read_only) and (!aspects.stencil or attachment.stencil_read_only);
         const layout: vk.ImageLayout = if (read_only) .depth_stencil_read_only_optimal else .depth_stencil_attachment_optimal;
         const clear: vk.ClearValue = .{ .depth_stencil = .{ .depth = attachment.depth_clear, .stencil = attachment.stencil_clear } };
-        if (aspects.depth_bit) {
-            depth = .{ .image_view = view.view, .image_layout = layout, .resolve_mode = .{}, .resolve_image_view = .null_handle, .resolve_image_layout = .undefined, .load_op = loadOp(attachment.depth_load_op), .store_op = storeOp(attachment.depth_store_op), .clear_value = clear };
+        if (aspects.depth) {
+            depth = .{ .image_view = view.view, .image_layout = layout, .resolve_mode = .{}, .resolve_image_view = .null, .resolve_image_layout = .undefined, .load_op = loadOp(attachment.depth_load_op), .store_op = storeOp(attachment.depth_store_op), .clear_value = clear };
             depth_ptr = &depth;
         }
-        if (aspects.stencil_bit) {
-            stencil = .{ .image_view = view.view, .image_layout = layout, .resolve_mode = .{}, .resolve_image_view = .null_handle, .resolve_image_layout = .undefined, .load_op = loadOp(attachment.stencil_load_op), .store_op = storeOp(attachment.stencil_store_op), .clear_value = clear };
+        if (aspects.stencil) {
+            stencil = .{ .image_view = view.view, .image_layout = layout, .resolve_mode = .{}, .resolve_image_view = .null, .resolve_image_layout = .undefined, .load_op = loadOp(attachment.stencil_load_op), .store_op = storeOp(attachment.stencil_store_op), .clear_value = clear };
             stencil_ptr = &stencil;
         }
     }
@@ -224,7 +224,7 @@ fn setBindGroup(ptr: *anyopaque, slot: u32, value: @import("../../interface/bind
     const group = binding.vkBindGroup.fromHandle(value) catch return;
     const bind_point: vk.PipelineBindPoint = if (self.rendering) .graphics else .compute;
     const pipeline_layout = if (self.rendering) self.graphics_layout else self.compute_layout;
-    if (pipeline_layout == .null_handle) return;
+    if (pipeline_layout == .null) return;
     self.device.cmdBindDescriptorSets(self.handle, bind_point, pipeline_layout, slot, &.{group.set}, offsets);
 }
 fn setViewport(ptr: *anyopaque, v: command.Viewport) void {
@@ -253,7 +253,7 @@ fn setBlendConstant(ptr: *anyopaque, c: command.Color) void {
 }
 fn setStencilReference(ptr: *anyopaque, v: u32) void {
     const self: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
-    self.device.cmdSetStencilReference(self.handle, .{ .front_bit = true, .back_bit = true }, v);
+    self.device.cmdSetStencilReference(self.handle, .{ .front = true, .back = true }, v);
 }
 fn draw(ptr: *anyopaque, a: u32, b: u32, c: u32, d: u32) void {
     const s: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
@@ -328,8 +328,8 @@ fn barrier(ptr: *anyopaque, values: []const command.ResourceBarrier) !void {
             count += 1;
         },
     };
-    const memory = vk.MemoryBarrier{ .src_access_mask = .{ .memory_read_bit = true, .memory_write_bit = true }, .dst_access_mask = .{ .memory_read_bit = true, .memory_write_bit = true } };
-    s.device.cmdPipelineBarrier(s.handle, .{ .all_commands_bit = true }, .{ .all_commands_bit = true }, .{}, &.{memory}, null, images[0..count]);
+    const memory = vk.MemoryBarrier{ .src_access_mask = .{ .memory_read = true, .memory_write = true }, .dst_access_mask = .{ .memory_read = true, .memory_write = true } };
+    s.device.cmdPipelineBarrier(s.handle, .{ .all_commands = true }, .{ .all_commands = true }, .{}, &.{memory}, null, images[0..count]);
 }
 fn copyBuffer(ptr: *anyopaque, v: command.BufferCopyRegion) !void {
     const s: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
@@ -379,13 +379,13 @@ fn endQuery(ptr: *anyopaque, q: command.QuerySet, i: u32) void {
 fn writeTimestamp(ptr: *anyopaque, q: command.QuerySet, i: u32) void {
     const s: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
     const x = vkQuerySet.fromHandle(q) catch return;
-    s.device.cmdWriteTimestamp(s.handle, .{ .bottom_of_pipe_bit = true }, x.handle, i);
+    s.device.cmdWriteTimestamp(s.handle, .{ .bottom_of_pipe = true }, x.handle, i);
 }
 fn resolveQueries(ptr: *anyopaque, q: command.QuerySet, first: u32, count: u32, b: @import("../../interface/resource.zig").Buffer, o: u64) void {
     const s: *vkCommandBuffer = @ptrCast(@alignCast(ptr));
     const x = vkQuerySet.fromHandle(q) catch return;
     const y = resource.vkBuffer.fromHandle(b) catch return;
-    s.device.cmdCopyQueryPoolResults(s.handle, x.handle, first, count, y.buffer, o, 8, .{ .@"64_bit" = true, .wait_bit = true });
+    s.device.cmdCopyQueryPoolResults(s.handle, x.handle, first, count, y.buffer, o, 8, .{ .@"64" = true, .wait = true });
 }
 // ponytail: debug labels truncate at 255 bytes; store allocator-backed labels if long names become useful.
 fn beginDebugGroup(ptr: *anyopaque, value: []const u8) void {
@@ -447,14 +447,14 @@ fn bufferImageCopy(v: command.BufferTextureCopyRegion, format: vk.Format) !vk.Bu
 }
 fn formatAspect(f: vk.Format) vk.ImageAspectFlags {
     return switch (f) {
-        .s8_uint => .{ .stencil_bit = true },
-        .d16_unorm, .d32_sfloat => .{ .depth_bit = true },
-        .d24_unorm_s8_uint, .d32_sfloat_s8_uint => .{ .depth_bit = true, .stencil_bit = true },
-        else => .{ .color_bit = true },
+        .s8_uint => .{ .stencil = true },
+        .d16_unorm, .d32_sfloat => .{ .depth = true },
+        .d24_unorm_s8_uint, .d32_sfloat_s8_uint => .{ .depth = true, .stencil = true },
+        else => .{ .color = true },
     };
 }
 fn imageBarrier(image: vk.Image, format: vk.Format, old_layout: vk.ImageLayout, after: command.TextureState, mip: u32, mips: u32, layer: u32, layers: u32, _: @import("../../interface/resource.zig").TextureAspect) vk.ImageMemoryBarrier {
-    return .{ .src_access_mask = if (old_layout == .undefined) .{} else .{ .memory_read_bit = true, .memory_write_bit = true }, .dst_access_mask = access(after), .old_layout = old_layout, .new_layout = imageLayout(after), .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = .{ .aspect_mask = formatAspect(format), .base_mip_level = mip, .level_count = mips, .base_array_layer = layer, .layer_count = layers } };
+    return .{ .src_access_mask = if (old_layout == .undefined) .{} else .{ .memory_read = true, .memory_write = true }, .dst_access_mask = access(after), .old_layout = old_layout, .new_layout = imageLayout(after), .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = .{ .aspect_mask = formatAspect(format), .base_mip_level = mip, .level_count = mips, .base_array_layer = layer, .layer_count = layers } };
 }
 fn imageLayout(v: command.TextureState) vk.ImageLayout {
     return switch (v) {
@@ -471,14 +471,14 @@ fn imageLayout(v: command.TextureState) vk.ImageLayout {
 }
 fn access(v: command.TextureState) vk.AccessFlags {
     return switch (v) {
-        .common => .{ .memory_read_bit = true, .memory_write_bit = true },
-        .copy_source, .resolve_source => .{ .transfer_read_bit = true },
-        .copy_destination, .resolve_destination => .{ .transfer_write_bit = true },
-        .sampled, .storage_read => .{ .shader_read_bit = true },
-        .storage_write => .{ .shader_write_bit = true },
-        .color_attachment => .{ .color_attachment_read_bit = true, .color_attachment_write_bit = true },
-        .depth_stencil_read => .{ .depth_stencil_attachment_read_bit = true },
-        .depth_stencil_write => .{ .depth_stencil_attachment_read_bit = true, .depth_stencil_attachment_write_bit = true },
+        .common => .{ .memory_read = true, .memory_write = true },
+        .copy_source, .resolve_source => .{ .transfer_read = true },
+        .copy_destination, .resolve_destination => .{ .transfer_write = true },
+        .sampled, .storage_read => .{ .shader_read = true },
+        .storage_write => .{ .shader_write = true },
+        .color_attachment => .{ .color_attachment_read = true, .color_attachment_write = true },
+        .depth_stencil_read => .{ .depth_stencil_attachment_read = true },
+        .depth_stencil_write => .{ .depth_stencil_attachment_read = true, .depth_stencil_attachment_write = true },
         .present => .{},
     };
 }

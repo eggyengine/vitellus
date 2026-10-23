@@ -19,7 +19,7 @@ pub const vkInstance = struct {
     base: vk.BaseWrapper,
     instance: vk.Instance,
     wrapper: vk.InstanceWrapper,
-    debug_messenger: vk.DebugUtilsMessengerEXT = .null_handle,
+    debug_messenger: vk.DebugUtilsMessengerEXT = .null,
     validation_level: ValidationLevel,
     validation_layer_enabled: bool,
     debug_utils_enabled: bool,
@@ -63,37 +63,37 @@ pub const vkInstance = struct {
         // application requests validation, even if the SDK validation layer is
         // not installed on the current machine.
         const debug_utils_enabled = config.validation != .none and
-            try hasInstanceExtension(base, allocator, null, vk.extensions.ext_debug_utils.name);
+            try hasInstanceExtension(base, allocator, null, vk.instance_extensions.ext_debug_utils.name);
         if (debug_utils_enabled) {
-            enabled_extensions[enabled_extension_count] = vk.extensions.ext_debug_utils.name.ptr;
+            enabled_extensions[enabled_extension_count] = vk.instance_extensions.ext_debug_utils.name.ptr;
             enabled_extension_count += 1;
         } else if (config.validation != .none) {
-            log.warn("Vulkan validation requested without {s}; messages and object names are unavailable", .{vk.extensions.ext_debug_utils.name});
+            log.warn("Vulkan validation requested without {s}; messages and object names are unavailable", .{vk.instance_extensions.ext_debug_utils.name});
         }
 
-        if (!try hasInstanceExtension(base, allocator, null, vk.extensions.khr_surface.name))
+        if (!try hasInstanceExtension(base, allocator, null, vk.instance_extensions.khr_surface.name))
             return error.VulkanSurfaceExtensionUnavailable;
-        enabled_extensions[enabled_extension_count] = vk.extensions.khr_surface.name.ptr;
+        enabled_extensions[enabled_extension_count] = vk.instance_extensions.khr_surface.name.ptr;
         enabled_extension_count += 1;
 
         if (builtin.abi.isAndroid()) {
-            if (!try hasInstanceExtension(base, allocator, null, vk.extensions.khr_android_surface.name))
+            if (!try hasInstanceExtension(base, allocator, null, vk.instance_extensions.khr_android_surface.name))
                 return error.VulkanPlatformSurfaceExtensionUnavailable;
-            enabled_extensions[enabled_extension_count] = vk.extensions.khr_android_surface.name.ptr;
+            enabled_extensions[enabled_extension_count] = vk.instance_extensions.khr_android_surface.name.ptr;
             enabled_extension_count += 1;
         } else switch (builtin.target.os.tag) {
             .windows => {
-                if (!try hasInstanceExtension(base, allocator, null, vk.extensions.khr_win_32_surface.name))
+                if (!try hasInstanceExtension(base, allocator, null, vk.instance_extensions.khr_win_32_surface.name))
                     return error.VulkanPlatformSurfaceExtensionUnavailable;
-                enabled_extensions[enabled_extension_count] = vk.extensions.khr_win_32_surface.name.ptr;
+                enabled_extensions[enabled_extension_count] = vk.instance_extensions.khr_win_32_surface.name.ptr;
                 enabled_extension_count += 1;
             },
             .linux => {
                 var platform_extension_count: u32 = 0;
                 inline for (.{
-                    vk.extensions.khr_wayland_surface.name,
-                    vk.extensions.khr_xcb_surface.name,
-                    vk.extensions.khr_xlib_surface.name,
+                    vk.instance_extensions.khr_wayland_surface.name,
+                    vk.instance_extensions.khr_xcb_surface.name,
+                    vk.instance_extensions.khr_xlib_surface.name,
                 }) |extension| {
                     if (try hasInstanceExtension(base, allocator, null, extension)) {
                         enabled_extensions[enabled_extension_count] = extension.ptr;
@@ -104,9 +104,9 @@ pub const vkInstance = struct {
                 if (platform_extension_count == 0) return error.VulkanPlatformSurfaceExtensionUnavailable;
             },
             .macos => {
-                if (!try hasInstanceExtension(base, allocator, null, vk.extensions.ext_metal_surface.name))
+                if (!try hasInstanceExtension(base, allocator, null, vk.instance_extensions.ext_metal_surface.name))
                     return error.VulkanPlatformSurfaceExtensionUnavailable;
-                enabled_extensions[enabled_extension_count] = vk.extensions.ext_metal_surface.name.ptr;
+                enabled_extensions[enabled_extension_count] = vk.instance_extensions.ext_metal_surface.name.ptr;
                 enabled_extension_count += 1;
             },
             else => return error.VulkanUnsupportedPlatform,
@@ -116,23 +116,23 @@ pub const vkInstance = struct {
             base,
             allocator,
             null,
-            vk.extensions.khr_portability_enumeration.name,
+            vk.instance_extensions.khr_portability_enumeration.name,
         );
         if (portability_enabled) {
-            enabled_extensions[enabled_extension_count] = vk.extensions.khr_portability_enumeration.name.ptr;
+            enabled_extensions[enabled_extension_count] = vk.instance_extensions.khr_portability_enumeration.name.ptr;
             enabled_extension_count += 1;
         }
 
         var validation_feature_values: [4]vk.ValidationFeatureEnableEXT = undefined;
         const validation_feature_count = validationFeatures(config, &validation_feature_values);
         const validation_features_enabled = validation_enabled and validation_feature_count > 0 and
-            (try hasInstanceExtension(base, allocator, validation_layer_name.ptr, vk.extensions.ext_validation_features.name) or
-                try hasInstanceExtension(base, allocator, null, vk.extensions.ext_validation_features.name));
+            (try hasInstanceExtension(base, allocator, validation_layer_name.ptr, vk.instance_extensions.ext_validation_features.name) or
+                try hasInstanceExtension(base, allocator, null, vk.instance_extensions.ext_validation_features.name));
         if (validation_features_enabled) {
-            enabled_extensions[enabled_extension_count] = vk.extensions.ext_validation_features.name.ptr;
+            enabled_extensions[enabled_extension_count] = vk.instance_extensions.ext_validation_features.name.ptr;
             enabled_extension_count += 1;
         } else if (validation_enabled and validation_feature_count > 0) {
-            log.warn("advanced Vulkan validation requested, but {s} is unavailable", .{vk.extensions.ext_validation_features.name});
+            log.warn("advanced Vulkan validation requested, but {s} is unavailable", .{vk.instance_extensions.ext_validation_features.name});
         }
 
         var validation_features: vk.ValidationFeaturesEXT = .{
@@ -152,7 +152,7 @@ pub const vkInstance = struct {
         };
         const instance = try base.createInstance(&.{
             .p_next = if (debug_utils_enabled) &debug_create_info else if (validation_features_enabled) &validation_features else null,
-            .flags = .{ .enumerate_portability_bit_khr = portability_enabled },
+            .flags = .{ .enumerate_portability_khr = portability_enabled },
             .p_application_info = &app_info,
             .enabled_layer_count = enabled_layer_count,
             .pp_enabled_layer_names = if (enabled_layer_count > 0) &enabled_layers else null,
@@ -167,14 +167,14 @@ pub const vkInstance = struct {
         if (wrapper.dispatch.vkDestroyInstance == null)
             return error.VulkanLoaderMissingDestroyInstance;
 
-        var debug_messenger: vk.DebugUtilsMessengerEXT = .null_handle;
+        var debug_messenger: vk.DebugUtilsMessengerEXT = .null;
         if (debug_utils_enabled and
             wrapper.dispatch.vkCreateDebugUtilsMessengerEXT != null and
             wrapper.dispatch.vkDestroyDebugUtilsMessengerEXT != null)
         {
             debug_messenger = wrapper.createDebugUtilsMessengerEXT(instance, &debug_create_info, null) catch |err| blk: {
                 log.warn("failed to create Vulkan debug messenger: {}", .{err});
-                break :blk .null_handle;
+                break :blk .null;
             };
         }
 
@@ -206,7 +206,7 @@ pub const vkInstance = struct {
     ) void {
         if (self.validation_level == .none or !self.debug_utils_enabled) return;
         const value = label orelse return;
-        const terminated = allocator.dupeZ(u8, value) catch |err| {
+        const terminated = allocator.dupeSentinel(u8, value, 0) catch |err| {
             log.warn("could not allocate Vulkan debug name: {}", .{err});
             return;
         };
@@ -229,7 +229,7 @@ pub const vkInstance = struct {
         self.ref_count -= 1;
         if (self.ref_count != 0) return;
 
-        if (self.debug_messenger != .null_handle)
+        if (self.debug_messenger != .null)
             self.wrapper.destroyDebugUtilsMessengerEXT(self.instance, self.debug_messenger, null);
         self.wrapper.destroyInstance(self.instance, null);
         self.loader.close();
@@ -303,13 +303,13 @@ fn validationFeatures(config: VitellusConfig, features: *[4]vk.ValidationFeature
 fn debugMessengerCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {
     return .{
         .message_severity = .{
-            .warning_bit_ext = true,
-            .error_bit_ext = true,
+            .warning_ext = true,
+            .error_ext = true,
         },
         .message_type = .{
-            .general_bit_ext = true,
-            .validation_bit_ext = true,
-            .performance_bit_ext = true,
+            .general_ext = true,
+            .validation_ext = true,
+            .performance_ext = true,
         },
         .pfn_user_callback = debugCallback,
     };
@@ -324,11 +324,11 @@ fn debugCallback(
     const data = callback_data orelse return .false;
     const message = if (data.p_message) |value| std.mem.span(value) else "Vulkan validation message";
     const debug_callback_log = std.log.scoped(.vk_debug);
-    if (severity.error_bit_ext) {
+    if (severity.error_ext) {
         debug_callback_log.err("{s}", .{message});
-    } else if (severity.warning_bit_ext) {
+    } else if (severity.warning_ext) {
         debug_callback_log.warn("{s}", .{message});
-    } else if (severity.info_bit_ext) {
+    } else if (severity.info_ext) {
         debug_callback_log.info("{s}", .{message});
     } else {
         debug_callback_log.debug("{s}", .{message});
@@ -368,7 +368,7 @@ test "Vulkan instance lifecycle" {
     const backend: *vkInstance = @ptrCast(@alignCast(instance.ptr));
     try std.testing.expectEqual(ValidationLevel.extended, backend.validation_level);
     if (!backend.debug_utils_enabled) {
-        try std.testing.expectEqual(vk.DebugUtilsMessengerEXT.null_handle, backend.debug_messenger);
+        try std.testing.expectEqual(vk.DebugUtilsMessengerEXT.null, backend.debug_messenger);
     }
     instance.deinit();
 }
@@ -394,5 +394,5 @@ test "Vulkan validation none disables diagnostics" {
     try std.testing.expectEqual(ValidationLevel.none, backend.validation_level);
     try std.testing.expect(!backend.validation_layer_enabled);
     try std.testing.expect(!backend.debug_utils_enabled);
-    try std.testing.expectEqual(vk.DebugUtilsMessengerEXT.null_handle, backend.debug_messenger);
+    try std.testing.expectEqual(vk.DebugUtilsMessengerEXT.null, backend.debug_messenger);
 }

@@ -113,17 +113,17 @@ pub fn query(
         mode_index += 1;
     };
 
-    const alpha_count: usize = @as(usize, @intFromBool(native_caps.supported_composite_alpha.opaque_bit_khr)) +
-        @as(usize, @intFromBool(native_caps.supported_composite_alpha.pre_multiplied_bit_khr)) +
-        @as(usize, @intFromBool(native_caps.supported_composite_alpha.post_multiplied_bit_khr)) +
-        @as(usize, @intFromBool(native_caps.supported_composite_alpha.inherit_bit_khr));
+    const alpha_count: usize = @as(usize, @intFromBool(native_caps.supported_composite_alpha.opaque_khr)) +
+        @as(usize, @intFromBool(native_caps.supported_composite_alpha.pre_multiplied_khr)) +
+        @as(usize, @intFromBool(native_caps.supported_composite_alpha.post_multiplied_khr)) +
+        @as(usize, @intFromBool(native_caps.supported_composite_alpha.inherit_khr));
     const alpha = try allocator.alloc(swapchain.CompositeAlpha, alpha_count);
     errdefer allocator.free(alpha);
     var alpha_index: usize = 0;
-    if (native_caps.supported_composite_alpha.opaque_bit_khr) appendAlpha(alpha, &alpha_index, .opaque_alpha);
-    if (native_caps.supported_composite_alpha.pre_multiplied_bit_khr) appendAlpha(alpha, &alpha_index, .premultiplied);
-    if (native_caps.supported_composite_alpha.post_multiplied_bit_khr) appendAlpha(alpha, &alpha_index, .postmultiplied);
-    if (native_caps.supported_composite_alpha.inherit_bit_khr) appendAlpha(alpha, &alpha_index, .inherit);
+    if (native_caps.supported_composite_alpha.opaque_khr) appendAlpha(alpha, &alpha_index, .opaque_alpha);
+    if (native_caps.supported_composite_alpha.pre_multiplied_khr) appendAlpha(alpha, &alpha_index, .premultiplied);
+    if (native_caps.supported_composite_alpha.post_multiplied_khr) appendAlpha(alpha, &alpha_index, .postmultiplied);
+    if (native_caps.supported_composite_alpha.inherit_khr) appendAlpha(alpha, &alpha_index, .inherit);
 
     return .{
         .allocator = allocator,
@@ -179,10 +179,10 @@ fn fromVkPresentMode(mode: vk.PresentModeKHR) ?swapchain.PresentMode {
 
 pub fn toVkCompositeAlpha(alpha: swapchain.CompositeAlpha) vk.CompositeAlphaFlagsKHR {
     return switch (alpha) {
-        .opaque_alpha => .{ .opaque_bit_khr = true },
-        .premultiplied => .{ .pre_multiplied_bit_khr = true },
-        .postmultiplied => .{ .post_multiplied_bit_khr = true },
-        .inherit => .{ .inherit_bit_khr = true },
+        .opaque_alpha => .{ .opaque_khr = true },
+        .premultiplied => .{ .pre_multiplied_khr = true },
+        .postmultiplied => .{ .post_multiplied_khr = true },
+        .inherit => .{ .inherit_khr = true },
     };
 }
 

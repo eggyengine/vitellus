@@ -60,7 +60,7 @@ pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) !p
     errdefer device.proxy.destroyPipelineLayout(handle, null);
     const self = try device.allocator.create(vkPipelineLayout);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = handle };
-    device.instance.nameObject(device.allocator, device.proxy, .pipeline_layout, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .pipeline_layout, @backingInt(handle), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
@@ -123,8 +123,8 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         },
         .cull_mode = switch (desc.raster.cull_mode) {
             .none => .{},
-            .front => .{ .front_bit = true },
-            .back => .{ .back_bit = true },
+            .front => .{ .front = true },
+            .back => .{ .back = true },
         },
         .front_face = if (desc.raster.front_face == .clockwise) .clockwise else .counter_clockwise,
         .depth_bias_enable = if (desc.raster.depth_bias != 0 or desc.raster.depth_bias_slope != 0) .true else .false,
@@ -167,8 +167,8 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         .view_mask = 0,
         .color_attachment_count = @intCast(color_formats.len),
         .p_color_attachment_formats = if (color_formats.len == 0) null else color_formats.ptr,
-        .depth_attachment_format = if (depth_format != .undefined and resource_impl.formatAspects(depth_format).depth_bit) depth_format else .undefined,
-        .stencil_attachment_format = if (depth_format != .undefined and resource_impl.formatAspects(depth_format).stencil_bit) depth_format else .undefined,
+        .depth_attachment_format = if (depth_format != .undefined and resource_impl.formatAspects(depth_format).depth) depth_format else .undefined,
+        .stencil_attachment_format = if (depth_format != .undefined and resource_impl.formatAspects(depth_format).stencil) depth_format else .undefined,
     };
     const depth_state: vk.PipelineDepthStencilStateCreateInfo = if (desc.depth_stencil) |depth| .{
         .depth_test_enable = .true,
@@ -181,8 +181,8 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         .min_depth_bounds = 0,
         .max_depth_bounds = 1,
     } else .{ .depth_test_enable = .false, .depth_write_enable = .false, .depth_compare_op = .always, .depth_bounds_test_enable = .false, .stencil_test_enable = .false, .front = stencilState(.{}, 0xff, 0xff), .back = stencilState(.{}, 0xff, 0xff), .min_depth_bounds = 0, .max_depth_bounds = 1 };
-    var native: vk.Pipeline = .null_handle;
-    const result = try device.proxy.createGraphicsPipelines(.null_handle, &.{.{
+    var native: vk.Pipeline = .null;
+    const result = try device.proxy.createGraphicsPipelines(.null, &.{.{
         .p_next = &rendering,
         .stage_count = @intCast(stage_count),
         .p_stages = &stages,
@@ -195,7 +195,7 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         .p_color_blend_state = &color_blend,
         .p_dynamic_state = &dynamic,
         .layout = layout.handle,
-        .render_pass = .null_handle,
+        .render_pass = .null,
         .subpass = 0,
         .base_pipeline_index = -1,
     }}, null, @as([]vk.Pipeline, (&native)[0..1]));
@@ -203,7 +203,7 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
     errdefer device.proxy.destroyPipeline(native, null);
     const self = try device.allocator.create(vkGraphicsPipeline);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = native, .layout = layout.handle };
-    device.instance.nameObject(device.allocator, device.proxy, .pipeline, @intFromEnum(native), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .pipeline, @backingInt(native), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &graphics_vtable };
 }
 
@@ -212,13 +212,13 @@ pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) 
     const layout = try vkPipelineLayout.fromHandle(desc.layout);
     const shader = try shader_impl.vkShader.fromHandle(desc.compute);
     if (shader.stage != .compute) return error.InvalidComputeShader;
-    var native: vk.Pipeline = .null_handle;
-    const result = try device.proxy.createComputePipelines(.null_handle, &.{.{ .stage = shaderStage(shader), .layout = layout.handle, .base_pipeline_index = -1 }}, null, @as([]vk.Pipeline, (&native)[0..1]));
+    var native: vk.Pipeline = .null;
+    const result = try device.proxy.createComputePipelines(.null, &.{.{ .stage = shaderStage(shader), .layout = layout.handle, .base_pipeline_index = -1 }}, null, @as([]vk.Pipeline, (&native)[0..1]));
     if (result != .success) return error.PipelineCreationFailed;
     errdefer device.proxy.destroyPipeline(native, null);
     const self = try device.allocator.create(vkComputePipeline);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = native, .layout = layout.handle };
-    device.instance.nameObject(device.allocator, device.proxy, .pipeline, @intFromEnum(native), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .pipeline, @backingInt(native), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &compute_vtable };
 }
 
@@ -261,9 +261,9 @@ fn stencilOp(value: pipeline.StencilOp) vk.StencilOp {
 fn shaderStage(value: *shader_impl.vkShader) vk.PipelineShaderStageCreateInfo {
     return .{
         .stage = switch (value.stage) {
-            .vertex => .{ .vertex_bit = true },
-            .fragment => .{ .fragment_bit = true },
-            .compute => .{ .compute_bit = true },
+            .vertex => .{ .vertex = true },
+            .fragment => .{ .fragment = true },
+            .compute => .{ .compute = true },
         },
         .module = value.handle,
         .p_name = value.entry_point.ptr,
@@ -282,13 +282,13 @@ fn primitiveTopology(value: pipeline.PrimitiveTopology) vk.PrimitiveTopology {
 
 fn sampleCount(value: u32) vk.SampleCountFlags {
     return switch (value) {
-        1 => .{ .@"1_bit" = true },
-        2 => .{ .@"2_bit" = true },
-        4 => .{ .@"4_bit" = true },
-        8 => .{ .@"8_bit" = true },
-        16 => .{ .@"16_bit" = true },
-        32 => .{ .@"32_bit" = true },
-        64 => .{ .@"64_bit" = true },
+        1 => .{ .@"1" = true },
+        2 => .{ .@"2" = true },
+        4 => .{ .@"4" = true },
+        8 => .{ .@"8" = true },
+        16 => .{ .@"16" = true },
+        32 => .{ .@"32" = true },
+        64 => .{ .@"64" = true },
         else => .{},
     };
 }
@@ -304,10 +304,10 @@ fn colorBlend(target: pipeline.ColorTargetState) vk.PipelineColorBlendAttachment
         .dst_alpha_blend_factor = blendFactor(blend.alpha.destination),
         .alpha_blend_op = blendOp(blend.alpha.operation),
         .color_write_mask = .{
-            .r_bit = target.write_mask.red,
-            .g_bit = target.write_mask.green,
-            .b_bit = target.write_mask.blue,
-            .a_bit = target.write_mask.alpha,
+            .r = target.write_mask.red,
+            .g = target.write_mask.green,
+            .b = target.write_mask.blue,
+            .a = target.write_mask.alpha,
         },
     };
 }

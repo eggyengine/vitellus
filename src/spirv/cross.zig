@@ -4,9 +4,7 @@ const std = @import("std");
 const vit = @import("vitellus");
 const hlsl_mod = @import("vitellus_dxc");
 
-const spvc = @cImport({
-    @cInclude("spirv_cross_c.h");
-});
+const spvc = @import("spirv_cross_c");
 
 const log = std.log.scoped(.spirv_cross);
 
@@ -75,7 +73,7 @@ fn translateToHlsl(
     try check(spvc.spvc_compiler_options_set_bool(opts, spvc.SPVC_COMPILER_OPTION_HLSL_USE_ENTRY_POINT_NAME, spvc.SPVC_TRUE), context);
     try check(spvc.spvc_compiler_install_compiler_options(compiler, opts), context);
 
-    const entry_z = try allocator.dupeZ(u8, entry_point);
+    const entry_z = try allocator.dupeSentinel(u8, entry_point, 0);
     defer allocator.free(entry_z);
     try check(spvc.spvc_compiler_set_entry_point(compiler, entry_z.ptr, executionModel(stage)), context);
 

@@ -72,7 +72,7 @@ pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) !b
     errdefer device.allocator.free(entries);
     const self = try device.allocator.create(vkBindGroupLayout);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .handle = handle, .entries = entries };
-    device.instance.nameObject(device.allocator, device.proxy, .descriptor_set_layout, @intFromEnum(handle), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .descriptor_set_layout, @backingInt(handle), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
@@ -126,14 +126,14 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) !binding.
             },
             .texture_view => |value| {
                 const view = try resource_impl.vkTextureView.fromHandle(value);
-                image_infos[index] = .{ .sampler = .null_handle, .image_view = view.view, .image_layout = switch (layout_entry.kind) {
+                image_infos[index] = .{ .sampler = .null, .image_view = view.view, .image_layout = switch (layout_entry.kind) {
                     .storage_texture => .general,
                     else => .shader_read_only_optimal,
                 } };
                 writes[index].p_image_info = @ptrCast(&image_infos[index]);
             },
             .sampler => |value| {
-                image_infos[index] = .{ .sampler = (try resource_impl.vkSampler.fromHandle(value)).handle, .image_view = .null_handle, .image_layout = .undefined };
+                image_infos[index] = .{ .sampler = (try resource_impl.vkSampler.fromHandle(value)).handle, .image_view = .null, .image_layout = .undefined };
                 writes[index].p_image_info = @ptrCast(&image_infos[index]);
             },
             .combined_texture_sampler => |value| {
@@ -150,7 +150,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) !binding.
     device.proxy.updateDescriptorSets(writes, null);
     const self = try device.allocator.create(vkBindGroup);
     self.* = .{ .allocator = device.allocator, .device = device.proxy, .pool = pool, .set = set };
-    device.instance.nameObject(device.allocator, device.proxy, .descriptor_pool, @intFromEnum(pool), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .descriptor_pool, @backingInt(pool), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &group_vtable };
 }
 
@@ -189,8 +189,8 @@ fn descriptorType(kind: binding.BindingType) vk.DescriptorType {
 
 fn stageFlags(visibility: binding.ShaderVisibility) vk.ShaderStageFlags {
     return .{
-        .vertex_bit = visibility.vertex,
-        .fragment_bit = visibility.fragment,
-        .compute_bit = visibility.compute,
+        .vertex = visibility.vertex,
+        .fragment = visibility.fragment,
+        .compute = visibility.compute,
     };
 }
