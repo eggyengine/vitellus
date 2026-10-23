@@ -375,7 +375,7 @@ pub fn compileSlang(b: *std.Build, vitellus: *std.Build.Dependency, target: std.
     const host = b.graph.host.result;
     const slang = slangPackage(vitellus.builder, host) orelse return null;
     const web = target.result.os.tag == .emscripten;
-    const run = b.addSystemCommand(&.{slang.path(if (host.os.tag == .windows) "bin/slangc.exe" else "bin/slangc").getPath(b)});
+    const run = b.addRunFile(slang.path(if (host.os.tag == .windows) "bin/slangc.exe" else "bin/slangc"));
     run.addFileArg(source);
     run.addArgs(&.{ "-target", if (web) "wgsl" else "spirv", "-entry", entry_point, "-stage", @tagName(stage), "-o" });
     return run.addOutputFileArg(b.fmt("{s}.{s}", .{ entry_point, if (web) "wgsl" else "spv" }));
