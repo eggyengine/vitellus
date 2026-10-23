@@ -73,8 +73,8 @@
             .lazy = true,
         },
         .eggenvector = .{
-            .url = "git+https://github.com/eggyengine/eggenvector#0090788fd2de5151577ae15000bd0f954f51e0ed",
-            .hash = "eggenvector-0.0.0-UyZb9CMkAgCXysMEx0f2nRlTRCMzRwo32F1vsDULsLYV",
+            .url = "git+https://github.com/eggyengine/eggenvector#67b5b202495539bb34aec9941aec3ad24b5752ec",
+            .hash = "eggenvector-0.0.0-UyZb9BwkAgBS9Aa5WxM4mo9UPk19qgXX44kkfEmyNxt3",
             .lazy = true,
         },
         .better_dynlib = .{
