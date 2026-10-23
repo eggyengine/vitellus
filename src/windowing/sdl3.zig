@@ -167,7 +167,7 @@ pub const main_callbacks = if (builtin.os.tag == .emscripten) WebMainCallbacks e
 const WebMainCallbacks = struct {
     const c = sdl.c;
     const root = @import("root");
-    const AppState = @typeInfo(@typeInfo(@typeInfo(@TypeOf(root.init)).@"fn".return_type.?).error_union.payload).@"struct".fields[0].type;
+    const AppState = @typeInfo(@typeInfo(@typeInfo(@TypeOf(root.init)).@"fn".return_type.?).error_union.payload).@"struct".field_types[0];
     const State = struct { arena: std.heap.ArenaAllocator, app: AppState };
     const gpa = std.heap.c_allocator;
 

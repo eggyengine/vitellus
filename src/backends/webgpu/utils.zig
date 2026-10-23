@@ -55,10 +55,10 @@ pub fn wgpuEnum(comptime prefix: []const u8, value: anytype) c_uint {
 /// while the struct fields holding them are `c_uint`.
 pub fn zeroInit(comptime T: type, init: anytype) T {
     var value = std.mem.zeroes(T);
-    inline for (@typeInfo(@TypeOf(init)).@"struct".fields) |field| {
-        const Field = @TypeOf(@field(value, field.name));
-        const given = @field(init, field.name);
-        @field(value, field.name) = if (@typeInfo(Field) == .int and @typeInfo(@TypeOf(given)) == .int) @intCast(given) else given;
+    inline for (@typeInfo(@TypeOf(init)).@"struct".field_names) |name| {
+        const Field = @TypeOf(@field(value, name));
+        const given = @field(init, name);
+        @field(value, name) = if (@typeInfo(Field) == .int and @typeInfo(@TypeOf(given)) == .int) @intCast(given) else given;
     }
     return value;
 }
