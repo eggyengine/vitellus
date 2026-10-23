@@ -288,17 +288,37 @@ fn toVkUsage(usage: swapchain_interface.ImageUsage) vk.ImageUsageFlags {
 
 fn chooseExtent(caps: vk.SurfaceCapabilitiesKHR, requested: swapchain_interface.Extent2D, pre_transform: vk.SurfaceTransformFlagsKHR) vk.Extent2D {
     if (caps.current_extent.width != std.math.maxInt(u32)) {
-        // Android keeps `current_extent` in the display's native orientation; without
-        // pre-rotation, a quarter-turned surface needs the swapped (window-shaped) size.
+        // Without pre-rotation, a quarter-turned surface (Android) needs window-shaped images.
+        // Android reports `current_extent` in the display's native orientation, except while the
+        // screen turns, when it can already be turned; so take the way round `requested` (the
+        // window's size) is, and only swap blindly for a square window.
+        const current = caps.current_extent;
         const turned = caps.current_transform.rotate_90_bit_khr or caps.current_transform.rotate_270_bit_khr or
             caps.current_transform.horizontal_mirror_rotate_90_bit_khr or caps.current_transform.horizontal_mirror_rotate_270_bit_khr;
-        if (turned and pre_transform.identity_bit_khr) return .{ .width = caps.current_extent.height, .height = caps.current_extent.width };
-        return caps.current_extent;
+        if (!turned or !pre_transform.identity_bit_khr) return current;
+        const swapped = vk.Extent2D{ .width = current.height, .height = current.width };
+        if (requested.width == requested.height) return swapped;
+        return if ((requested.width > requested.height) == (current.width > current.height)) current else swapped;
     }
     return .{
         .width = std.math.clamp(requested.width, caps.min_image_extent.width, caps.max_image_extent.width),
         .height = std.math.clamp(requested.height, caps.min_image_extent.height, caps.max_image_extent.height),
     };
+}
+
+test "a quarter-turned surface without pre-rotation takes the window's shape, however its extent is reported" {
+    const identity = vk.SurfaceTransformFlagsKHR{ .identity_bit_khr = true };
+    var caps = std.mem.zeroes(vk.SurfaceCapabilitiesKHR);
+    caps.current_transform = .{ .rotate_90_bit_khr = true };
+    // Reported in the native (portrait) orientation, as Android usually does: swapped.
+    caps.current_extent = .{ .width = 1080, .height = 2424 };
+    try std.testing.expectEqual(vk.Extent2D{ .width = 2424, .height = 1080 }, chooseExtent(caps, .{ .width = 2424, .height = 1080 }, identity));
+    // Already turned while the screen turns: kept, not swapped back to portrait.
+    caps.current_extent = .{ .width = 2424, .height = 1080 };
+    try std.testing.expectEqual(vk.Extent2D{ .width = 2424, .height = 1080 }, chooseExtent(caps, .{ .width = 2424, .height = 1080 }, identity));
+    // Unturned surfaces use the extent as reported.
+    caps.current_transform = identity;
+    try std.testing.expectEqual(vk.Extent2D{ .width = 2424, .height = 1080 }, chooseExtent(caps, .{ .width = 1080, .height = 2424 }, identity));
 }
 
 fn containsFormat(values: []const swapchain_interface.SwapchainFormat, value: swapchain_interface.SwapchainFormat) bool {
