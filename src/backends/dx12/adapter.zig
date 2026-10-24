@@ -242,7 +242,8 @@ pub const Dx12Adapter = struct {
             var support = std.mem.zeroes(dx.D3D12_FEATURE_DATA_FORMAT_SUPPORT);
             support.Format = @import("swapchain.zig").toDxFormat(candidate);
             if (!checkFeature(device, dx.D3D12_FEATURE_FORMAT_SUPPORT, &support)) continue;
-            if ((support.Support1 & dx.D3D12_FORMAT_SUPPORT1_DISPLAY) == 0) continue;
+            // Not `DISPLAY`, which Wine's vkd3d never reports: each candidate is a flip-model format.
+            if ((support.Support1 & dx.D3D12_FORMAT_SUPPORT1_RENDER_TARGET) == 0) continue;
             supported[supported_len] = candidate;
             supported_len += 1;
         }

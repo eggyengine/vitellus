@@ -18,9 +18,9 @@ pub fn compileDx12(
     defer allocator.free(hlsl);
 
     const profile: hlsl_mod.HLSLProfile = switch (request.stage) {
-        .vertex => .vs_6_6,
-        .fragment => .ps_6_6,
-        .compute => .cs_6_6,
+        .vertex => .vs_6_0,
+        .fragment => .ps_6_0,
+        .compute => .cs_6_0,
     };
 
     const desc = hlsl_mod.HLSLShaderModule.Descriptor{
@@ -68,8 +68,8 @@ fn translateToHlsl(
 
     var opts: spvc.spvc_compiler_options = null;
     try check(spvc.spvc_compiler_create_compiler_options(compiler, &opts), context);
-    // Match DXC profiles vs_6_6 / ps_6_6 / cs_6_6.
-    try check(spvc.spvc_compiler_options_set_uint(opts, spvc.SPVC_COMPILER_OPTION_HLSL_SHADER_MODEL, 66), context);
+    // Match DXC profiles vs_6_0 / ps_6_0 / cs_6_0.
+    try check(spvc.spvc_compiler_options_set_uint(opts, spvc.SPVC_COMPILER_OPTION_HLSL_SHADER_MODEL, 60), context);
     try check(spvc.spvc_compiler_options_set_bool(opts, spvc.SPVC_COMPILER_OPTION_HLSL_USE_ENTRY_POINT_NAME, spvc.SPVC_TRUE), context);
     try check(spvc.spvc_compiler_install_compiler_options(compiler, opts), context);
 

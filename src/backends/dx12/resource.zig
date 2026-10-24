@@ -97,7 +97,8 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     try createCommittedBuffer(
         device.device.unwrap(),
         heapType(desc.memory),
-        desc.size,
+        // Room for a 256-byte constant buffer view of the whole buffer (allocations are 64 KiB anyway).
+        std.mem.alignForward(u64, desc.size, 256),
         bufferFlags(desc.usage),
         initial_state,
         &self.resource,

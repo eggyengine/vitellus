@@ -214,7 +214,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                     switch (buffer_layout.kind) {
                         .uniform => {
                             const aligned_size = std.mem.alignForward(u64, size, 256);
-                            if (aligned_size > buffer.size - value.offset or aligned_size > std.math.maxInt(u32)) return error.BufferBindingTooLarge;
+                            if (aligned_size > std.mem.alignForward(u64, buffer.size, 256) - value.offset or aligned_size > std.math.maxInt(u32)) return error.BufferBindingTooLarge;
                             raw_device.lpVtbl.*.CreateConstantBufferView.?(raw_device, &.{ .BufferLocation = buffer.resource.unwrap().lpVtbl.*.GetGPUVirtualAddress.?(buffer.resource.unwrap()) + value.offset, .SizeInBytes = @intCast(aligned_size) }, cpu);
                         },
                         .storage_read => {
