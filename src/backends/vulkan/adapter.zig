@@ -26,6 +26,7 @@ const DeviceCandidate = struct {
     memory_props: vk.PhysicalDeviceMemoryProperties,
     features: vk.PhysicalDeviceFeatures,
     queues: QueueAllocation,
+    driver: adapter_interface.Driver,
 };
 
 pub const vkAdapter = struct {
@@ -35,6 +36,7 @@ pub const vkAdapter = struct {
     memory_props: vk.PhysicalDeviceMemoryProperties,
     features: vk.PhysicalDeviceFeatures,
     queues: QueueAllocation,
+    driver: adapter_interface.Driver,
 
     const vtable: Adapter.VTable = .{
         .deinitFn = deinitImpl,
@@ -102,20 +104,39 @@ pub const vkAdapter = struct {
             .memory_props = candidate.memory_props,
             .features = candidate.features,
             .queues = candidate.queues,
+            .driver = candidate.driver,
         };
     }
 
     fn checkSuitable(instance: *vkInstance, pdev: vk.PhysicalDevice, allocator: std.mem.Allocator) !?DeviceCandidate {
         if (!try supportsRequiredExtensions(instance, pdev, allocator)) return null;
         const queues = try allocateQueues(instance, pdev, allocator) orelse return null;
+        const props = instance.wrapper.getPhysicalDeviceProperties(pdev);
 
         return .{
             .pdev = pdev,
-            .props = instance.wrapper.getPhysicalDeviceProperties(pdev),
+            .props = props,
             .memory_props = instance.wrapper.getPhysicalDeviceMemoryProperties(pdev),
             .features = instance.wrapper.getPhysicalDeviceFeatures(pdev),
             .queues = queues,
+            .driver = driverOf(instance, pdev, props),
         };
+    }
+
+    /// The driver by its Vulkan 1.2 driver ID, else llvmpipe by the name it gives its device.
+    fn driverOf(instance: *vkInstance, pdev: vk.PhysicalDevice, props: vk.PhysicalDeviceProperties) adapter_interface.Driver {
+        if (instance.api_version >= vk.API_VERSION_1_1.toU32() and props.api_version >= vk.API_VERSION_1_2.toU32()) {
+            var driver_props: vk.PhysicalDeviceDriverProperties = .{
+                .driver_id = undefined,
+                .driver_name = @splat(0),
+                .driver_info = @splat(0),
+                .conformance_version = undefined,
+            };
+            var props2: vk.PhysicalDeviceProperties2 = .{ .p_next = &driver_props, .properties = undefined };
+            instance.wrapper.getPhysicalDeviceProperties2(pdev, &props2);
+            return driverFromId(driver_props.driver_id);
+        }
+        return if (std.mem.startsWith(u8, std.mem.sliceTo(&props.device_name, 0), "llvmpipe")) .llvmpipe else .other;
     }
 
     fn supportsRequiredExtensions(instance: *vkInstance, pdev: vk.PhysicalDevice, allocator: std.mem.Allocator) !bool {
@@ -170,6 +191,7 @@ pub const vkAdapter = struct {
         var info: AdapterInfo = .{
             .vendor = vendorFromId(self.props.vendor_id),
             .kind = kindFromVk(self.props.device_type),
+            .driver = self.driver,
         };
 
         const name = std.mem.sliceTo(&self.props.device_name, 0);
@@ -288,6 +310,15 @@ fn vendorFromId(vendor_id: u32) adapter_interface.Vendor {
     };
 }
 
+fn driverFromId(id: vk.DriverId) adapter_interface.Driver {
+    return switch (id) {
+        .mesa_llvmpipe => .llvmpipe,
+        .moltenvk => .moltenvk,
+        .mesa_kosmickrisp => .kosmickrisp,
+        else => .other,
+    };
+}
+
 fn kindFromVk(device_type: vk.PhysicalDeviceType) adapter_interface.Kind {
     return switch (device_type) {
         .discrete_gpu => .discrete,
@@ -393,6 +424,8 @@ test "Vulkan instance enumerates and describes adapters" {
     try std.testing.expect(adapters.len > 0);
     const info = adapters[0].info();
     try std.testing.expect(info.nameSlice().len > 0);
+    // Mesa names lavapipe's device "llvmpipe (LLVM …)".
+    if (std.mem.startsWith(u8, info.nameSlice(), "llvmpipe")) try std.testing.expectEqual(adapter_interface.Driver.llvmpipe, info.driver);
     try std.testing.expect(adapters[0].capabilities().limits.max_texture_dimension_2d > 0);
     try std.testing.expect(adapters[0].formatCapabilities(.rgba8_unorm).usage.sampled);
 }

@@ -120,6 +120,11 @@ pub const Vendor = enum { nvidia, amd, intel, apple, microsoft, unknown };
 /// Broad adapter class used when ranking available devices.
 pub const Kind = enum { discrete, integrated, software, unknown };
 
+/// The driver behind an adapter, where it changes what to expect: Mesa's llvmpipe draws on the
+/// CPU (Vulkan's lavapipe), MoltenVK and KosmicKrisp run Vulkan on Metal. Every other driver,
+/// and every adapter of a backend that cannot tell, is `other`.
+pub const Driver = enum { other, llvmpipe, moltenvk, kosmickrisp };
+
 /// Stable, backend-independent information about a physical adapter.
 pub const AdapterInfo = struct {
     /// GPU name encoded as UTF-8. Use `nameSlice()` to read it.
@@ -131,6 +136,8 @@ pub const AdapterInfo = struct {
     vendor: Vendor = .unknown,
     /// Hardware class reported or inferred by the backend.
     kind: Kind = .unknown,
+    /// The driver, when it is one Vitellus tells apart.
+    driver: Driver = .other,
 
     /// Returns the initialised portion of the UTF-8 adapter name.
     pub fn nameSlice(self: *const AdapterInfo) []const u8 {
@@ -198,8 +205,9 @@ pub const Adapter = struct {
     }
 
     /// Picks the strongest non-software adapter, preferring discrete GPUs and
-    /// then greater dedicated video memory. The returned handle is borrowed
-    /// from `adapters` and must not be deinitialised separately.
+    /// then greater dedicated video memory. The same GPU offered by both Metal
+    /// drivers goes to KosmicKrisp over MoltenVK. The returned handle is
+    /// borrowed from `adapters` and must not be deinitialised separately.
     pub fn pick(adapters: []const Adapter, preference: PowerPreference) ?Adapter {
         var best: ?Adapter = null;
         var best_info: ?AdapterInfo = null;
@@ -207,21 +215,26 @@ pub const Adapter = struct {
         for (adapters) |adapter| {
             const i = adapter.info();
             if (i.kind == .software) continue;
-
-            const choose = if (best_info) |bi| blk: {
-                const preferred = if (preference == .high_performance) Kind.discrete else Kind.integrated;
-                const gains_discrete = i.kind == preferred and bi.kind != preferred;
-                const same_kind_more_vram = i.kind == bi.kind and i.dedicated_vram > bi.dedicated_vram;
-                break :blk gains_discrete or same_kind_more_vram;
-            } else true;
-
-            if (choose) {
+            if (better(i, best_info, preference)) {
                 best = adapter;
                 best_info = i;
             }
         }
 
         return best;
+    }
+
+    /// Whether `pick` takes `i` over the best so far, `best` (null: none yet).
+    fn better(i: AdapterInfo, best: ?AdapterInfo, preference: PowerPreference) bool {
+        const bi = best orelse return true;
+        const preferred = if (preference == .high_performance) Kind.discrete else Kind.integrated;
+        const gains_discrete = i.kind == preferred and bi.kind != preferred;
+        const same_kind_more_vram = i.kind == bi.kind and i.dedicated_vram > bi.dedicated_vram;
+        // Apple silicon runs both: KosmicKrisp is its driver, MoltenVK the one for Intel Macs
+        // and iOS, which KosmicKrisp does not run on.
+        const same_gpu_kosmickrisp = i.kind == bi.kind and i.dedicated_vram == bi.dedicated_vram and
+            i.driver == .kosmickrisp and bi.driver == .moltenvk;
+        return gains_discrete or same_kind_more_vram or same_gpu_kosmickrisp;
     }
 
     /// Queries backend-independent adapter properties.
@@ -244,3 +257,13 @@ pub const Adapter = struct {
         self.vtable.deinitFn(self.ptr, self.allocator);
     }
 };
+
+test "pick takes KosmicKrisp over MoltenVK for the same GPU, not over a discrete one" {
+    const moltenvk: AdapterInfo = .{ .kind = .integrated, .dedicated_vram = 8 << 30, .driver = .moltenvk };
+    const kosmickrisp: AdapterInfo = .{ .kind = .integrated, .dedicated_vram = 8 << 30, .driver = .kosmickrisp };
+    try std.testing.expect(Adapter.better(kosmickrisp, moltenvk, .high_performance));
+    try std.testing.expect(!Adapter.better(moltenvk, kosmickrisp, .high_performance));
+
+    const discrete: AdapterInfo = .{ .kind = .discrete, .dedicated_vram = 4 << 30 };
+    try std.testing.expect(!Adapter.better(kosmickrisp, discrete, .high_performance));
+}

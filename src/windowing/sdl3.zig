@@ -15,7 +15,7 @@ pub const Sdl3Window = struct {
     pub fn init(window: sdl.video.Window) Sdl3Window {
         return .{
             .window = window,
-            .metal_view = if (builtin.os.tag == .macos) sdl.MetalView.init(window) else null,
+            .metal_view = if (builtin.os.tag == .macos or builtin.os.tag == .ios) sdl.MetalView.init(window) else null,
         };
     }
 
@@ -51,7 +51,7 @@ pub const Sdl3Window = struct {
         if (props.ui_kit_window != null) {
             if (self.metal_view) |view| {
                 log.debug("resolved SDL3 UIKit window handle", .{});
-                return borrowedWindowHandle(candler.UiKitWindowHandle.new(view.value).intoRaw());
+                return borrowedWindowHandle(candler.UiKitWindowHandle.new(view.getLayer() orelse view.value).intoRaw());
             }
         }
 

@@ -11,9 +11,10 @@ pub const VitellusConfig = struct {
     ///
     /// If null, Vitellus uses the current platform's preferred fallback chain:
     /// - Windows: DX12 → Vulkan
-    /// - Apple platforms: Metal → Vulkan
+    /// - Apple platforms: Metal → Vulkan (KosmicKrisp on Apple silicon Macs, MoltenVK on
+    ///   Intel Macs and iOS)
     /// - Android: Vulkan
-    /// - Linux: Vulkan
+    /// - Linux: Vulkan (Mesa's llvmpipe, on the CPU, only when no GPU driver offers a device)
     /// - Web (Emscripten): WebGPU
     ///
     /// The `VITELLUS_BACKEND` environment variable (`vulkan`, `dx12`, `metal`

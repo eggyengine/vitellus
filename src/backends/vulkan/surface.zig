@@ -51,9 +51,16 @@ pub fn create(instance: *vkInstance, window: Window) !vk.SurfaceKHR {
             },
             else => error.UnsupportedWindowHandle,
         },
+        // Both handles carry the view's CAMetalLayer (see `Sdl3Window.windowHandle`).
         .macos => switch (raw_window) {
             .app_kit => |handle| instance.wrapper.createMetalSurfaceEXT(instance.instance, &.{
                 .p_layer = @ptrCast(handle.ns_view),
+            }, null),
+            else => error.UnsupportedWindowHandle,
+        },
+        .ios => switch (raw_window) {
+            .ui_kit => |handle| instance.wrapper.createMetalSurfaceEXT(instance.instance, &.{
+                .p_layer = @ptrCast(handle.ui_view),
             }, null),
             else => error.UnsupportedWindowHandle,
         },

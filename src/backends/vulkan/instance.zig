@@ -23,6 +23,8 @@ pub const vkInstance = struct {
     validation_level: ValidationLevel,
     validation_layer_enabled: bool,
     debug_utils_enabled: bool,
+    /// The Vulkan version the instance was created for.
+    api_version: u32,
     ref_count: usize = 1,
 
     const vtable: Instance.VTable = .{
@@ -38,7 +40,9 @@ pub const vkInstance = struct {
         var loader = try openVulkanLoader();
         errdefer loader.close();
 
+        // A driver opened without the Vulkan loader (KosmicKrisp) may export only the ICD entry point.
         const get_instance_proc_addr = loader.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse
+            loader.lookup(vk.PfnGetInstanceProcAddr, "vk_icdGetInstanceProcAddr") orelse
             return error.VulkanLoaderMissingGetInstanceProcAddr;
         const base = vk.BaseWrapper.load(get_instance_proc_addr);
         if (base.dispatch.vkCreateInstance == null)
@@ -103,7 +107,7 @@ pub const vkInstance = struct {
                 }
                 if (platform_extension_count == 0) return error.VulkanPlatformSurfaceExtensionUnavailable;
             },
-            .macos => {
+            .macos, .ios => {
                 if (!try hasInstanceExtension(base, allocator, null, vk.instance_extensions.ext_metal_surface.name))
                     return error.VulkanPlatformSurfaceExtensionUnavailable;
                 enabled_extensions[enabled_extension_count] = vk.instance_extensions.ext_metal_surface.name.ptr;
@@ -143,12 +147,13 @@ pub const vkInstance = struct {
         if (validation_features_enabled)
             debug_create_info.p_next = &validation_features;
 
+        const api_version = try supportedApiVersion(base);
         const app_info: vk.ApplicationInfo = .{
             .p_application_name = null,
             .application_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
             .p_engine_name = null,
             .engine_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
-            .api_version = try supportedApiVersion(base),
+            .api_version = api_version,
         };
         const instance = try base.createInstance(&.{
             .p_next = if (debug_utils_enabled) &debug_create_info else if (validation_features_enabled) &validation_features else null,
@@ -187,6 +192,7 @@ pub const vkInstance = struct {
             .validation_level = config.validation,
             .validation_layer_enabled = validation_enabled,
             .debug_utils_enabled = debug_utils_enabled,
+            .api_version = api_version,
         };
 
         log.debug("initialised Vulkan instance", .{});
@@ -336,18 +342,39 @@ fn debugCallback(
     return .false;
 }
 
+/// The Vulkan loader, which finds every installed driver; failing that, on Apple platforms, a
+/// Metal driver opened directly: KosmicKrisp on Apple silicon Macs, else MoltenVK (Intel Macs
+/// and iOS, which KosmicKrisp does not run on), from the system or the app bundle.
 fn openVulkanLoader() !DynLib {
     if (builtin.abi.isAndroid()) {
         return DynLib.open("libvulkan.so") catch DynLib.open("libvulkan.so.1");
     }
-    return switch (builtin.target.os.tag) {
-        .windows => DynLib.open("vulkan-1.dll"),
-        .linux => DynLib.open("libvulkan.so.1") catch DynLib.open("libvulkan.so"),
-        .macos => DynLib.open("libvulkan.1.dylib") catch
-            DynLib.open("libvulkan.dylib") catch
-            DynLib.open("libMoltenVK.dylib"),
-        else => error.VulkanUnsupportedPlatform,
+    const names: []const [:0]const u8 = switch (builtin.target.os.tag) {
+        .windows => &.{"vulkan-1.dll"},
+        .linux => &.{ "libvulkan.so.1", "libvulkan.so" },
+        .macos => &([_][:0]const u8{
+            "libvulkan.1.dylib",
+            "libvulkan.dylib",
+            "@executable_path/../Frameworks/libvulkan.1.dylib",
+        } ++ (if (builtin.cpu.arch == .aarch64) [_][:0]const u8{
+            "libvulkan_kosmickrisp.dylib",
+            "@executable_path/../Frameworks/libvulkan_kosmickrisp.dylib",
+        } else [_][:0]const u8{}) ++ [_][:0]const u8{
+            "libMoltenVK.dylib",
+            "@executable_path/../Frameworks/libMoltenVK.dylib",
+        }),
+        .ios => &.{
+            "@rpath/vulkan.framework/vulkan",
+            "@rpath/MoltenVK.framework/MoltenVK",
+            "@executable_path/Frameworks/MoltenVK.framework/MoltenVK",
+            "libMoltenVK.dylib",
+        },
+        else => return error.VulkanUnsupportedPlatform,
     };
+    for (names) |name| {
+        return DynLib.open(name) catch continue;
+    }
+    return error.FileNotFound;
 }
 
 test "Vulkan instance lifecycle" {
