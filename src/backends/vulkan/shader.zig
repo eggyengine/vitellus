@@ -16,6 +16,7 @@ pub const vkShader = struct {
     entry_point: [:0]u8,
     bindings: []ReflectedBinding,
 
+    /// The Vulkan shader module behind an interface handle.
     pub fn fromHandle(value: shader.Shader) !*vkShader {
         if (value.handle == 0) return error.InvalidShader;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -24,6 +25,8 @@ pub const vkShader = struct {
 
 const vtable: shader.Shader.VTable = .{ .deinitFn = destroy };
 
+/// `Shader.init` for Vulkan: compiles the source to SPIR-V and makes a shader module, keeping
+/// its reflected bindings for layouts made from it.
 pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDescriptor) anyerror!shader.Shader {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     var compiled = try desc.source.compile(allocator, .{

@@ -23,6 +23,10 @@ pub const QueueDescriptor = struct {
 };
 
 /// Owning handle to a device queue.
+///
+/// `submit` and `waitIdle` (like `Swapchain.present`) fail with `error.DeviceLost` on every
+/// backend once the GPU is removed, reset or hung: nothing made on the device works after
+/// that. Destroy everything made from it, then the device, and make new ones to go on.
 pub const Queue = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
@@ -34,6 +38,8 @@ pub const Queue = struct {
         waitIdleFn: ?*const fn (*anyopaque) anyerror!void = null,
     };
 
+    /// Get a queue of `desc.kind` from `device`. Submit command buffers from pools of the same
+    /// kind; destroy the queue after waiting for it and before the device.
     pub fn init(device: anytype, desc: QueueDescriptor) !Queue {
         return device.vtable.createQueueFn(device.ptr, device.allocator, desc);
     }
@@ -51,3 +57,31 @@ pub const Queue = struct {
         return if (self.vtable.waitIdleFn) |f| f(self.ptr) else error.Unsupported;
     }
 };
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Queue {
+    const instance = vit.Instance.init(std.testing.allocator, .{ .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    const adapter = vit.Adapter.init(instance, .{}) catch return error.SkipZigTest;
+    defer adapter.deinit();
+    const device = try vit.Device.init(adapter, .{});
+    defer device.deinit();
+
+    // A graphics queue runs everything; `.compute` and `.copy` queues run work beside it.
+    const queue = try vit.Queue.init(device, .{ .kind = .graphics });
+    defer queue.deinit();
+    const pool = try vit.CommandPool.init(device, .{});
+    defer pool.deinit();
+    const cmd = try vit.CommandBuffer.init(pool, .{});
+    defer cmd.deinit();
+    try cmd.finish();
+
+    // Submissions run in order. `waitIdle` blocks until they're all done: right before
+    // shutdown or a resize, too slow for every frame (use a `vit.Fence` there).
+    try queue.submit(.{ .command_buffers = &.{cmd} });
+    try queue.waitIdle();
+}

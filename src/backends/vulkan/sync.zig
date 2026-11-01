@@ -29,6 +29,7 @@ pub const vkFence = struct {
 const semaphore_vtable: sync.Semaphore.VTable = .{ .deinitFn = destroySemaphore };
 const fence_vtable: sync.Fence.VTable = .{ .deinitFn = destroyFence, .currentValueFn = currentFenceValue, .waitFn = waitFence };
 
+/// `Fence.init` for Vulkan: a timeline semaphore.
 pub fn createFence(ptr: *anyopaque, desc: sync.FenceDescriptor) anyerror!sync.Fence {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     var type_info: vk.SemaphoreTypeCreateInfo = .{ .semaphore_type = .timeline, .initial_value = desc.initial_value };
@@ -58,6 +59,7 @@ fn waitFence(point: sync.FencePoint, timeout_ns: ?u64) anyerror!bool {
     return result == .success;
 }
 
+/// `Semaphore.init` for Vulkan: a binary semaphore.
 pub fn createSemaphore(ptr: *anyopaque, desc: sync.SemaphoreDescriptor) anyerror!sync.Semaphore {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(vkSemaphore);
@@ -81,10 +83,12 @@ fn destroySemaphore(value: sync.Semaphore) void {
     log.debug("destroyed Vulkan binary semaphore", .{});
 }
 
+/// The Vulkan semaphore behind an interface semaphore.
 pub fn rawSemaphore(value: sync.Semaphore) !vk.Semaphore {
     return (try vkSemaphore.fromInterface(value)).handle;
 }
 
+/// The timeline semaphore behind an interface fence.
 pub fn rawFence(value: sync.Fence) !vk.Semaphore {
     return (try vkFence.fromInterface(value)).handle;
 }

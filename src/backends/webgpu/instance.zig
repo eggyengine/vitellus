@@ -27,7 +27,6 @@ pub const WgpuInstance = struct {
     }
 
     fn createAdapter(ptr: *anyopaque, allocator: std.mem.Allocator, desc: adapter_if.AdapterDescriptor) anyerror!adapter_if.Adapter {
-        _ = desc;
         const self: *WgpuInstance = @ptrCast(@alignCast(ptr));
         const Result = struct {
             adapter: c.WGPUAdapter = null,
@@ -39,7 +38,10 @@ pub const WgpuInstance = struct {
             }
         };
         var result: Result = .{};
-        const options = zeroInit(c.WGPURequestAdapterOptions, .{ .powerPreference = c.WGPUPowerPreference_HighPerformance });
+        const options = zeroInit(c.WGPURequestAdapterOptions, .{
+            .powerPreference = c.WGPUPowerPreference_HighPerformance,
+            .forceFallbackAdapter = @intFromBool(desc.source == .software),
+        });
         const future = c.wgpuInstanceRequestAdapter(self.handle, &options, .{
             .nextInChain = null,
             .mode = c.WGPUCallbackMode_WaitAnyOnly,
@@ -48,7 +50,7 @@ pub const WgpuInstance = struct {
             .userdata2 = null,
         });
         _ = try waitFuture(self.handle, future, forever);
-        const handle = result.adapter orelse return error.NoAdapter;
+        const handle = result.adapter orelse return if (desc.source == .software) error.NoSoftwareAdapter else error.NoAdapter;
         errdefer c.wgpuAdapterRelease(handle);
         const adapter = try allocator.create(WgpuAdapter);
         adapter.* = .{ .instance = self.handle, .handle = handle };
@@ -56,6 +58,7 @@ pub const WgpuInstance = struct {
     }
 };
 
+/// `Instance.init` for WebGPU, with timed waits so Vitellus can block on its futures.
 pub fn createInstance(allocator: std.mem.Allocator, config: settings.VitellusConfig) anyerror!instance_if.Instance {
     _ = config;
     const features = [_]c.WGPUInstanceFeatureName{c.WGPUInstanceFeatureName_TimedWaitAny};

@@ -13,6 +13,9 @@ const command = @import("command.zig");
 const sync = @import("sync.zig");
 const binding = @import("binding.zig");
 const debug = @import("debug.zig");
+const d3d12ma = @import("d3d12ma.zig");
+const DescriptorHeap = @import("descriptor_heap.zig").DescriptorHeap;
+const ShaderDiskCache = @import("../../shader_disk_cache.zig").ShaderDiskCache;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
@@ -24,30 +27,40 @@ const dx = @import("dx12_c");
 pub const Dx12Device = struct {
     allocator: std.mem.Allocator,
     device: ComPtr(dx.ID3D12Device) = .{},
-    resource_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
-    sampler_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
-    rtv_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
-    dsv_heap: ComPtr(dx.ID3D12DescriptorHeap) = .{},
-    resource_used: [4096]bool = @splat(false),
-    sampler_used: [256]bool = @splat(false),
-    rtv_used: [256]bool = @splat(false),
-    dsv_used: [256]bool = @splat(false),
+    /// Bind groups' buffer, texture and storage views.
+    resources: DescriptorHeap = undefined,
+    samplers: DescriptorHeap = undefined,
+    rtvs: DescriptorHeap = undefined,
+    dsvs: DescriptorHeap = undefined,
     debug_device: debug.Dx12DebugDevice = .{},
+    /// Where every buffer's and texture's memory comes from; set right after the device is made.
+    memory: d3d12ma.Allocator = undefined,
+    /// Where compiled pipelines are kept between runs (`pipeline_cache.zig`), keyed partly by GPU.
+    disk: ?*const ShaderDiskCache = null,
+    vendor_id: u32 = 0,
+    device_id: u32 = 0,
 
+    // Where each heap starts; they double when full, up to D3D12's limits for shader-visible
+    // heaps and an arbitrary bound for the CPU-only render-target and depth-stencil ones.
     pub const resource_capacity = 4096;
     pub const sampler_capacity = 256;
     pub const rtv_capacity = 256;
     pub const dsv_capacity = 256;
+    const max_resources = dx.D3D12_MAX_SHADER_VISIBLE_DESCRIPTOR_HEAP_SIZE_TIER_1;
+    const max_samplers = dx.D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE;
+    const max_attachment_views = 1 << 16;
 
+    /// A range of descriptors. `cpu` (where they are written) is only valid until the next
+    /// allocation from the same heap, which may grow it; keep `index`.
     pub const DescriptorAllocation = struct {
         cpu: dx.D3D12_CPU_DESCRIPTOR_HANDLE,
-        gpu: dx.D3D12_GPU_DESCRIPTOR_HANDLE,
         index: u32,
         count: u32,
     };
 
     const vtable: Device.VTable = .{
         .deinitFn = deinitImpl,
+        .memoryBudgetFn = memoryBudgetImpl,
         .createQueueFn = createQueueImpl,
         .createShaderFn = shader.create,
         .createBufferFn = resource.createBuffer,
@@ -65,16 +78,14 @@ pub const Dx12Device = struct {
         .createSemaphoreFn = sync.createSemaphore,
     };
 
+    /// `Device.init` for DirectX 12: the device at feature level 11.0, its memory allocator
+    /// (D3D12MA) and its four descriptor heaps.
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: DeviceDescriptor) !Device {
         const adapter: *Dx12Adapter = @ptrCast(@alignCast(adapter_ptr));
 
         const self = try allocator.create(Dx12Device);
         self.* = .{ .allocator = allocator };
         errdefer {
-            self.rtv_heap.deinit();
-            self.dsv_heap.deinit();
-            self.sampler_heap.deinit();
-            self.resource_heap.deinit();
             self.device.deinit();
             allocator.destroy(self);
         }
@@ -96,15 +107,24 @@ pub const Dx12Device = struct {
         ));
         utils.setD3D12Name(allocator, self.device.unwrap(), desc.label);
         log.debug("ID3D12Device successfully initialised", .{});
+        self.memory = try d3d12ma.createAllocator(self.device.unwrap(), @ptrCast(adapter.adapter.unwrap()));
+        errdefer d3d12ma.destroyAllocator(self.memory);
+        self.disk = desc.pipeline_cache;
+        var adapter_desc: dx.DXGI_ADAPTER_DESC1 = undefined;
+        if (adapter.adapter.unwrap().lpVtbl.*.GetDesc1.?(adapter.adapter.unwrap(), &adapter_desc) >= 0) {
+            self.vendor_id = adapter_desc.VendorId;
+            self.device_id = adapter_desc.DeviceId;
+        }
 
-        try self.createDescriptorHeap(&self.resource_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, resource_capacity, true);
-        try self.createDescriptorHeap(&self.sampler_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, sampler_capacity, true);
-        try self.createDescriptorHeap(&self.rtv_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_RTV, rtv_capacity, false);
-        try self.createDescriptorHeap(&self.dsv_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_DSV, dsv_capacity, false);
-        utils.setD3D12DerivedName(allocator, self.resource_heap.unwrap(), desc.label, "resource descriptors");
-        utils.setD3D12DerivedName(allocator, self.sampler_heap.unwrap(), desc.label, "sampler descriptors");
-        utils.setD3D12DerivedName(allocator, self.rtv_heap.unwrap(), desc.label, "RTV descriptors");
-        utils.setD3D12DerivedName(allocator, self.dsv_heap.unwrap(), desc.label, "DSV descriptors");
+        const raw = self.device.unwrap();
+        self.resources = try .init(allocator, raw, dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, .shader_visible, resource_capacity, max_resources, "resource descriptors");
+        errdefer self.resources.deinit(allocator);
+        self.samplers = try .init(allocator, raw, dx.D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, .shader_visible, sampler_capacity, max_samplers, "sampler descriptors");
+        errdefer self.samplers.deinit(allocator);
+        self.rtvs = try .init(allocator, raw, dx.D3D12_DESCRIPTOR_HEAP_TYPE_RTV, .cpu_only, rtv_capacity, max_attachment_views, "RTV descriptors");
+        errdefer self.rtvs.deinit(allocator);
+        self.dsvs = try .init(allocator, raw, dx.D3D12_DESCRIPTOR_HEAP_TYPE_DSV, .cpu_only, dsv_capacity, max_attachment_views, "DSV descriptors");
+        errdefer self.dsvs.deinit(allocator);
         log.debug("created DX12 descriptor heaps resources={} samplers={} RTVs={} DSVs={}", .{ resource_capacity, sampler_capacity, rtv_capacity, dsv_capacity });
 
         if (adapter.instance.?.config.validation != .none) {
@@ -116,10 +136,11 @@ pub const Dx12Device = struct {
 
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *Dx12Device = @ptrCast(@alignCast(ptr));
-        self.rtv_heap.deinit();
-        self.dsv_heap.deinit();
-        self.sampler_heap.deinit();
-        self.resource_heap.deinit();
+        self.dsvs.deinit(allocator);
+        self.rtvs.deinit(allocator);
+        self.samplers.deinit(allocator);
+        self.resources.deinit(allocator);
+        d3d12ma.destroyAllocator(self.memory);
         self.debug_device.reportLiveObjects();
         self.debug_device.deinit();
         self.device.deinit();
@@ -127,92 +148,54 @@ pub const Dx12Device = struct {
         allocator.destroy(self);
     }
 
+    fn memoryBudgetImpl(ptr: *anyopaque) @import("../../interface/device.zig").MemoryBudget {
+        const self: *Dx12Device = @ptrCast(@alignCast(ptr));
+        return d3d12ma.budget(self.memory);
+    }
+
     fn createQueueImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) anyerror!Queue {
         return Dx12Queue.init(ptr, allocator, desc);
     }
 
-    fn createDescriptorHeap(self: *Dx12Device, output: *ComPtr(dx.ID3D12DescriptorHeap), kind: dx.D3D12_DESCRIPTOR_HEAP_TYPE, count: u32, visible: bool) !void {
-        const desc = dx.D3D12_DESCRIPTOR_HEAP_DESC{
-            .Type = kind,
-            .NumDescriptors = count,
-            .Flags = if (visible) dx.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE else dx.D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
-            .NodeMask = 0,
-        };
-        try checkHr(self.device.unwrap().lpVtbl.*.CreateDescriptorHeap.?(
-            self.device.unwrap(),
-            &desc,
-            &dx.IID_ID3D12DescriptorHeap,
-            @ptrCast(output.put()),
-        ));
-    }
-
+    /// `count` consecutive CBV/SRV/UAV descriptors, growing the heap when full.
     pub fn allocateResourceDescriptors(self: *Dx12Device, count: u32) !DescriptorAllocation {
-        return self.allocateDescriptors(self.resource_heap.unwrap(), dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, self.resource_used[0..], count, true);
+        return allocateFrom(&self.resources, self, count);
     }
 
+    /// `count` consecutive sampler descriptors, growing the heap when full.
     pub fn allocateSamplerDescriptors(self: *Dx12Device, count: u32) !DescriptorAllocation {
-        return self.allocateDescriptors(self.sampler_heap.unwrap(), dx.D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, self.sampler_used[0..], count, true);
+        return allocateFrom(&self.samplers, self, count);
     }
 
+    /// One render-target view descriptor.
     pub fn allocateRtv(self: *Dx12Device) !DescriptorAllocation {
-        return self.allocateDescriptors(self.rtv_heap.unwrap(), dx.D3D12_DESCRIPTOR_HEAP_TYPE_RTV, self.rtv_used[0..], 1, false);
+        return allocateFrom(&self.rtvs, self, 1);
     }
 
+    /// One depth-stencil view descriptor.
     pub fn allocateDsv(self: *Dx12Device) !DescriptorAllocation {
-        return self.allocateDescriptors(self.dsv_heap.unwrap(), dx.D3D12_DESCRIPTOR_HEAP_TYPE_DSV, self.dsv_used[0..], 1, false);
+        return allocateFrom(&self.dsvs, self, 1);
     }
 
+    /// Return descriptors `allocateResourceDescriptors` gave.
     pub fn freeResourceDescriptors(self: *Dx12Device, index: u32, count: u32) void {
-        freeDescriptors(self.resource_used[0..], index, count);
+        self.resources.free(index, count);
     }
+    /// Return descriptors `allocateSamplerDescriptors` gave.
     pub fn freeSamplerDescriptors(self: *Dx12Device, index: u32, count: u32) void {
-        freeDescriptors(self.sampler_used[0..], index, count);
+        self.samplers.free(index, count);
     }
+    /// Return a descriptor `allocateRtv` gave.
     pub fn freeRtv(self: *Dx12Device, index: u32) void {
-        freeDescriptors(self.rtv_used[0..], index, 1);
+        self.rtvs.free(index, 1);
     }
+    /// Return a descriptor `allocateDsv` gave.
     pub fn freeDsv(self: *Dx12Device, index: u32) void {
-        freeDescriptors(self.dsv_used[0..], index, 1);
+        self.dsvs.free(index, 1);
     }
 
-    fn allocateDescriptors(
-        self: *Dx12Device,
-        heap: *dx.ID3D12DescriptorHeap,
-        kind: dx.D3D12_DESCRIPTOR_HEAP_TYPE,
-        used: []bool,
-        count: u32,
-        visible: bool,
-    ) !DescriptorAllocation {
-        const count_usize: usize = @intCast(count);
-        if (count == 0 or count_usize > used.len) return error.DescriptorHeapFull;
-        var index: u32 = 0;
-        while (@as(usize, index) + count_usize <= used.len) : (index += 1) {
-            var available = true;
-            const start: usize = @intCast(index);
-            for (used[start .. start + count_usize]) |slot| if (slot) {
-                available = false;
-                break;
-            };
-            if (available) break;
-        }
-        const start: usize = @intCast(index);
-        if (start + count_usize > used.len) return error.DescriptorHeapFull;
-        @memset(used[start .. start + count_usize], true);
-        const stride = self.device.unwrap().lpVtbl.*.GetDescriptorHandleIncrementSize.?(self.device.unwrap(), kind);
-        var cpu: dx.D3D12_CPU_DESCRIPTOR_HANDLE = undefined;
-        _ = heap.lpVtbl.*.GetCPUDescriptorHandleForHeapStart.?(heap, &cpu);
-        cpu.ptr += @as(usize, index) * stride;
-        var gpu: dx.D3D12_GPU_DESCRIPTOR_HANDLE = .{ .ptr = 0 };
-        if (visible) {
-            _ = heap.lpVtbl.*.GetGPUDescriptorHandleForHeapStart.?(heap, &gpu);
-            gpu.ptr += @as(u64, index) * stride;
-        }
-        return .{ .cpu = cpu, .gpu = gpu, .index = index, .count = count };
+    fn allocateFrom(heap: *DescriptorHeap, self: *Dx12Device, count: u32) !DescriptorAllocation {
+        const index = try heap.allocate(self.allocator, self.device.unwrap(), count);
+        return .{ .cpu = heap.cpu(index), .index = index, .count = count };
     }
 };
-
-fn freeDescriptors(used: []bool, index: u32, count: u32) void {
-    const start: usize = @intCast(index);
-    const count_usize: usize = @intCast(count);
-    if (start + count_usize <= used.len) @memset(used[start .. start + count_usize], false);
-}

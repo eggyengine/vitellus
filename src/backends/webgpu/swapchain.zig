@@ -38,6 +38,7 @@ pub const WgpuSwapchain = struct {
         .infoFn = info,
     };
 
+    /// `Swapchain.init` for WebGPU: configures the canvas's surface for the queue's device.
     pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: swapchain_if.SwapchainDescriptor) anyerror!swapchain_if.Swapchain {
         const adapter: *WgpuAdapter = @ptrCast(@alignCast(ptr));
         const queue: *WgpuQueue = @ptrCast(@alignCast(desc.queue.ptr));

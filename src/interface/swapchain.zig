@@ -86,6 +86,8 @@ pub const Swapchain = struct {
         infoFn: ?*const fn (*anyopaque) SwapchainInfo = null,
     };
 
+    /// Make the images a window shows, presented by `desc.queue`. Recreate them with `resize`
+    /// when the window's size changes or `present` reports them suboptimal.
     pub fn init(adapter: anytype, desc: SwapchainDescriptor) !Swapchain {
         return adapter.vtable.createSwapchainFn(adapter.ptr, adapter.allocator, desc);
     }
@@ -99,14 +101,59 @@ pub const Swapchain = struct {
     pub fn acquireNextImage(self: Swapchain, signal: ?sync.Semaphore) !AcquireResult {
         return if (self.vtable.acquireNextImageFn) |f| f(self.ptr, signal) else error.Unsupported;
     }
-    /// Presents the current image after all synchronisation objects in `waits`.
+    /// Presents the current image after all synchronisation objects in `waits`. Fails with
+    /// `error.DeviceLost` once the device is gone (see `Queue`).
     pub fn present(self: Swapchain, waits: []const sync.Semaphore) !PresentStatus {
         return if (self.vtable.presentFn) |f| f(self.ptr, waits) else error.Unsupported;
     }
+    /// Remake the images at `extent` (both sides non-zero). Waits for the GPU to finish with the
+    /// old ones first, so call it only when the size has really changed.
     pub fn resize(self: Swapchain, extent: Extent2D) !void {
         return if (self.vtable.resizeFn) |f| f(self.ptr, extent) else error.Unsupported;
     }
+    /// The images' size, format and count.
     pub fn info(self: Swapchain) SwapchainInfo {
         return if (self.vtable.infoFn) |f| f(self.ptr) else .{ .extent = .{}, .format = .bgra8_unorm, .image_count = 0 };
     }
 };
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Swapchain {
+    // Compiled, not run: it needs a window.
+    const example = struct {
+        fn create(adapter: vit.Adapter, window: vit.Window, queue: vit.Queue, extent: vit.Extent2D) !vit.Swapchain {
+            // Presents on `queue`, in step with the display (`.fifo` never tears).
+            return vit.Swapchain.init(adapter, .{ .window = window, .queue = queue, .extent = extent, .present_mode = .fifo, .image_count = 3 });
+        }
+
+        // One frame. `cmd` is new this frame and kept until the GPU has run it;
+        // `render_done` holds a semaphore per swapchain image.
+        fn frame(swapchain: vit.Swapchain, queue: vit.Queue, cmd: vit.CommandBuffer, acquired: vit.Semaphore, render_done: []const vit.Semaphore, extent: vit.Extent2D) !void {
+            // Follow the window's pixel size, and draw nothing while it has none (minimised).
+            if (extent.width == 0 or extent.height == 0) return;
+            const current = swapchain.info().extent;
+            if (current.width != extent.width or current.height != extent.height) {
+                try queue.waitIdle();
+                try swapchain.resize(extent);
+            }
+
+            // Images arrive in `present` and must be back in it when presented.
+            const image = try swapchain.acquireNextImage(acquired);
+            try cmd.barrier(&.{.{ .texture_view = .{ .view = image.view, .before = .present, .after = .color_attachment } }});
+            try cmd.beginRenderPass(.{ .color_attachments = &.{.{ .view = image.view, .clear_value = .{ .r = 0.1, .g = 0.1, .b = 0.12 } }} });
+            cmd.endRenderPass();
+            try cmd.barrier(&.{.{ .texture_view = .{ .view = image.view, .before = .color_attachment, .after = .present } }});
+            try cmd.finish();
+
+            // Drawing waits for the image to be free; presenting waits for the drawing.
+            try queue.submit(.{ .command_buffers = &.{cmd}, .wait_semaphores = &.{acquired}, .signal_semaphores = &.{render_done[image.index]} });
+            _ = try swapchain.present(&.{render_done[image.index]});
+        }
+    };
+    _ = &example.create;
+    _ = &example.frame;
+}

@@ -42,6 +42,8 @@ pub const Dx12Adapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
+    /// `Adapter.init` for DirectX 12: the first D3D12-capable hardware adapter, else WARP;
+    /// only WARP for `desc.source == .software`.
     pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
         const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
         const self = try allocator.create(Dx12Adapter);
@@ -53,10 +55,12 @@ pub const Dx12Adapter = struct {
             allocator.destroy(self);
         }
 
-        log.debug("selecting DX12 hardware adapter", .{});
-        self.adapter = getHardwareAdapter(self.factory.get()) catch |err| fallback: {
-            log.warn("hardware adapter unavailable ({}); falling back to WARP", .{err});
-            break :fallback try getWarpAdapter(self.factory.get());
+        self.adapter = switch (desc.source) {
+            .software => try getSoftwareAdapter(self.factory.get()),
+            .hardware_first => getHardwareAdapter(self.factory.get()) catch |err| fallback: {
+                log.warn("hardware adapter unavailable ({}); falling back to WARP", .{err});
+                break :fallback try getWarpAdapter(self.factory.get());
+            },
         };
 
         utils.setDxgiName(self.adapter.unwrap(), desc.label);
@@ -81,6 +85,29 @@ pub const Dx12Adapter = struct {
                 dx.D3D12_RESOURCE_BINDING_TIER_2 => 256,
                 else => 1024,
             };
+            caps.features.shader_float64 = options.DoublePrecisionFloatShaderOps != 0;
+        }
+
+        // Shader types and wave operations need nothing enabled at device creation, only
+        // the GPU's support and a shader model new enough to express them.
+        var options1 = std.mem.zeroes(dx.D3D12_FEATURE_DATA_D3D12_OPTIONS1);
+        if (checkFeature(device, dx.D3D12_FEATURE_D3D12_OPTIONS1, &options1)) {
+            caps.features.shader_int64 = options1.Int64ShaderOps != 0;
+            caps.features.subgroup_operations = options1.WaveOps != 0;
+            if (options1.WaveOps != 0) {
+                caps.limits.subgroup_size_min = options1.WaveLaneCountMin;
+                caps.limits.subgroup_size_max = options1.WaveLaneCountMax;
+            }
+        }
+        var shader_model: dx.D3D12_FEATURE_DATA_SHADER_MODEL = .{ .HighestShaderModel = dx.D3D_SHADER_MODEL_6_2 };
+        var options4 = std.mem.zeroes(dx.D3D12_FEATURE_DATA_D3D12_OPTIONS4);
+        if (checkFeature(device, dx.D3D12_FEATURE_SHADER_MODEL, &shader_model) and
+            shader_model.HighestShaderModel >= dx.D3D_SHADER_MODEL_6_2 and
+            checkFeature(device, dx.D3D12_FEATURE_D3D12_OPTIONS4, &options4))
+        {
+            // Native 16-bit types come as floats and integers together.
+            caps.features.shader_float16 = options4.Native16BitShaderOpsSupported != 0;
+            caps.features.shader_int16 = options4.Native16BitShaderOpsSupported != 0;
         }
 
         var va = std.mem.zeroes(dx.D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT);
@@ -174,13 +201,16 @@ pub const Dx12Adapter = struct {
         if (!texture) return .{};
 
         const renderable = (s1 & dx.D3D12_FORMAT_SUPPORT1_RENDER_TARGET) != 0;
+        const depth_stencil = (s1 & dx.D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL) != 0;
         return .{
             .usage = .{
                 .sampled = (s1 & (dx.D3D12_FORMAT_SUPPORT1_SHADER_LOAD |
                     dx.D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE)) != 0,
-                .storage = (s1 & dx.D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0,
+                // D3D12 never lets a depth-stencil resource allow unordered access, whatever
+                // the driver says of the format (vkd3d reports D32_FLOAT as UAV-capable).
+                .storage = !depth_stencil and (s1 & dx.D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0,
                 .color_attachment = renderable,
-                .depth_stencil_attachment = (s1 & dx.D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL) != 0,
+                .depth_stencil_attachment = depth_stencil,
                 .transfer_src = true,
                 .transfer_dst = true,
             },
@@ -518,6 +548,16 @@ fn getHardwareAdapter(factory: ?*dx.IDXGIFactory4) !ComPtr(dx.IDXGIAdapter1) {
     }
 
     return error.HrFailed;
+}
+
+// Wine hands back its first GPU for WARP, so a software request checks what it got.
+fn getSoftwareAdapter(factory: ?*dx.IDXGIFactory4) !ComPtr(dx.IDXGIAdapter1) {
+    var adapter = getWarpAdapter(factory) catch return error.NoSoftwareAdapter;
+    errdefer adapter.deinit();
+    var desc: dx.DXGI_ADAPTER_DESC1 = .{};
+    try checkHr(adapter.unwrap().lpVtbl.*.GetDesc1.?(adapter.unwrap(), &desc));
+    if ((desc.Flags & dx.DXGI_ADAPTER_FLAG_SOFTWARE) == 0) return error.NoSoftwareAdapter;
+    return adapter;
 }
 
 fn getWarpAdapter(factory: ?*dx.IDXGIFactory4) !ComPtr(dx.IDXGIAdapter1) {

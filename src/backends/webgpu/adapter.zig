@@ -67,6 +67,11 @@ pub const WgpuAdapter = struct {
         const self: *WgpuAdapter = @ptrCast(@alignCast(ptr));
         var limits = std.mem.zeroes(c.WGPULimits);
         _ = c.wgpuAdapterGetLimits(self.handle, &limits);
+        // WGSL has 16-bit floats and subgroups as extensions, and no other sized types.
+        const subgroups = c.wgpuAdapterHasFeature(self.handle, c.WGPUFeatureName_Subgroups) != 0;
+        var raw = std.mem.zeroes(c.WGPUAdapterInfo);
+        const have_info = subgroups and c.wgpuAdapterGetInfo(self.handle, &raw) == c.WGPUStatus_Success;
+        defer if (have_info) c.wgpuAdapterInfoFreeMembers(raw);
         return .{
             .features = .{
                 .timestamp_query = c.wgpuAdapterHasFeature(self.handle, c.WGPUFeatureName_TimestampQuery) != 0,
@@ -75,6 +80,8 @@ pub const WgpuAdapter = struct {
                 .depth_clip_control = c.wgpuAdapterHasFeature(self.handle, c.WGPUFeatureName_DepthClipControl) != 0,
                 .anisotropic_filtering = true,
                 .bc_compression = c.wgpuAdapterHasFeature(self.handle, c.WGPUFeatureName_TextureCompressionBC) != 0,
+                .shader_float16 = c.wgpuAdapterHasFeature(self.handle, c.WGPUFeatureName_ShaderF16) != 0,
+                .subgroup_operations = subgroups,
             },
             .limits = .{
                 .max_buffer_size = limits.maxBufferSize,
@@ -97,6 +104,8 @@ pub const WgpuAdapter = struct {
                 .max_compute_workgroup_size = .{ limits.maxComputeWorkgroupSizeX, limits.maxComputeWorkgroupSizeY, limits.maxComputeWorkgroupSizeZ },
                 .max_compute_workgroups = .{ limits.maxComputeWorkgroupsPerDimension, limits.maxComputeWorkgroupsPerDimension, limits.maxComputeWorkgroupsPerDimension },
                 .max_sampler_anisotropy = 16,
+                .subgroup_size_min = if (have_info) raw.subgroupMinSize else 0,
+                .subgroup_size_max = if (have_info) raw.subgroupMaxSize else 0,
             },
         };
     }
@@ -154,6 +163,7 @@ pub const WgpuAdapter = struct {
     }
 };
 
+/// A surface on the page's canvas, found by its CSS selector.
 pub fn createSurface(instance: c.WGPUInstance) !c.WGPUSurface {
     var canvas = c.WGPUEmscriptenSurfaceSourceCanvasHTMLSelector{
         .chain = .{ .next = null, .sType = c.WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector },

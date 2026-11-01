@@ -26,6 +26,8 @@ pub const WgpuCommandBuffer = struct {
     pass: union(enum) { none, render: c.WGPURenderPassEncoder, compute: c.WGPUComputePassEncoder } = .none,
     finished: c.WGPUCommandBuffer = null,
 
+    /// `CommandBuffer.init` for WebGPU: a command encoder, finished into a command buffer by
+    /// `finish`.
     pub fn create(pool: command.CommandPool, desc: command.CommandBufferDescriptor) anyerror!command.CommandBuffer {
         const device = ptrOf(WgpuDevice, pool.handle);
         const encoder = c.wgpuDeviceCreateCommandEncoder(device.handle, &.{ .nextInChain = null, .label = str(desc.label) }) orelse return error.CommandBufferCreationFailed;

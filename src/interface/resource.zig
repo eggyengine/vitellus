@@ -123,9 +123,12 @@ pub const TextureDescriptor = struct {
     sample_count: u32 = 1,
     format: Format,
     usage: TextureUsage,
-    /// Optional tightly packed data for mip 0 and array layer 0.
+    /// Optional data for the texture, copied during creation: array layer by layer (a cube's
+    /// six faces are layers), each layer's mips largest first, each tightly packed (rows of
+    /// texel blocks, then depth slices). It may stop after any whole subresource, leaving the
+    /// rest undefined. Not for multisampled textures. See `texture_layout.zig`.
     initial_data: ?[]const u8 = null,
-    /// Source row stride for `initial_data`; `0` uses width × format size.
+    /// Row stride for `initial_data` on single-mip textures; `0` packs rows tightly.
     bytes_per_row: u32 = 0,
 };
 /// Texture subresource range exposed by a view.
@@ -170,6 +173,8 @@ pub const Buffer = struct {
         unmapFn: *const fn (Buffer, ?BufferRange) void,
     };
 
+    /// Make a buffer of `desc.size` bytes in `desc.memory`, filled from `desc.initial_data`
+    /// when given (the rest is undefined). `upload` and `readback` buffers can be mapped.
     pub fn init(device: anytype, desc: BufferDescriptor) !Buffer {
         return if (device.vtable.createBufferFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
@@ -184,6 +189,7 @@ pub const Buffer = struct {
         self.vtable.unmapFn(self, written);
     }
 
+    /// Destroy the buffer once no submitted work uses it (see `Graveyard`).
     pub fn deinit(self: Buffer) void {
         self.vtable.deinitFn(self);
     }
@@ -195,10 +201,14 @@ pub const Texture = struct {
 
     pub const VTable = struct { deinitFn: *const fn (Texture) void };
 
+    /// Make a texture, filled from `desc.initial_data` when given. Usage must include
+    /// everything it will be used for; the formats an adapter allows are in
+    /// `Adapter.formatCapabilities`.
     pub fn init(device: anytype, desc: TextureDescriptor) !Texture {
         return if (device.vtable.createTextureFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// Destroy the texture, after its views and once no submitted work uses it.
     pub fn deinit(self: Texture) void {
         self.vtable.deinitFn(self);
     }
@@ -210,10 +220,13 @@ pub const TextureView = struct {
 
     pub const VTable = struct { deinitFn: *const fn (TextureView) void };
 
+    /// View some of a texture's mips and layers, possibly as another dimension (a cube from six
+    /// layers), for binding or as an attachment. The texture must outlive it.
     pub fn init(device: anytype, desc: TextureViewDescriptor) !TextureView {
         return if (device.vtable.createTextureViewFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// Destroy the view once no submitted work uses it.
     pub fn deinit(self: TextureView) void {
         self.vtable.deinitFn(self);
     }
@@ -225,11 +238,114 @@ pub const Sampler = struct {
 
     pub const VTable = struct { deinitFn: *const fn (Sampler) void };
 
+    /// Make a sampler: filtering, addressing, mip and comparison settings for sampling textures.
     pub fn init(device: anytype, desc: SamplerDescriptor) !Sampler {
         return if (device.vtable.createSamplerFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// Destroy the sampler, after the bind groups that use it.
     pub fn deinit(self: Sampler) void {
         self.vtable.deinitFn(self);
     }
 };
+
+const std = @import("std");
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Buffer {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // GPU memory filled once at creation: how vertex and index buffers are usually made.
+    const vertices = [_]f32{ 0, 0.5, -0.5, -0.5, 0.5, -0.5 };
+    const vertex_buffer = try vit.Buffer.init(gpu.device, .{
+        .size = @sizeOf(@TypeOf(vertices)),
+        .usage = .{ .vertex = true },
+        .initial_data = std.mem.asBytes(&vertices),
+    });
+    defer vertex_buffer.deinit();
+
+    // Memory the CPU writes while the app runs, such as per-frame uniforms. Uniform
+    // bindings start on 256-byte boundaries, so give each frame's block that much.
+    const uniforms = try vit.Buffer.init(gpu.device, .{ .size = 256, .usage = .{ .uniform = true }, .memory = .upload });
+    defer uniforms.deinit();
+    const tint = [4]f32{ 1, 0.5, 0, 1 };
+    const mapped = try uniforms.map(.write, .{ .size = @sizeOf(@TypeOf(tint)) });
+    @memcpy(mapped[0..@sizeOf(@TypeOf(tint))], std.mem.asBytes(&tint));
+    uniforms.unmap(.{ .size = @sizeOf(@TypeOf(tint)) });
+}
+
+test Texture {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // A 2×2 checkerboard uploaded at creation. Initial data runs layer by layer, each
+    // layer's mips largest first, with rows packed tight unless `bytes_per_row` says
+    // otherwise.
+    const white = [4]u8{ 255, 255, 255, 255 };
+    const black = [4]u8{ 0, 0, 0, 255 };
+    const pixels = white ++ black ++ black ++ white;
+    const texture = try vit.Texture.init(gpu.device, .{
+        .width = 2,
+        .height = 2,
+        .format = .rgba8_unorm_srgb,
+        .usage = .{ .sampled = true },
+        .initial_data = &pixels,
+    });
+    defer texture.deinit();
+}
+
+test TextureView {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // Shaders and render passes see textures through views. With only `.texture` set, the
+    // view covers the whole texture; set the mips, layers or format to see part of it.
+    const target = try vit.Texture.init(gpu.device, .{ .width = 4, .height = 4, .format = .rgba8_unorm, .usage = .{ .color_attachment = true, .transfer_src = true } });
+    defer target.deinit();
+    const view = try vit.TextureView.init(gpu.device, .{ .texture = target });
+    defer view.deinit();
+
+    // Clear it through the view, then read a pixel back. Copied rows start on 256 bytes.
+    const readback = try vit.Buffer.init(gpu.device, .{ .size = 256 * 4, .usage = .{ .transfer_dst = true }, .memory = .readback });
+    defer readback.deinit();
+    const pool = try vit.CommandPool.init(gpu.device, .{});
+    defer pool.deinit();
+    const cmd = try vit.CommandBuffer.init(pool, .{});
+    defer cmd.deinit();
+    try cmd.barrier(&.{.{ .texture = .{ .texture = target, .before = .common, .after = .color_attachment } }});
+    try cmd.beginRenderPass(.{ .color_attachments = &.{.{ .view = view, .load_op = .clear, .clear_value = .{ .r = 1, .g = 0, .b = 0, .a = 1 } }} });
+    cmd.endRenderPass();
+    try cmd.barrier(&.{
+        .{ .texture = .{ .texture = target, .before = .color_attachment, .after = .copy_source } },
+        .{ .buffer = .{ .buffer = readback, .before = .common, .after = .copy_destination } },
+    });
+    try cmd.copyTextureToBuffer(.{ .buffer = readback, .bytes_per_row = 256, .texture = .{ .texture = target }, .extent = .{ .width = 4, .height = 4 } });
+    try cmd.barrier(&.{.{ .buffer = .{ .buffer = readback, .before = .copy_destination, .after = .host_read } }});
+    try cmd.finish();
+    try gpu.queue.submit(.{ .command_buffers = &.{cmd} });
+    try gpu.queue.waitIdle();
+
+    const pixel = try readback.map(.read, .{ .size = 4 });
+    defer readback.unmap(null);
+    try std.testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, pixel[0..4]);
+}
+
+test Sampler {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // Pixel art: the nearest texel, clamped at the edges, with no blending between mips.
+    // Bind it beside a texture view (`vit.BindGroup`).
+    const sampler = try vit.Sampler.init(gpu.device, .{
+        .mag_filter = .nearest,
+        .min_filter = .nearest,
+        .mipmap_filter = .nearest,
+        .address_u = .clamp_to_edge,
+        .address_v = .clamp_to_edge,
+    });
+    defer sampler.deinit();
+}

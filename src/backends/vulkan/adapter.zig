@@ -25,8 +25,18 @@ const DeviceCandidate = struct {
     props: vk.PhysicalDeviceProperties,
     memory_props: vk.PhysicalDeviceMemoryProperties,
     features: vk.PhysicalDeviceFeatures,
+    shaders: ShaderSupport,
     queues: QueueAllocation,
     driver: adapter_interface.Driver,
+};
+
+/// Shader types and subgroup operations, which only the Vulkan 1.1 and 1.2 queries report.
+const ShaderSupport = struct {
+    float16: bool = false,
+    int16: bool = false,
+    int8: bool = false,
+    subgroups: bool = false,
+    subgroup_size: u32 = 0,
 };
 
 pub const vkAdapter = struct {
@@ -35,6 +45,7 @@ pub const vkAdapter = struct {
     props: vk.PhysicalDeviceProperties,
     memory_props: vk.PhysicalDeviceMemoryProperties,
     features: vk.PhysicalDeviceFeatures,
+    shaders: ShaderSupport,
     queues: QueueAllocation,
     driver: adapter_interface.Driver,
 
@@ -48,21 +59,32 @@ pub const vkAdapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
-    pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, _: AdapterDescriptor) !Adapter {
+    /// `Adapter.init` for Vulkan: the high-performance GPU when there is one, else the first;
+    /// only a CPU device (llvmpipe, SwiftShader) for `desc.source == .software`.
+    pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
         const adapters = try enumerateSlice(instance_ptr, allocator);
         defer allocator.free(adapters);
+        errdefer for (adapters) |adapter| adapter.deinit();
 
-        const selected = Adapter.pick(adapters, .high_performance) orelse adapters[0];
+        const selected = switch (desc.source) {
+            .hardware_first => Adapter.pick(adapters, .high_performance) orelse adapters[0],
+            .software => for (adapters) |adapter| {
+                if (adapter.info().kind == .software) break adapter;
+            } else return error.NoSoftwareAdapter,
+        };
         for (adapters) |adapter| {
             if (adapter.ptr != selected.ptr) adapter.deinit();
         }
         return selected;
     }
 
+    /// `Instance.enumerateAdapters` for Vulkan. The caller owns the slice and its adapters.
     pub fn enumerate(instance_ptr: *anyopaque, allocator: std.mem.Allocator) ![]Adapter {
         return enumerateSlice(instance_ptr, allocator);
     }
 
+    /// Every Vulkan GPU, through a short-lived instance of its own, for listing GPUs before
+    /// the app chooses a backend.
     pub fn enumerateStandalone(allocator: std.mem.Allocator) ![]Adapter {
         const instance = try vkInstance.init(allocator, .{ .backend = .{ .vulkan = true }, .validation = .none });
         const backend: *vkInstance = @ptrCast(@alignCast(instance.ptr));
@@ -103,6 +125,7 @@ pub const vkAdapter = struct {
             .props = candidate.props,
             .memory_props = candidate.memory_props,
             .features = candidate.features,
+            .shaders = candidate.shaders,
             .queues = candidate.queues,
             .driver = candidate.driver,
         };
@@ -118,8 +141,40 @@ pub const vkAdapter = struct {
             .props = props,
             .memory_props = instance.wrapper.getPhysicalDeviceMemoryProperties(pdev),
             .features = instance.wrapper.getPhysicalDeviceFeatures(pdev),
+            .shaders = shaderSupportOf(instance, pdev, props),
             .queues = queues,
             .driver = driverOf(instance, pdev, props),
+        };
+    }
+
+    // A type counts only when buffers can hold it too, since shaders read their inputs from
+    // buffers; subgroups count when compute shaders have the common operations.
+    fn shaderSupportOf(instance: *vkInstance, pdev: vk.PhysicalDevice, props: vk.PhysicalDeviceProperties) ShaderSupport {
+        if (instance.api_version < vk.API_VERSION_1_1.toU32() or props.api_version < vk.API_VERSION_1_2.toU32()) return .{};
+        var v12: vk.PhysicalDeviceVulkan12Features = .{};
+        var v11: vk.PhysicalDeviceVulkan11Features = .{ .p_next = &v12 };
+        var features2: vk.PhysicalDeviceFeatures2 = .{ .p_next = &v11, .features = .{} };
+        instance.wrapper.getPhysicalDeviceFeatures2(pdev, &features2);
+        var subgroup: vk.PhysicalDeviceSubgroupProperties = .{
+            .subgroup_size = 0,
+            .supported_stages = .{},
+            .supported_operations = .{},
+            .quad_operations_in_all_stages = .false,
+        };
+        var props2: vk.PhysicalDeviceProperties2 = .{ .p_next = &subgroup, .properties = undefined };
+        instance.wrapper.getPhysicalDeviceProperties2(pdev, &props2);
+
+        const storage16 = v11.storage_buffer_16_bit_access == .true and v11.uniform_and_storage_buffer_16_bit_access == .true;
+        const storage8 = v12.storage_buffer_8_bit_access == .true and v12.uniform_and_storage_buffer_8_bit_access == .true;
+        const ops = subgroup.supported_operations;
+        const subgroups = subgroup.supported_stages.compute and ops.basic and ops.vote and ops.arithmetic and ops.ballot and ops.shuffle;
+        return .{
+            .float16 = v12.shader_float_16 == .true and storage16,
+            .int16 = features2.features.shader_int_16 == .true and storage16,
+            .int8 = v12.shader_int_8 == .true and storage8,
+            .subgroups = subgroups,
+            // ponytail: one width, the default; report subgroup size control's range (Vulkan 1.3) when shaders can pick a width
+            .subgroup_size = if (subgroups) subgroup.subgroup_size else 0,
         };
     }
 
@@ -223,6 +278,12 @@ pub const vkAdapter = struct {
                 .wireframe = self.features.fill_mode_non_solid == .true,
                 .anisotropic_filtering = self.features.sampler_anisotropy == .true,
                 .bc_compression = self.features.texture_compression_bc == .true,
+                .shader_float16 = self.shaders.float16,
+                .shader_int16 = self.shaders.int16,
+                .shader_int8 = self.shaders.int8,
+                .shader_int64 = self.features.shader_int_64 == .true,
+                .shader_float64 = self.features.shader_float_64 == .true,
+                .subgroup_operations = self.shaders.subgroups,
             },
             .limits = .{
                 .max_buffer_size = limits.max_storage_buffer_range,
@@ -244,6 +305,8 @@ pub const vkAdapter = struct {
                 .max_compute_invocations = limits.max_compute_work_group_invocations,
                 .max_compute_workgroup_size = limits.max_compute_work_group_size,
                 .max_compute_workgroups = limits.max_compute_work_group_count,
+                .subgroup_size_min = self.shaders.subgroup_size,
+                .subgroup_size_max = self.shaders.subgroup_size,
                 .max_sampler_anisotropy = anisotropy,
             },
         };
@@ -328,6 +391,7 @@ fn kindFromVk(device_type: vk.PhysicalDeviceType) adapter_interface.Kind {
     };
 }
 
+/// Vitellus's format as Vulkan names it.
 pub fn toVkFormat(format: resource.Format) vk.Format {
     return switch (format) {
         .undefined => .undefined,
@@ -428,4 +492,15 @@ test "Vulkan instance enumerates and describes adapters" {
     if (std.mem.startsWith(u8, info.nameSlice(), "llvmpipe")) try std.testing.expectEqual(adapter_interface.Driver.llvmpipe, info.driver);
     try std.testing.expect(adapters[0].capabilities().limits.max_texture_dimension_2d > 0);
     try std.testing.expect(adapters[0].formatCapabilities(.rgba8_unorm).usage.sampled);
+}
+
+test "a software adapter request takes only a CPU device" {
+    const instance = vkInstance.init(std.testing.allocator, .{ .backend = .{ .vulkan = true }, .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    const adapter = vkAdapter.init(instance.ptr, std.testing.allocator, .{ .source = .software }) catch |err| switch (err) {
+        error.NoSoftwareAdapter => return error.SkipZigTest,
+        else => return err,
+    };
+    defer adapter.deinit();
+    try std.testing.expectEqual(adapter_interface.Kind.software, adapter.info().kind);
 }

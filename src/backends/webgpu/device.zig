@@ -35,6 +35,8 @@ pub const WgpuDevice = struct {
     allocator: std.mem.Allocator,
     instance: c.WGPUInstance,
     handle: c.WGPUDevice,
+    /// Set by WebGPU's device-lost callback; queues then fail with `DeviceLost`.
+    lost: std.atomic.Value(bool) = .init(false),
 
     const vtable: device_if.Device.VTable = .{
         .deinitFn = deinit,
@@ -54,6 +56,8 @@ pub const WgpuDevice = struct {
         .createSemaphoreFn = createSemaphore,
     };
 
+    /// `Device.init` for WebGPU: requests a device with the features `desc` requires, waiting for
+    /// the browser's answer.
     pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: device_if.DeviceDescriptor) anyerror!device_if.Device {
         const adapter: *WgpuAdapter = @ptrCast(@alignCast(ptr));
         var features: std.ArrayList(c.WGPUFeatureName) = .empty;
@@ -63,6 +67,8 @@ pub const WgpuDevice = struct {
         if (wanted.indirect_first_instance) try features.append(allocator, c.WGPUFeatureName_IndirectFirstInstance);
         if (wanted.depth_clip_control) try features.append(allocator, c.WGPUFeatureName_DepthClipControl);
         if (wanted.bc_compression) try features.append(allocator, c.WGPUFeatureName_TextureCompressionBC);
+        if (wanted.shader_float16) try features.append(allocator, c.WGPUFeatureName_ShaderF16);
+        if (wanted.subgroup_operations) try features.append(allocator, c.WGPUFeatureName_Subgroups);
         if (wanted.wireframe) return error.RequiredFeatureUnsupported;
 
         const Result = struct {
@@ -75,11 +81,14 @@ pub const WgpuDevice = struct {
             }
         };
         var result: Result = .{};
+        // Made first: the device-lost callback needs it.
+        const self = try allocator.create(WgpuDevice);
+        errdefer allocator.destroy(self);
         const device_desc = zeroInit(c.WGPUDeviceDescriptor, .{
             .label = str(desc.label),
             .requiredFeatureCount = features.items.len,
             .requiredFeatures = features.items.ptr,
-            .deviceLostCallbackInfo = zeroInit(c.WGPUDeviceLostCallbackInfo, .{ .mode = c.WGPUCallbackMode_AllowSpontaneous, .callback = onDeviceLost }),
+            .deviceLostCallbackInfo = zeroInit(c.WGPUDeviceLostCallbackInfo, .{ .mode = c.WGPUCallbackMode_AllowSpontaneous, .callback = onDeviceLost, .userdata1 = self }),
             .uncapturedErrorCallbackInfo = zeroInit(c.WGPUUncapturedErrorCallbackInfo, .{ .callback = onUncapturedError }),
         });
         const future = c.wgpuAdapterRequestDevice(adapter.handle, &device_desc, .{
@@ -91,14 +100,16 @@ pub const WgpuDevice = struct {
         });
         _ = try waitFuture(adapter.instance, future, forever);
         const handle = result.device orelse return error.DeviceCreationFailed;
-        const self = try allocator.create(WgpuDevice);
         self.* = .{ .allocator = allocator, .instance = adapter.instance, .handle = handle };
         return .{ .ptr = self, .vtable = &vtable, .allocator = allocator };
     }
 
-    fn onDeviceLost(_: [*c]const c.WGPUDevice, reason: c.WGPUDeviceLostReason, message: c.WGPUStringView, _: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {
+    fn onDeviceLost(_: [*c]const c.WGPUDevice, reason: c.WGPUDeviceLostReason, message: c.WGPUStringView, user: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {
+        // Destroyed and cancelled come as the device is released, after its owner may be gone.
         if (reason == c.WGPUDeviceLostReason_Destroyed or reason == c.WGPUDeviceLostReason_CallbackCancelled) return;
         log.err("WebGPU device lost: {s}", .{slice(message)});
+        const self: *WgpuDevice = @ptrCast(@alignCast(user));
+        self.lost.store(true, .release);
     }
 
     fn onUncapturedError(_: [*c]const c.WGPUDevice, _: c.WGPUErrorType, message: c.WGPUStringView, _: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {
@@ -398,6 +409,7 @@ pub const WgpuDevice = struct {
     }
 };
 
+/// A blend equation as WebGPU names it.
 pub fn blendComponent(component: pipeline.BlendComponent) c.WGPUBlendComponent {
     return .{
         .operation = wgpuEnum("WGPUBlendOperation_", component.operation),
@@ -406,6 +418,7 @@ pub fn blendComponent(component: pipeline.BlendComponent) c.WGPUBlendComponent {
     };
 }
 
+/// One face's stencil state as WebGPU names it.
 pub fn stencilFace(face: pipeline.StencilFaceState) c.WGPUStencilFaceState {
     return .{
         .compare = wgpuEnum("WGPUCompareFunction_", face.compare),

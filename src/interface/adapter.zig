@@ -68,9 +68,21 @@ fn cpuid(leaf: u32) [4]u32 {
 }
 
 pub const PowerPreference = enum { low_power, high_performance };
+/// Which kind of GPU `Adapter.init` takes.
+pub const AdapterSource = enum {
+    /// The strongest hardware GPU, or a software rasterizer when the system has none.
+    hardware_first,
+    /// Only a software rasterizer running on the CPU, for machines without a usable GPU or
+    /// for results that don't depend on one: WARP on DirectX 12 (every Windows has it), a CPU
+    /// device such as llvmpipe on Vulkan, the browser's fallback adapter on WebGPU. Fails with
+    /// `NoSoftwareAdapter` when the system has none. Far slower than any GPU.
+    software,
+};
+
 pub const AdapterDescriptor = struct {
     /// Optional name shown for the selected physical adapter in graphics debuggers.
     label: ?[]const u8 = null,
+    source: AdapterSource = .hardware_first,
 };
 pub const FeatureSet = settings_mod.FeatureSet;
 pub const Limits = struct {
@@ -94,6 +106,10 @@ pub const Limits = struct {
     max_compute_workgroup_size: [3]u32 = .{ 0, 0, 0 },
     max_compute_workgroups: [3]u32 = .{ 0, 0, 0 },
     max_sampler_anisotropy: u16 = 1,
+    /// The fewest and most invocations a subgroup (wave) runs; equal on GPUs with one width.
+    /// 0 when the GPU has no subgroup operations.
+    subgroup_size_min: u32 = 0,
+    subgroup_size_max: u32 = 0,
 };
 pub const AdapterCapabilities = struct { features: FeatureSet = .{}, limits: Limits = .{} };
 pub const SampleCounts = packed struct(u8) { one: bool = true, two: bool = false, four: bool = false, eight: bool = false, _pad: u4 = 0 };
@@ -107,6 +123,7 @@ pub const SurfaceCapabilities = struct {
     max_image_count: u32,
     min_extent: swapchain.Extent2D,
     max_extent: swapchain.Extent2D,
+    /// Free the format and present-mode lists `Adapter.surfaceCapabilities` allocated.
     pub fn deinit(self: SurfaceCapabilities) void {
         self.allocator.free(self.formats);
         self.allocator.free(self.present_modes);
@@ -165,6 +182,8 @@ pub const Adapter = struct {
         surfaceCapabilitiesFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, window: Window) anyerror!SurfaceCapabilities,
     };
 
+    /// Pick a GPU from `instance` by `desc`'s preference (power, a named device, or a
+    /// surface it must present to). Destroy it with `deinit` after every device made from it.
     pub fn init(instance: Instance, desc: AdapterDescriptor) !Adapter {
         var adapter = try instance.createAdapter(desc);
         adapter.validation = instance.config.validation;
@@ -242,12 +261,18 @@ pub const Adapter = struct {
         return self.vtable.infoFn(self.ptr);
     }
 
+    /// What this GPU supports: limits, optional features and its identity. Check
+    /// `features` before asking for one in `DeviceDescriptor.required_features`.
     pub fn capabilities(self: Adapter) AdapterCapabilities {
         return self.vtable.capabilitiesFn(self.ptr);
     }
+    /// How `format` may be used on this GPU (sampled, storage, attachments) and which sample
+    /// counts it takes; all false for formats it can't use at all.
     pub fn formatCapabilities(self: Adapter, format: resource.Format) FormatCapabilities {
         return self.vtable.formatCapabilitiesFn(self.ptr, format);
     }
+    /// The formats and present modes this GPU can show `window` with. The caller owns the
+    /// result; free it with `SurfaceCapabilities.deinit`.
     pub fn surfaceCapabilities(self: Adapter, allocator: std.mem.Allocator, window: Window) !SurfaceCapabilities {
         return self.vtable.surfaceCapabilitiesFn(self.ptr, allocator, window);
     }
@@ -266,4 +291,25 @@ test "pick takes KosmicKrisp over MoltenVK for the same GPU, not over a discrete
 
     const discrete: AdapterInfo = .{ .kind = .discrete, .dedicated_vram = 4 << 30 };
     try std.testing.expect(!Adapter.better(kosmickrisp, discrete, .high_performance));
+}
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Adapter {
+    const instance = vit.Instance.init(std.testing.allocator, .{ .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    // The strongest GPU; `.source = .software` asks for a CPU rasterizer (WARP, llvmpipe).
+    const adapter = vit.Adapter.init(instance, .{}) catch return error.SkipZigTest;
+    defer adapter.deinit();
+
+    // Ask what it has before relying on it: optional features, limits and what each
+    // format can be used for.
+    const caps = adapter.capabilities();
+    const hdr = adapter.formatCapabilities(.rgba16_float);
+    try std.testing.expect(adapter.info().nameSlice().len > 0);
+    try std.testing.expect(caps.limits.max_texture_dimension_2d >= 4096);
+    try std.testing.expect(hdr.usage.sampled);
 }

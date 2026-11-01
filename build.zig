@@ -49,6 +49,20 @@ pub fn build(b: *std.Build) void {
             const dx12_c = b.addTranslateC(.{ .root_source_file = b.path("src/backends/dx12/dx12.h"), .target = target, .optimize = optimize });
             dx12_c.addIncludePath(dep.path("include/directx"));
             mod.addImport("dx12_c", dx12_c.createModule());
+            // D3D12 Memory Allocator: buffers and textures share large heaps.
+            if (b.lazyDependency("d3d12ma", .{})) |d3d12ma| {
+                // It masks D3D12 flag enums with `~`, which MSVC allows and UBSan reports.
+                mod.addCSourceFiles(.{
+                    .root = d3d12ma.path("src"),
+                    .files = &.{"D3D12MemAlloc.cpp"},
+                    .flags = &.{ "-std=c++20", "-DD3D12MA_USING_DIRECTX_HEADERS", "-fno-sanitize=enum" },
+                });
+                mod.addCSourceFile(.{ .file = b.path("src/backends/dx12/d3d12ma.cpp"), .flags = &.{ "-std=c++20", "-DD3D12MA_USING_DIRECTX_HEADERS" } });
+                mod.addIncludePath(d3d12ma.path("include"));
+                mod.addIncludePath(dep.path("include"));
+                mod.addIncludePath(dep.path("include/directx"));
+                mod.link_libcpp = true;
+            }
         }
         mod.linkSystemLibrary("dxgi", .{});
         mod.linkSystemLibrary("d3d12", .{});
@@ -179,6 +193,13 @@ pub fn build(b: *std.Build) void {
             .registry = b.lazyDependency("vulkan_headers", .{}).?.path("registry/vk.xml"),
         }).?.module("vulkan-zig");
         mod.addImport("vulkan", vulkan);
+        // Vulkan Memory Allocator: buffers and images share large memory blocks.
+        if (b.lazyDependency("vma", .{})) |vma| {
+            mod.addCSourceFile(.{ .file = b.path("src/backends/vulkan/vma.cpp"), .flags = &.{"-std=c++17"} });
+            mod.addIncludePath(vma.path("include"));
+            mod.addIncludePath(b.lazyDependency("vulkan_headers", .{}).?.path("include"));
+            mod.link_libcpp = true;
+        }
     }
 
     // slang
@@ -211,7 +232,14 @@ pub fn build(b: *std.Build) void {
             addRuntimeLibrary(b, dep.path(file), installed);
         }
         const slang_tests = b.addRunArtifact(b.addTest(.{ .root_module = slangc }));
-        if (slang) |dep| if (target.result.os.tag == .windows) slang_tests.setCwd(dep.path("bin"));
+        if (slang) |dep| if (target.result.os.tag == .windows) {
+            // Slang makes DXIL through DXC, which it looks for beside itself: run from a folder
+            // with both (DXC only when `-Denable_dxc` fetched it).
+            const dlls = b.addWriteFiles();
+            _ = dlls.addCopyDirectory(dep.path("bin"), "", .{});
+            if (dxc_bin_dir) |dir| _ = dlls.addCopyDirectory(dir, "", .{});
+            slang_tests.setCwd(dlls.getDirectory());
+        };
         b.step("test-slang", "Run vitellus_slangc tests").dependOn(&slang_tests.step);
     }
 

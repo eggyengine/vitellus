@@ -207,3 +207,79 @@ test "DX12 submission signals timeline fences asynchronously" {
     commands.deinit();
     try pool.reset();
 }
+
+test "DX12 descriptor heaps grow past their first size and keep earlier descriptors" {
+    if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
+    const gpa = std.testing.allocator;
+    const Dx12Device = @import("device.zig").Dx12Device;
+
+    const instance = try vit.Instance.init(gpa, .{ .backend = .{ .dx12 = true }, .validation = .none });
+    defer instance.deinit();
+    const adapter = try vit.Adapter.init(instance, .{});
+    defer adapter.deinit();
+    const device = try vit.Device.init(adapter, .{});
+    defer device.deinit();
+    const queue = try vit.Queue.init(device, .{ .kind = .graphics });
+    defer queue.deinit();
+    const dx12: *Dx12Device = @ptrCast(@alignCast(device.ptr));
+
+    // More render-target views and sampler groups than the heaps start with.
+    const count = 300;
+    const texture = try vit.hal.resource.Texture.init(device, .{ .width = 1, .height = 1, .format = .rgba8_unorm, .usage = .{ .color_attachment = true, .transfer_src = true } });
+    defer texture.deinit();
+    var views: [count]vit.hal.resource.TextureView = undefined;
+    for (&views, 0..) |*view, made| {
+        errdefer for (views[0..made]) |earlier| earlier.deinit();
+        view.* = try vit.hal.resource.TextureView.init(device, .{ .texture = texture });
+    }
+    defer for (views) |view| view.deinit();
+    try std.testing.expect(dx12.rtvs.pages.items.len > 1);
+
+    const sampler = try vit.hal.resource.Sampler.init(device, .{});
+    defer sampler.deinit();
+    const layout = try vit.hal.binding.BindGroupLayout.init(device, .{ .entries = &.{.{ .binding = 0, .kind = .{ .sampler = .filtering }, .visibility = .{ .fragment = true } }} });
+    defer layout.deinit();
+    var groups: [count]vit.hal.binding.BindGroup = undefined;
+    for (&groups, 0..) |*group, made| {
+        errdefer for (groups[0..made]) |earlier| earlier.deinit();
+        group.* = try vit.hal.binding.BindGroup.init(device, .{ .layout = layout, .entries = &.{.{ .binding = 0, .resource = .{ .sampler = sampler } }} });
+    }
+    defer for (groups) |group| group.deinit();
+    try std.testing.expect(dx12.samplers.generation > 0);
+
+    // The first view was written before the heap moved; clearing through it must still work.
+    const readback = try vit.Buffer.init(device, .{ .size = 256, .usage = .{ .transfer_dst = true }, .memory = .readback });
+    defer readback.deinit();
+    const pool = try vit.CommandPool.init(device, .{});
+    defer pool.deinit();
+    const cmd = try vit.CommandBuffer.init(pool, .{});
+    defer cmd.deinit();
+    try cmd.beginRenderPass(.{ .color_attachments = &.{.{ .view = views[0], .clear_value = .{ .r = 1, .g = 0, .b = 0, .a = 1 } }} });
+    cmd.endRenderPass();
+    try cmd.barrier(&.{.{ .texture = .{ .texture = texture, .before = .color_attachment, .after = .copy_source } }});
+    try cmd.copyTextureToBuffer(.{ .buffer = readback, .bytes_per_row = 256, .texture = .{ .texture = texture }, .extent = .{ .width = 1, .height = 1 } });
+    try cmd.finish();
+    try queue.submit(.{ .command_buffers = &.{cmd} });
+    try queue.waitIdle();
+    const read = try readback.map(.read, .{ .size = 4 });
+    defer readback.unmap(null);
+    try std.testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, read[0..4]);
+}
+
+test "DX12 software adapter is WARP and makes a working device" {
+    if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
+
+    const instance = try vit.Instance.init(std.testing.allocator, .{ .backend = .{ .dx12 = true }, .validation = .none });
+    defer instance.deinit();
+    const adapter = vit.Adapter.init(instance, .{ .source = .software }) catch |err| switch (err) {
+        error.NoSoftwareAdapter => return error.SkipZigTest, // Wine has no WARP
+        else => return err,
+    };
+    defer adapter.deinit();
+    try std.testing.expectEqual(vit.hal.adapter.Kind.software, adapter.info().kind);
+
+    const device = try vit.Device.init(adapter, .{});
+    defer device.deinit();
+    const buffer = try vit.Buffer.init(device, .{ .size = 256, .usage = .{ .uniform = true }, .memory = .upload });
+    defer buffer.deinit();
+}

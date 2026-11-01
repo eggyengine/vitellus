@@ -13,6 +13,7 @@ pub const vkPipelineLayout = struct {
     device: vk.DeviceProxy,
     handle: vk.PipelineLayout,
 
+    /// The Vulkan pipeline layout behind an interface handle.
     pub fn fromHandle(value: pipeline.PipelineLayout) !*vkPipelineLayout {
         if (value.handle == 0) return error.InvalidPipelineLayout;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -25,6 +26,7 @@ pub const vkGraphicsPipeline = struct {
     handle: vk.Pipeline,
     layout: vk.PipelineLayout,
 
+    /// The Vulkan graphics pipeline behind an interface handle.
     pub fn fromHandle(value: pipeline.GraphicsPipeline) !*vkGraphicsPipeline {
         if (value.handle == 0) return error.InvalidGraphicsPipeline;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -36,6 +38,7 @@ pub const vkComputePipeline = struct {
     device: vk.DeviceProxy,
     handle: vk.Pipeline,
     layout: vk.PipelineLayout,
+    /// The Vulkan compute pipeline behind an interface handle.
     pub fn fromHandle(value: pipeline.ComputePipeline) !*vkComputePipeline {
         if (value.handle == 0) return error.InvalidComputePipeline;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -46,6 +49,7 @@ const layout_vtable: pipeline.PipelineLayout.VTable = .{ .deinitFn = destroyLayo
 const graphics_vtable: pipeline.GraphicsPipeline.VTable = .{ .deinitFn = destroyGraphics };
 const compute_vtable: pipeline.ComputePipeline.VTable = .{ .deinitFn = destroyCompute };
 
+/// `PipelineLayout.init` for Vulkan.
 pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) !pipeline.PipelineLayout {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const layouts = try device.allocator.alloc(vk.DescriptorSetLayout, desc.bind_group_layouts.len);
@@ -64,6 +68,8 @@ pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) !p
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
+/// `GraphicsPipeline.init` for Vulkan, for dynamic rendering, through the device's
+/// pipeline cache.
 pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor) !pipeline.GraphicsPipeline {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const layout = try vkPipelineLayout.fromHandle(desc.layout);
@@ -182,7 +188,7 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         .max_depth_bounds = 1,
     } else .{ .depth_test_enable = .false, .depth_write_enable = .false, .depth_compare_op = .always, .depth_bounds_test_enable = .false, .stencil_test_enable = .false, .front = stencilState(.{}, 0xff, 0xff), .back = stencilState(.{}, 0xff, 0xff), .min_depth_bounds = 0, .max_depth_bounds = 1 };
     var native: vk.Pipeline = .null;
-    const result = try device.proxy.createGraphicsPipelines(.null, &.{.{
+    const result = try device.proxy.createGraphicsPipelines(device.pipeline_cache, &.{.{
         .p_next = &rendering,
         .stage_count = @intCast(stage_count),
         .p_stages = &stages,
@@ -207,13 +213,14 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &graphics_vtable };
 }
 
+/// `ComputePipeline.init` for Vulkan, through the device's pipeline cache.
 pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) !pipeline.ComputePipeline {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const layout = try vkPipelineLayout.fromHandle(desc.layout);
     const shader = try shader_impl.vkShader.fromHandle(desc.compute);
     if (shader.stage != .compute) return error.InvalidComputeShader;
     var native: vk.Pipeline = .null;
-    const result = try device.proxy.createComputePipelines(.null, &.{.{ .stage = shaderStage(shader), .layout = layout.handle, .base_pipeline_index = -1 }}, null, @as([]vk.Pipeline, (&native)[0..1]));
+    const result = try device.proxy.createComputePipelines(device.pipeline_cache, &.{.{ .stage = shaderStage(shader), .layout = layout.handle, .base_pipeline_index = -1 }}, null, @as([]vk.Pipeline, (&native)[0..1]));
     if (result != .success) return error.PipelineCreationFailed;
     errdefer device.proxy.destroyPipeline(native, null);
     const self = try device.allocator.create(vkComputePipeline);

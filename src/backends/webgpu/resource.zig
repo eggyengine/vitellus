@@ -21,6 +21,7 @@ pub const WgpuView = struct {
 
     const vtable: resource.TextureView.VTable = .{ .deinitFn = deinit };
 
+    /// `TextureView.init` for WebGPU.
     pub fn create(ptr: *anyopaque, desc: resource.TextureViewDescriptor) anyerror!resource.TextureView {
         const device: *WgpuDevice = @ptrCast(@alignCast(ptr));
         const texture: c.WGPUTexture = @ptrFromInt(@as(usize, @intCast(desc.texture.handle)));
@@ -38,6 +39,8 @@ pub const WgpuView = struct {
         return wrap(device.allocator, view, format);
     }
 
+    /// An interface view owning `view` (released with it), for views WebGPU made, such as the
+    /// canvas's current texture.
     pub fn wrap(allocator: std.mem.Allocator, view: c.WGPUTextureView, format: c.WGPUTextureFormat) !resource.TextureView {
         errdefer c.wgpuTextureViewRelease(view);
         const self = try allocator.create(WgpuView);
@@ -64,6 +67,8 @@ pub const WgpuBuffer = struct {
 
     const vtable: resource.Buffer.VTable = .{ .deinitFn = deinit, .mapFn = map, .unmapFn = unmap };
 
+    /// `Buffer.init` for WebGPU. Readback buffers aren't supported yet, so results can't come
+    /// back to the CPU on the web.
     pub fn create(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!resource.Buffer {
         const device: *WgpuDevice = @ptrCast(@alignCast(ptr));
         if (desc.memory == .readback) return error.ReadbackUnsupported; // ponytail: add mapAsync(read) when something reads results back

@@ -16,6 +16,7 @@ pub const Dx12BindGroupLayout = struct {
     sampler_count: u32,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 layout behind an interface handle.
     pub fn fromHandle(value: binding.BindGroupLayout) !*Dx12BindGroupLayout {
         if (value.handle == 0) return error.InvalidBindGroupLayout;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -27,6 +28,7 @@ pub const Dx12Sampler = struct {
     desc: dx.D3D12_SAMPLER_DESC,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 sampler description behind an interface handle.
     pub fn fromHandle(value: resource_interface.Sampler) !*Dx12Sampler {
         if (value.handle == 0) return error.InvalidSampler;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -37,9 +39,6 @@ pub const Dx12BindGroup = struct {
     owner: *Dx12Device,
     allocator: std.mem.Allocator,
     layout: *Dx12BindGroupLayout,
-    resources: ?dx.D3D12_GPU_DESCRIPTOR_HANDLE = null,
-    samplers: ?dx.D3D12_GPU_DESCRIPTOR_HANDLE = null,
-    resource_cpu: ?dx.D3D12_CPU_DESCRIPTOR_HANDLE = null,
     resource_index: u32 = 0,
     resource_count: u32 = 0,
     sampler_index: u32 = 0,
@@ -47,6 +46,7 @@ pub const Dx12BindGroup = struct {
     entries: []binding.BindGroupEntry = &.{},
     label: ?[]u8 = null,
 
+    /// The DirectX 12 bind group behind an interface handle.
     pub fn fromHandle(value: binding.BindGroup) !*Dx12BindGroup {
         if (value.handle == 0) return error.InvalidBindGroup;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -57,6 +57,8 @@ const layout_vtable: binding.BindGroupLayout.VTable = .{ .deinitFn = destroyLayo
 const sampler_vtable: resource_interface.Sampler.VTable = .{ .deinitFn = destroySampler };
 const group_vtable: binding.BindGroup.VTable = .{ .deinitFn = destroyGroup };
 
+/// `BindGroupLayout.init` for DirectX 12: the descriptor ranges its root signature tables
+/// will hold, from `desc.entries` or reflected from `desc.shader`.
 pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) anyerror!binding.BindGroupLayout {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     if (desc.shader != null and desc.entries.len != 0) return error.AmbiguousBindGroupLayout;
@@ -115,6 +117,7 @@ pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) an
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
+/// `BindGroupLayout.deinit` for DirectX 12.
 pub fn destroyLayout(value: binding.BindGroupLayout) void {
     const self = Dx12BindGroupLayout.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -124,6 +127,8 @@ pub fn destroyLayout(value: binding.BindGroupLayout) void {
     allocator.destroy(self);
 }
 
+/// `Sampler.init` for DirectX 12. Samplers live in bind groups' descriptors, so this keeps
+/// the description to write there.
 pub fn createSampler(ptr: *anyopaque, desc: resource_interface.SamplerDescriptor) anyerror!resource_interface.Sampler {
     if (desc.max_anisotropy == 0 or desc.lod_min > desc.lod_max) return error.InvalidSamplerDescriptor;
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
@@ -151,6 +156,7 @@ pub fn createSampler(ptr: *anyopaque, desc: resource_interface.SamplerDescriptor
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &sampler_vtable };
 }
 
+/// `Sampler.deinit` for DirectX 12.
 pub fn destroySampler(value: resource_interface.Sampler) void {
     const self = Dx12Sampler.fromHandle(value) catch return;
     if (self.label) |label| self.allocator.free(label);
@@ -158,6 +164,8 @@ pub fn destroySampler(value: resource_interface.Sampler) void {
     self.allocator.destroy(self);
 }
 
+/// `BindGroup.init` for DirectX 12: writes the group's views and samplers to the CPU-only
+/// descriptor heaps, then publishes them to the shader-visible ones.
 pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!binding.BindGroup {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const layout = try Dx12BindGroupLayout.fromHandle(desc.layout);
@@ -179,17 +187,14 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
     const sampler_allocation = if (layout.sampler_count > 0) try device.allocateSamplerDescriptors(layout.sampler_count) else null;
     errdefer if (sampler_allocation) |allocation| device.freeSamplerDescriptors(allocation.index, allocation.count);
     if (resource_allocation) |allocation| {
-        self.resources = allocation.gpu;
-        self.resource_cpu = allocation.cpu;
         self.resource_index = allocation.index;
         self.resource_count = allocation.count;
-        for (0..allocation.count) |index| utils.setRenderDocDescriptorName(device.allocator, device.resource_heap.unwrap(), allocation.index + @as(u32, @intCast(index)), desc.label);
+        for (0..allocation.count) |index| device.resources.nameDescriptor(device.allocator, allocation.index + @as(u32, @intCast(index)), desc.label);
     }
     if (sampler_allocation) |allocation| {
-        self.samplers = allocation.gpu;
         self.sampler_index = allocation.index;
         self.sampler_count = allocation.count;
-        for (0..allocation.count) |index| utils.setRenderDocDescriptorName(device.allocator, device.sampler_heap.unwrap(), allocation.index + @as(u32, @intCast(index)), desc.label);
+        for (0..allocation.count) |index| device.samplers.nameDescriptor(device.allocator, allocation.index + @as(u32, @intCast(index)), desc.label);
     }
 
     const raw_device = device.device.unwrap();
@@ -233,7 +238,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                             raw_device.lpVtbl.*.CreateUnorderedAccessView.?(raw_device, buffer.resource.unwrap(), null, &uav, cpu);
                         },
                     }
-                    if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.resource_heap.unwrap(), resource_allocation.?.index + resource_index, buffer.label);
+                    if (desc.label == null) device.resources.nameDescriptor(device.allocator, resource_allocation.?.index + resource_index, buffer.label);
                     resource_index += 1;
                 },
                 .sampled_texture, .combined_texture_sampler => {
@@ -278,7 +283,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                         },
                     }
                     raw_device.lpVtbl.*.CreateShaderResourceView.?(raw_device, view.resource, &srv, cpu);
-                    if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.resource_heap.unwrap(), resource_allocation.?.index + resource_index, view.label);
+                    if (desc.label == null) device.resources.nameDescriptor(device.allocator, resource_allocation.?.index + resource_index, view.label);
                     resource_index += 1;
                     if (layout_entry.kind == .combined_texture_sampler) {
                         const sampler_value = switch (entry.resource) {
@@ -287,7 +292,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                         };
                         const combined_sampler = try Dx12Sampler.fromHandle(sampler_value);
                         raw_device.lpVtbl.*.CreateSampler.?(raw_device, &combined_sampler.desc, offsetCpu(sampler_allocation.?.cpu, sampler_index, sampler_stride));
-                        if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.sampler_heap.unwrap(), sampler_allocation.?.index + sampler_index, combined_sampler.label);
+                        if (desc.label == null) device.samplers.nameDescriptor(device.allocator, sampler_allocation.?.index + sampler_index, combined_sampler.label);
                         sampler_index += 1;
                     }
                 },
@@ -323,7 +328,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                         },
                     }
                     raw_device.lpVtbl.*.CreateUnorderedAccessView.?(raw_device, view.resource, null, &uav, cpu);
-                    if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.resource_heap.unwrap(), resource_allocation.?.index + resource_index, view.label);
+                    if (desc.label == null) device.resources.nameDescriptor(device.allocator, resource_allocation.?.index + resource_index, view.label);
                     resource_index += 1;
                 },
                 .sampler => {
@@ -333,16 +338,20 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
                     };
                     const sampler = try Dx12Sampler.fromHandle(value);
                     raw_device.lpVtbl.*.CreateSampler.?(raw_device, &sampler.desc, offsetCpu(sampler_allocation.?.cpu, sampler_index, sampler_stride));
-                    if (desc.label == null) utils.setRenderDocDescriptorName(device.allocator, device.sampler_heap.unwrap(), sampler_allocation.?.index + sampler_index, sampler.label);
+                    if (desc.label == null) device.samplers.nameDescriptor(device.allocator, sampler_allocation.?.index + sampler_index, sampler.label);
                     sampler_index += 1;
                 },
             }
         }
     }
+    // Written to the CPU-only heaps; shaders read the visible copies.
+    device.resources.publish(raw_device, self.resource_index, self.resource_count);
+    device.samplers.publish(raw_device, self.sampler_index, self.sampler_count);
     log.debug("created DX12 bind group entries={}", .{desc.entries.len});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &group_vtable };
 }
 
+/// `BindGroup.deinit` for DirectX 12: frees the group's descriptors.
 pub fn destroyGroup(value: binding.BindGroup) void {
     const self = Dx12BindGroup.fromHandle(value) catch return;
     if (self.resource_count != 0) self.owner.freeResourceDescriptors(self.resource_index, self.resource_count);
@@ -353,11 +362,14 @@ pub fn destroyGroup(value: binding.BindGroup) void {
     self.allocator.destroy(self);
 }
 
+/// A copy of `group`'s resource descriptors with its dynamic-offset buffers' views moved by
+/// `offsets`, for one `setBindGroup`. The command buffer frees it when destroyed.
 pub fn dynamicResources(device: *Dx12Device, group: *Dx12BindGroup, offsets: []const u32) !Dx12Device.DescriptorAllocation {
     const allocation = try device.allocateResourceDescriptors(group.resource_count);
     errdefer device.freeResourceDescriptors(allocation.index, allocation.count);
     const raw = device.device.unwrap();
-    raw.lpVtbl.*.CopyDescriptorsSimple.?(raw, group.resource_count, allocation.cpu, group.resource_cpu.?, dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    // After allocating, which may have moved the heap the group's descriptors are copied from.
+    raw.lpVtbl.*.CopyDescriptorsSimple.?(raw, group.resource_count, allocation.cpu, device.resources.cpu(group.resource_index), dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     const stride = raw.lpVtbl.*.GetDescriptorHandleIncrementSize.?(raw, dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     var descriptor_index: u32 = 0;
     var dynamic_index: usize = 0;
@@ -404,6 +416,7 @@ pub fn dynamicResources(device: *Dx12Device, group: *Dx12BindGroup, offsets: []c
             .sampler => {},
         }
     }
+    device.resources.publish(raw, allocation.index, allocation.count);
     return allocation;
 }
 

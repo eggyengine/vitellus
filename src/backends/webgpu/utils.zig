@@ -17,11 +17,13 @@ pub const forever = std.math.maxInt(u64);
 // ---------------------------------------------------------------------------------------------
 // Helpers
 
+/// A WebGPU string view of `s`; null gives WebGPU's null string.
 pub fn str(s: ?[]const u8) c.WGPUStringView {
     const value = s orelse return .{ .data = null, .length = std.math.maxInt(usize) };
     return .{ .data = value.ptr, .length = value.len };
 }
 
+/// A WebGPU string view as a slice, empty for null.
 pub fn slice(s: c.WGPUStringView) []const u8 {
     const data = s.data orelse return "";
     return if (s.length == std.math.maxInt(usize)) std.mem.span(data) else data[0..s.length];
@@ -63,14 +65,17 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
     return value;
 }
 
+/// The `T` an interface handle points at.
 pub fn ptrOf(comptime T: type, handle: u64) *T {
     return @ptrFromInt(@as(usize, @intCast(handle)));
 }
 
+/// An interface handle for `ptr`.
 pub fn handleOf(ptr: anytype) u64 {
     return @intFromPtr(ptr);
 }
 
+/// Block until `future` completes: true when it did, false on timeout.
 pub fn waitFuture(instance: c.WGPUInstance, future: c.WGPUFuture, timeout_ns: u64) !bool {
     var info = c.WGPUFutureWaitInfo{ .future = future, .completed = 0 };
     return switch (c.wgpuInstanceWaitAny(instance, 1, &info, timeout_ns)) {
@@ -80,6 +85,7 @@ pub fn waitFuture(instance: c.WGPUInstance, future: c.WGPUFuture, timeout_ns: u6
     };
 }
 
+/// Vitellus's format as WebGPU names it; fails for formats WebGPU lacks.
 pub fn textureFormat(format: resource.Format) !c.WGPUTextureFormat {
     return switch (format) {
         .r8_unorm => c.WGPUTextureFormat_R8Unorm,
@@ -142,6 +148,7 @@ pub fn textureFormat(format: resource.Format) !c.WGPUTextureFormat {
     };
 }
 
+/// A swapchain format as WebGPU names it.
 pub fn swapchainTextureFormat(format: swapchain_if.SwapchainFormat) c.WGPUTextureFormat {
     return switch (format) {
         .bgra8_unorm => c.WGPUTextureFormat_BGRA8Unorm,
@@ -152,12 +159,14 @@ pub fn swapchainTextureFormat(format: swapchain_if.SwapchainFormat) c.WGPUTextur
     };
 }
 
+/// Whether `format` has a stencil aspect.
 pub fn hasStencil(format: c.WGPUTextureFormat) bool {
     return format == c.WGPUTextureFormat_Stencil8 or
         format == c.WGPUTextureFormat_Depth24PlusStencil8 or
         format == c.WGPUTextureFormat_Depth32FloatStencil8;
 }
 
+/// Whether `format` has a depth aspect.
 pub fn hasDepth(format: c.WGPUTextureFormat) bool {
     return format == c.WGPUTextureFormat_Depth16Unorm or
         format == c.WGPUTextureFormat_Depth24Plus or
@@ -178,6 +187,7 @@ pub fn texelSize(format: c.WGPUTextureFormat) !u32 {
     };
 }
 
+/// A view dimension as WebGPU names it.
 pub fn viewDimension(dimension: resource.TextureViewDimension) c.WGPUTextureViewDimension {
     return switch (dimension) {
         .d1 => c.WGPUTextureViewDimension_1D,
@@ -190,6 +200,7 @@ pub fn viewDimension(dimension: resource.TextureViewDimension) c.WGPUTextureView
     };
 }
 
+/// A texture aspect as WebGPU names it.
 pub fn aspect(value: resource.TextureAspect) c.WGPUTextureAspect {
     return switch (value) {
         .all, .color => c.WGPUTextureAspect_All,
@@ -198,6 +209,7 @@ pub fn aspect(value: resource.TextureAspect) c.WGPUTextureAspect {
     };
 }
 
+/// A load op as WebGPU names it; `discard` clears, as WebGPU can't leave contents undefined.
 pub fn loadOp(op: command.LoadOp) c.WGPULoadOp {
     return switch (op) {
         .load => c.WGPULoadOp_Load,
@@ -206,10 +218,12 @@ pub fn loadOp(op: command.LoadOp) c.WGPULoadOp {
     };
 }
 
+/// A store op as WebGPU names it.
 pub fn storeOp(op: command.StoreOp) c.WGPUStoreOp {
     return wgpuEnum("WGPUStoreOp_", op);
 }
 
+/// Shader visibility as WebGPU's stage flags.
 pub fn visibility(v: binding.ShaderVisibility) c.WGPUShaderStage {
     var out: c.WGPUShaderStage = c.WGPUShaderStage_None;
     if (v.vertex) out |= c.WGPUShaderStage_Vertex;

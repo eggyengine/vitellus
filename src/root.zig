@@ -32,9 +32,11 @@ pub const hal = struct {
 pub const Instance = hal.instance.Instance;
 pub const Adapter = hal.adapter.Adapter;
 pub const AdapterDescriptor = hal.adapter.AdapterDescriptor;
+pub const AdapterSource = hal.adapter.AdapterSource;
 pub const AdapterInfo = hal.adapter.AdapterInfo;
 pub const Device = hal.device.Device;
 pub const DeviceDescriptor = hal.device.DeviceDescriptor;
+pub const MemoryBudget = hal.device.MemoryBudget;
 pub const Queue = hal.queue.Queue;
 pub const QueueDescriptor = hal.queue.QueueDescriptor;
 pub const Swapchain = hal.swapchain.Swapchain;
@@ -53,6 +55,9 @@ pub const VitellusConfig = hal.settings.VitellusConfig;
 pub const Shader = hal.shader.Shader;
 pub const ShaderModule = hal.shader.ShaderModule;
 pub const BinaryShaderModule = hal.shader.BinaryShaderModule;
+pub const ShaderDiskCache = @import("shader_disk_cache.zig").ShaderDiskCache;
+pub const Graveyard = @import("graveyard.zig").Graveyard;
+pub const Uploader = @import("uploader.zig").Uploader;
 /// Browser console logging and panics for Emscripten builds.
 pub const web = @import("web.zig");
 pub const CompiledShader = hal.shader.CompiledShader;
@@ -93,15 +98,30 @@ pub const RenderPassDescriptor = hal.command.RenderPassDescriptor;
 pub const SubmitDescriptor = hal.sync.SubmitDescriptor;
 
 test {
+    _ = @import("shader_disk_cache.zig");
+    _ = @import("graveyard.zig");
+    _ = @import("uploader.zig");
     _ = @import("interface/instance.zig");
     _ = @import("interface/shader.zig");
     _ = @import("interface/settings.zig");
+    _ = @import("interface/texture_layout.zig");
+    _ = @import("interface/device.zig");
+    _ = @import("interface/adapter.zig");
+    _ = @import("interface/binding.zig");
+    _ = @import("interface/command.zig");
+    _ = @import("interface/pipeline.zig");
+    _ = @import("interface/queue.zig");
+    _ = @import("interface/resource.zig");
+    _ = @import("interface/swapchain.zig");
+    _ = @import("interface/sync.zig");
     if (comptime options.enable_dx12) {
         _ = @import("backends/dx12/resource.zig");
         _ = @import("backends/dx12/shader.zig");
         _ = @import("backends/dx12/pipeline.zig");
+        _ = @import("backends/dx12/pipeline_cache.zig");
         _ = @import("backends/dx12/command.zig");
         _ = @import("backends/dx12/tests.zig");
+        _ = @import("backends/dx12/utils.zig");
     }
     _ = @import("backends/spirv_reflect.zig");
     if (comptime options.enable_vk) {
@@ -110,5 +130,6 @@ test {
         _ = @import("backends/vulkan/device.zig");
         _ = @import("backends/vulkan/shader.zig");
         _ = @import("backends/vulkan/command.zig");
+        _ = @import("backends/vulkan/pipeline_cache.zig");
     }
 }

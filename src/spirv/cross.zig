@@ -8,6 +8,8 @@ const spvc = @import("spirv_cross_c");
 
 const log = std.log.scoped(.spirv_cross);
 
+/// Translate SPIR-V to HLSL with SPIRV-Cross, then compile it to shader model 6.0 DXIL with
+/// DXC. The caller owns the result.
 pub fn compileDx12(
     code: []const u8,
     entry_point: []const u8,
@@ -69,6 +71,7 @@ fn translateToHlsl(
     var opts: spvc.spvc_compiler_options = null;
     try check(spvc.spvc_compiler_create_compiler_options(compiler, &opts), context);
     // Match DXC profiles vs_6_0 / ps_6_0 / cs_6_0.
+    // ponytail: shader model 6.0 has no 16-bit types, so SPIR-V using them doesn't translate; move to 6.2 with DXC's -enable-16bit-types when a SPIR-V-only shader needs them on DirectX 12
     try check(spvc.spvc_compiler_options_set_uint(opts, spvc.SPVC_COMPILER_OPTION_HLSL_SHADER_MODEL, 60), context);
     try check(spvc.spvc_compiler_options_set_bool(opts, spvc.SPVC_COMPILER_OPTION_HLSL_USE_ENTRY_POINT_NAME, spvc.SPVC_TRUE), context);
     try check(spvc.spvc_compiler_install_compiler_options(compiler, opts), context);

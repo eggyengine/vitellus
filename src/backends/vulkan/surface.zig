@@ -6,6 +6,7 @@ const swapchain = @import("../../interface/swapchain.zig");
 const Window = @import("../../windowing/windowing.zig").Window;
 const vkInstance = @import("instance.zig").vkInstance;
 
+/// A Vulkan surface on `window`, through the platform's surface extension.
 pub fn create(instance: *vkInstance, window: Window) !vk.SurfaceKHR {
     const raw_window = (try window.window_handle.windowHandle()).asRaw();
     const raw_display = (try window.display_handle.displayHandle()).asRaw();
@@ -68,6 +69,8 @@ pub fn create(instance: *vkInstance, window: Window) !vk.SurfaceKHR {
     };
 }
 
+/// What `physical_device` can show `surface` with: formats Vitellus knows, present modes and
+/// size limits. The caller owns the result.
 pub fn query(
     instance: *vkInstance,
     physical_device: vk.PhysicalDevice,
@@ -144,6 +147,7 @@ pub fn query(
     };
 }
 
+/// A swapchain format as Vulkan names it.
 pub fn toVkFormat(format: swapchain.SwapchainFormat) vk.Format {
     return switch (format) {
         .bgra8_unorm => .b8g8r8a8_unorm,
@@ -154,6 +158,7 @@ pub fn toVkFormat(format: swapchain.SwapchainFormat) vk.Format {
     };
 }
 
+/// The swapchain format Vulkan's `format` is, or null when Vitellus has none for it.
 pub fn fromVkFormat(format: vk.Format) ?swapchain.SwapchainFormat {
     return switch (format) {
         .b8g8r8a8_unorm => .bgra8_unorm,
@@ -165,6 +170,7 @@ pub fn fromVkFormat(format: vk.Format) ?swapchain.SwapchainFormat {
     };
 }
 
+/// A present mode as Vulkan names it.
 pub fn toVkPresentMode(mode: swapchain.PresentMode) vk.PresentModeKHR {
     return switch (mode) {
         .immediate => .immediate_khr,
@@ -184,6 +190,7 @@ fn fromVkPresentMode(mode: vk.PresentModeKHR) ?swapchain.PresentMode {
     };
 }
 
+/// A compositing mode as Vulkan names it.
 pub fn toVkCompositeAlpha(alpha: swapchain.CompositeAlpha) vk.CompositeAlphaFlagsKHR {
     return switch (alpha) {
         .opaque_alpha => .{ .opaque_khr = true },

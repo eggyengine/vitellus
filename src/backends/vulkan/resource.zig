@@ -1,19 +1,24 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const resource = @import("../../interface/resource.zig");
+const texture_layout = @import("../../interface/texture_layout.zig");
 const vkDevice = @import("device.zig").vkDevice;
 const adapter_impl = @import("adapter.zig");
+const vma = @import("vma.zig");
 
 const log = std.log.scoped(.vk_resource);
 
 pub const vkBuffer = struct {
     allocator: std.mem.Allocator,
-    device: vk.DeviceProxy,
+    memory: vma.Allocator,
     buffer: vk.Buffer,
-    memory: vk.DeviceMemory,
+    allocation: vma.Allocation,
+    /// The whole buffer, mapped for its life, unless it lives in `.device` memory without initial data.
+    mapped: ?[*]u8,
     size: u64,
     location: resource.MemoryLocation,
 
+    /// The Vulkan buffer behind an interface handle.
     pub fn fromHandle(value: resource.Buffer) !*vkBuffer {
         if (value.handle == 0) return error.InvalidBuffer;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -30,6 +35,7 @@ pub const vkTextureView = struct {
     aspect: vk.ImageAspectFlags = .{ .color = true },
     layout: vk.ImageLayout = .undefined,
 
+    /// The Vulkan image view behind an interface handle.
     pub fn fromHandle(value: resource.TextureView) !*vkTextureView {
         if (value.handle == 0) return error.InvalidTextureView;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -38,15 +44,16 @@ pub const vkTextureView = struct {
 
 pub const vkTexture = struct {
     allocator: std.mem.Allocator,
-    device: vk.DeviceProxy,
+    memory: vma.Allocator,
     image: vk.Image,
-    memory: vk.DeviceMemory,
+    allocation: vma.Allocation,
     format: vk.Format,
     extent: vk.Extent3D,
     mip_levels: u32,
     layers: u32,
     dimension: resource.TextureDimension,
     layout: vk.ImageLayout = .undefined,
+    /// The Vulkan image behind an interface handle.
     pub fn fromHandle(value: resource.Texture) !*vkTexture {
         if (value.handle == 0) return error.InvalidTexture;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -57,6 +64,7 @@ pub const vkSampler = struct {
     allocator: std.mem.Allocator,
     device: vk.DeviceProxy,
     handle: vk.Sampler,
+    /// The Vulkan sampler behind an interface handle.
     pub fn fromHandle(value: resource.Sampler) !*vkSampler {
         if (value.handle == 0) return error.InvalidSampler;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -73,6 +81,9 @@ const texture_vtable: resource.Texture.VTable = .{ .deinitFn = destroyTexture };
 const texture_view_vtable: resource.TextureView.VTable = .{ .deinitFn = destroyTextureView };
 const sampler_vtable: resource.Sampler.VTable = .{ .deinitFn = destroySampler };
 
+/// `Buffer.init` for Vulkan, in memory VMA picks; host-visible buffers stay mapped. Device
+/// buffers given initial data are made CPU-writable and the data copied straight in, so for
+/// large or often-replaced data prefer `Uploader`, which keeps it in device-only memory.
 pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!resource.Buffer {
     if (desc.size == 0) return error.InvalidBufferSize;
     if (desc.initial_data) |data| {
@@ -81,50 +92,31 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     }
 
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
-    const buffer = try device.proxy.createBuffer(&.{
+    // Device memory with initial data stays CPU-writable, so the data is copied straight in.
+    const host_access: vma.HostAccess = switch (desc.memory) {
+        .device => if (desc.initial_data != null) .write else .none,
+        .upload => .write,
+        .readback => .read,
+    };
+    const made = try vma.createBuffer(device.memory, &.{
         .size = desc.size,
         .usage = toVkBufferUsage(desc.usage),
         .sharing_mode = .exclusive,
-    }, null);
-    errdefer device.proxy.destroyBuffer(buffer, null);
-    const requirements = device.proxy.getBufferMemoryRequirements(buffer);
-    const properties: vk.MemoryPropertyFlags = switch (desc.memory) {
-        .device => if (desc.initial_data != null)
-            .{ .host_visible = true, .host_coherent = true }
-        else
-            .{ .device_local = true },
-        .upload => .{ .host_visible = true, .host_coherent = true },
-        .readback => .{ .host_visible = true, .host_coherent = true, .host_cached = true },
-    };
-    const memory_type = findMemoryType(device, requirements.memory_type_bits, properties) orelse memory_type: {
-        if (desc.memory == .readback) {
-            break :memory_type findMemoryType(
-                device,
-                requirements.memory_type_bits,
-                .{ .host_visible = true, .host_coherent = true },
-            ) orelse return error.NoSuitableMemoryType;
-        }
-        return error.NoSuitableMemoryType;
-    };
-    const memory = try device.proxy.allocateMemory(&.{
-        .allocation_size = requirements.size,
-        .memory_type_index = memory_type,
-    }, null);
-    errdefer device.proxy.freeMemory(memory, null);
-    try device.proxy.bindBufferMemory(buffer, memory, 0);
+    }, host_access);
+    errdefer vma.destroyBuffer(device.memory, made.buffer, made.allocation);
+    if (desc.initial_data) |data| @memcpy(made.mapped.?[0..data.len], data);
 
     const self = try device.allocator.create(vkBuffer);
     self.* = .{
         .allocator = device.allocator,
-        .device = device.proxy,
-        .buffer = buffer,
-        .memory = memory,
+        .memory = device.memory,
+        .buffer = made.buffer,
+        .allocation = made.allocation,
+        .mapped = made.mapped,
         .size = desc.size,
         .location = desc.memory,
     };
-    errdefer device.allocator.destroy(self);
-    if (desc.initial_data) |data| try writeMemory(self, data);
-    device.instance.nameObject(device.allocator, device.proxy, .buffer, @backingInt(buffer), desc.label);
+    device.instance.nameObject(device.allocator, device.proxy, .buffer, @backingInt(made.buffer), desc.label);
     log.debug("created Vulkan buffer size={}", .{desc.size});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &buffer_vtable };
 }
@@ -132,8 +124,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
 fn destroyBuffer(value: resource.Buffer) void {
     const self = vkBuffer.fromHandle(value) catch return;
     const allocator = self.allocator;
-    self.device.destroyBuffer(self.buffer, null);
-    self.device.freeMemory(self.memory, null);
+    vma.destroyBuffer(self.memory, self.buffer, self.allocation);
     allocator.destroy(self);
 }
 
@@ -142,28 +133,12 @@ fn mapBuffer(value: resource.Buffer, mode: resource.MapMode, range: resource.Buf
     if (range.size == 0 or range.offset > self.size or range.size > self.size - range.offset) return error.InvalidMapRange;
     if ((mode == .read and self.location != .readback) or (mode == .write and self.location != .upload))
         return error.InvalidMapMode;
-    const data = try self.device.mapMemory(self.memory, range.offset, range.size, .{});
-    return @as([*]u8, @ptrCast(data))[0..@intCast(range.size)];
+    const mapped = self.mapped orelse return error.InvalidMapMode;
+    return mapped[@intCast(range.offset)..][0..@intCast(range.size)];
 }
 
-fn unmapBuffer(value: resource.Buffer, _: ?resource.BufferRange) void {
-    const self = vkBuffer.fromHandle(value) catch return;
-    self.device.unmapMemory(self.memory);
-}
-
-fn writeMemory(self: *vkBuffer, data: []const u8) !void {
-    const mapped = try self.device.mapMemory(self.memory, 0, data.len, .{});
-    defer self.device.unmapMemory(self.memory);
-    @memcpy(@as([*]u8, @ptrCast(mapped))[0..data.len], data);
-}
-
-fn findMemoryType(device: *vkDevice, bits: u32, required: vk.MemoryPropertyFlags) ?u32 {
-    for (device.memory_props.memory_types[0..device.memory_props.memory_type_count], 0..) |memory_type, index| {
-        if ((bits & (@as(u32, 1) << @intCast(index))) != 0 and memory_type.property_flags.contains(required))
-            return @intCast(index);
-    }
-    return null;
-}
+// Host memory is coherent and stays mapped, so there is nothing to flush or unmap.
+fn unmapBuffer(_: resource.Buffer, _: ?resource.BufferRange) void {}
 
 fn toVkBufferUsage(usage: resource.BufferUsage) vk.BufferUsageFlags {
     return .{
@@ -177,10 +152,12 @@ fn toVkBufferUsage(usage: resource.BufferUsage) vk.BufferUsageFlags {
     };
 }
 
+/// `Texture.init` for Vulkan. Initial data is copied through a staging buffer, waiting for
+/// the copy, and leaves the image in the general layout.
 pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) !resource.Texture {
     if (desc.width == 0 or desc.height == 0 or desc.depth_or_layers == 0 or desc.mip_levels == 0) return error.InvalidTextureSize;
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
-    const image = try device.proxy.createImage(&.{
+    const made = try vma.createImage(device.memory, &.{
         .image_type = switch (desc.dimension) {
             .d1 => .@"1d",
             .d2 => .@"2d",
@@ -195,20 +172,17 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) !resourc
         .usage = .{ .sampled = desc.usage.sampled, .storage = desc.usage.storage, .color_attachment = desc.usage.color_attachment, .depth_stencil_attachment = desc.usage.depth_stencil_attachment, .transfer_src = desc.usage.transfer_src, .transfer_dst = desc.usage.transfer_dst or desc.initial_data != null },
         .sharing_mode = .exclusive,
         .initial_layout = .undefined,
-    }, null);
-    errdefer device.proxy.destroyImage(image, null);
-    const req = device.proxy.getImageMemoryRequirements(image);
-    const memory_type = findMemoryType(device, req.memory_type_bits, .{ .device_local = true }) orelse return error.NoSuitableMemoryType;
-    const memory = try device.proxy.allocateMemory(&.{ .allocation_size = req.size, .memory_type_index = memory_type }, null);
-    errdefer device.proxy.freeMemory(memory, null);
-    try device.proxy.bindImageMemory(image, memory, 0);
+    });
+    errdefer vma.destroyImage(device.memory, made.image, made.allocation);
+    const image = made.image;
     if (desc.initial_data) |data| try uploadTexture(device, image, adapter_impl.toVkFormat(desc.format), desc, data);
     const self = try device.allocator.create(vkTexture);
-    self.* = .{ .allocator = device.allocator, .device = device.proxy, .image = image, .memory = memory, .format = adapter_impl.toVkFormat(desc.format), .extent = .{ .width = desc.width, .height = desc.height, .depth = if (desc.dimension == .d3) desc.depth_or_layers else 1 }, .mip_levels = desc.mip_levels, .layers = if (desc.dimension == .d3) 1 else desc.depth_or_layers, .dimension = desc.dimension, .layout = if (desc.initial_data != null) .general else .undefined };
+    self.* = .{ .allocator = device.allocator, .memory = device.memory, .image = image, .allocation = made.allocation, .format = adapter_impl.toVkFormat(desc.format), .extent = .{ .width = desc.width, .height = desc.height, .depth = if (desc.dimension == .d3) desc.depth_or_layers else 1 }, .mip_levels = desc.mip_levels, .layers = if (desc.dimension == .d3) 1 else desc.depth_or_layers, .dimension = desc.dimension, .layout = if (desc.initial_data != null) .general else .undefined };
     device.instance.nameObject(device.allocator, device.proxy, .image, @backingInt(image), desc.label);
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
 
+/// `TextureView.init` for Vulkan.
 pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) !resource.TextureView {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const texture = try vkTexture.fromHandle(desc.texture);
@@ -230,6 +204,7 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_view_vtable };
 }
 
+/// `Sampler.init` for Vulkan.
 pub fn createSampler(ptr: *anyopaque, desc: resource.SamplerDescriptor) !resource.Sampler {
     if (desc.max_anisotropy == 0 or desc.lod_min > desc.lod_max) return error.InvalidSamplerDescriptor;
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
@@ -260,8 +235,7 @@ pub fn createSampler(ptr: *anyopaque, desc: resource.SamplerDescriptor) !resourc
 fn destroyTexture(value: resource.Texture) void {
     const self = vkTexture.fromHandle(value) catch return;
     const a = self.allocator;
-    self.device.destroyImage(self.image, null);
-    self.device.freeMemory(self.memory, null);
+    vma.destroyImage(self.memory, self.image, self.allocation);
     a.destroy(self);
 }
 fn destroyTextureView(value: resource.TextureView) void {
@@ -278,27 +252,32 @@ fn destroySampler(value: resource.Sampler) void {
 }
 
 fn uploadTexture(device: *vkDevice, image: vk.Image, format: vk.Format, desc: resource.TextureDescriptor, data: []const u8) !void {
-    if (data.len == 0) return error.InvalidInitialData;
-    const staging = try device.proxy.createBuffer(&.{ .size = data.len, .usage = .{ .transfer_src = true }, .sharing_mode = .exclusive }, null);
-    defer device.proxy.destroyBuffer(staging, null);
-    const req = device.proxy.getBufferMemoryRequirements(staging);
-    const memory_type = findMemoryType(device, req.memory_type_bits, .{ .host_visible = true, .host_coherent = true }) orelse return error.NoSuitableMemoryType;
-    const memory = try device.proxy.allocateMemory(&.{ .allocation_size = req.size, .memory_type_index = memory_type }, null);
-    defer device.proxy.freeMemory(memory, null);
-    try device.proxy.bindBufferMemory(staging, memory, 0);
-    const mapped = try device.proxy.mapMemory(memory, 0, data.len, .{});
-    @memcpy(@as([*]u8, @ptrCast(mapped))[0..data.len], data);
-    device.proxy.unmapMemory(memory);
+    // One copy per subresource the data covers; the walk validates it first.
+    var regions: std.ArrayList(vk.BufferImageCopy) = .empty;
+    defer regions.deinit(device.allocator);
+    const aspect = aspectMask(.all, format);
+    const block = texture_layout.block(desc.format).?;
+    var walk: texture_layout.Iterator = try .init(desc);
+    while (try walk.next()) |sub| try regions.append(device.allocator, .{
+        .buffer_offset = sub.offset,
+        .buffer_row_length = @intCast(sub.bytes_per_row / block.bytes * block.width),
+        .buffer_image_height = 0,
+        .image_subresource = .{ .aspect_mask = aspect, .mip_level = sub.mip, .base_array_layer = sub.layer, .layer_count = 1 },
+        .image_offset = .{ .x = 0, .y = 0, .z = 0 },
+        .image_extent = .{ .width = sub.width, .height = sub.height, .depth = sub.depth },
+    });
+
+    const made = try vma.createBuffer(device.memory, &.{ .size = data.len, .usage = .{ .transfer_src = true }, .sharing_mode = .exclusive }, .write);
+    defer vma.destroyBuffer(device.memory, made.buffer, made.allocation);
+    @memcpy(made.mapped.?[0..data.len], data);
     const pool = try device.proxy.createCommandPool(&.{ .flags = .{ .transient = true }, .queue_family_index = device.queues.graphics_family }, null);
     defer device.proxy.destroyCommandPool(pool, null);
     var cmd: vk.CommandBuffer = undefined;
     try device.proxy.allocateCommandBuffers(&.{ .command_pool = pool, .level = .primary, .command_buffer_count = 1 }, @ptrCast(&cmd));
     try device.proxy.beginCommandBuffer(cmd, &.{ .flags = .{ .one_time_submit = true } });
-    const aspect = aspectMask(.all, format);
-    const range: vk.ImageSubresourceRange = .{ .aspect_mask = aspect, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 };
+    const range: vk.ImageSubresourceRange = .{ .aspect_mask = aspect, .base_mip_level = 0, .level_count = vk.REMAINING_MIP_LEVELS, .base_array_layer = 0, .layer_count = vk.REMAINING_ARRAY_LAYERS };
     device.proxy.cmdPipelineBarrier(cmd, .{ .top_of_pipe = true }, .{ .transfer = true }, .{}, null, null, &.{.{ .src_access_mask = .{}, .dst_access_mask = .{ .transfer_write = true }, .old_layout = .undefined, .new_layout = .transfer_dst_optimal, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
-    const row_length = try bufferRowLength(format, desc.bytes_per_row);
-    device.proxy.cmdCopyBufferToImage(cmd, staging, image, .transfer_dst_optimal, &.{.{ .buffer_offset = 0, .buffer_row_length = row_length, .buffer_image_height = 0, .image_subresource = .{ .aspect_mask = aspect, .mip_level = 0, .base_array_layer = 0, .layer_count = 1 }, .image_offset = .{ .x = 0, .y = 0, .z = 0 }, .image_extent = .{ .width = desc.width, .height = desc.height, .depth = if (desc.dimension == .d3) desc.depth_or_layers else 1 } }});
+    device.proxy.cmdCopyBufferToImage(cmd, made.buffer, image, .transfer_dst_optimal, regions.items);
     device.proxy.cmdPipelineBarrier(cmd, .{ .transfer = true }, .{ .all_commands = true }, .{}, null, null, &.{.{ .src_access_mask = .{ .transfer_write = true }, .dst_access_mask = .{ .memory_read = true, .memory_write = true }, .old_layout = .transfer_dst_optimal, .new_layout = .general, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
     try device.proxy.endCommandBuffer(cmd);
     const queue = device.proxy.getDeviceQueue(device.queues.graphics_family, 0);
@@ -386,6 +365,7 @@ fn address(v: resource.AddressMode) vk.SamplerAddressMode {
         .clamp_to_edge => .clamp_to_edge,
     };
 }
+/// Vitellus's comparison as Vulkan names it.
 pub fn compare(v: resource.CompareOp) vk.CompareOp {
     return switch (v) {
         .never => .never,

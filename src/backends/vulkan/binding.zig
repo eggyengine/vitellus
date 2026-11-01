@@ -11,6 +11,7 @@ pub const vkBindGroupLayout = struct {
     handle: vk.DescriptorSetLayout,
     entries: []binding.BindGroupLayoutEntry,
 
+    /// The Vulkan layout behind an interface handle.
     pub fn fromHandle(value: binding.BindGroupLayout) !*vkBindGroupLayout {
         if (value.handle == 0) return error.InvalidBindGroupLayout;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -23,6 +24,7 @@ pub const vkBindGroup = struct {
     pool: vk.DescriptorPool,
     set: vk.DescriptorSet,
 
+    /// The Vulkan bind group behind an interface handle.
     pub fn fromHandle(value: binding.BindGroup) !*vkBindGroup {
         if (value.handle == 0) return error.InvalidBindGroup;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -32,6 +34,8 @@ pub const vkBindGroup = struct {
 const layout_vtable: binding.BindGroupLayout.VTable = .{ .deinitFn = destroyLayout };
 const group_vtable: binding.BindGroup.VTable = .{ .deinitFn = destroyGroup };
 
+/// `BindGroupLayout.init` for Vulkan: a descriptor set layout from `desc.entries`, or reflected
+/// from `desc.shader`'s set `desc.set` when it gives a shader instead.
 pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) !binding.BindGroupLayout {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     if (desc.shader != null and desc.entries.len != 0) return error.AmbiguousBindGroupLayout;
@@ -76,6 +80,7 @@ pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) !b
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
+/// `BindGroup.init` for Vulkan: a descriptor set in a pool of its own, written once.
 pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) !binding.BindGroup {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const layout = try vkBindGroupLayout.fromHandle(desc.layout);

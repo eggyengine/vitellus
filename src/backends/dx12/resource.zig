@@ -5,6 +5,8 @@ const resource = @import("../../interface/resource.zig");
 const Dx12Device = @import("device.zig").Dx12Device;
 const dx = @import("dx12_c");
 const utils = @import("utils.zig");
+const d3d12ma = @import("d3d12ma.zig");
+const texture_layout = @import("../../interface/texture_layout.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
 const log = std.log.scoped(.dx12_resource);
@@ -12,10 +14,12 @@ const log = std.log.scoped(.dx12_resource);
 pub const Dx12Buffer = struct {
     allocator: std.mem.Allocator,
     resource: ComPtr(dx.ID3D12Resource) = .{},
+    allocation: ?d3d12ma.Allocation = null,
     size: u64,
     memory: resource.MemoryLocation,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 buffer behind an interface handle.
     pub fn fromHandle(value: resource.Buffer) !*Dx12Buffer {
         if (value.handle == 0) return error.InvalidBuffer;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -25,9 +29,11 @@ pub const Dx12Buffer = struct {
 pub const Dx12Texture = struct {
     allocator: std.mem.Allocator,
     resource: ComPtr(dx.ID3D12Resource) = .{},
+    allocation: ?d3d12ma.Allocation = null,
     desc: resource.TextureDescriptor,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 texture behind an interface handle.
     pub fn fromHandle(value: resource.Texture) !*Dx12Texture {
         if (value.handle == 0) return error.InvalidTexture;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -38,8 +44,8 @@ pub const Dx12Texture = struct {
 pub const Dx12TextureView = struct {
     owner: ?*Dx12Device,
     resource: *dx.ID3D12Resource,
+    /// A swapchain back buffer's render-target view; views the device made use `rtv_index`.
     rtv: dx.D3D12_CPU_DESCRIPTOR_HANDLE,
-    dsv: dx.D3D12_CPU_DESCRIPTOR_HANDLE = .{ .ptr = 0 },
     width: u32,
     height: u32,
     dimension: resource.TextureDimension = .d2,
@@ -58,9 +64,22 @@ pub const Dx12TextureView = struct {
     dsv_index: ?u32 = null,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 texture view behind an interface handle.
     pub fn fromHandle(value: resource.TextureView) !*Dx12TextureView {
         if (value.handle == 0) return error.InvalidTextureView;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
+    }
+
+    /// The render-target view, looked up now: the device's heap moves when it grows.
+    pub fn rtvHandle(self: *const Dx12TextureView) ?dx.D3D12_CPU_DESCRIPTOR_HANDLE {
+        if (self.rtv_index) |index| return self.owner.?.rtvs.cpu(index);
+        return if (self.rtv.ptr == 0) null else self.rtv;
+    }
+
+    /// The depth-stencil view, looked up now like `rtvHandle`; null when the view has none.
+    pub fn dsvHandle(self: *const Dx12TextureView) ?dx.D3D12_CPU_DESCRIPTOR_HANDLE {
+        const index = self.dsv_index orelse return null;
+        return self.owner.?.dsvs.cpu(index);
     }
 };
 
@@ -72,6 +91,9 @@ const buffer_vtable: resource.Buffer.VTable = .{
 const texture_vtable: resource.Texture.VTable = .{ .deinitFn = destroyTexture };
 pub const texture_view_vtable: resource.TextureView.VTable = .{ .deinitFn = destroyTextureView };
 
+/// `Buffer.init` for DirectX 12, placed by D3D12MA. Initial data is written through the
+/// mapping for upload buffers, and copied through a staging buffer for device ones, waiting
+/// for the copy.
 pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!resource.Buffer {
     if (desc.size == 0) return error.InvalidBufferSize;
     if (desc.initial_data) |data| {
@@ -83,7 +105,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     const self = try device.allocator.create(Dx12Buffer);
     self.* = .{ .allocator = device.allocator, .size = desc.size, .memory = desc.memory };
     errdefer {
-        self.resource.deinit();
+        release(&self.resource, &self.allocation);
         if (self.label) |label| device.allocator.free(label);
         device.allocator.destroy(self);
     }
@@ -94,8 +116,8 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
         .upload => dx.D3D12_RESOURCE_STATE_GENERIC_READ,
         .readback => dx.D3D12_RESOURCE_STATE_COPY_DEST,
     };
-    try createCommittedBuffer(
-        device.device.unwrap(),
+    self.allocation = try createBufferResource(
+        device.memory,
         heapType(desc.memory),
         // Room for a 256-byte constant buffer view of the whole buffer (allocations are 64 KiB anyway).
         std.mem.alignForward(u64, desc.size, 256),
@@ -107,7 +129,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
 
     if (desc.initial_data) |data| switch (desc.memory) {
         .upload => try writeMapped(self.resource.unwrap(), data),
-        .device => try uploadToDevice(device.device.unwrap(), self.resource.unwrap(), data),
+        .device => try uploadToDevice(device, self.resource.unwrap(), data),
         .readback => unreachable,
     };
 
@@ -115,15 +137,17 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &buffer_vtable };
 }
 
+/// `Buffer.deinit` for DirectX 12.
 pub fn destroyBuffer(value: resource.Buffer) void {
     const self = Dx12Buffer.fromHandle(value) catch return;
     const allocator = self.allocator;
-    self.resource.deinit();
+    release(&self.resource, &self.allocation);
     if (self.label) |label| allocator.free(label);
     log.debug("destroyed DX12 buffer size={}", .{self.size});
     allocator.destroy(self);
 }
 
+/// `Buffer.map` for DirectX 12: readback buffers map for reading, upload buffers for writing.
 pub fn mapBuffer(value: resource.Buffer, mode: resource.MapMode, range: resource.BufferRange) anyerror![]u8 {
     const self = try Dx12Buffer.fromHandle(value);
     if (range.size == 0 or range.offset > self.size or range.size > self.size - range.offset) return error.InvalidMapRange;
@@ -138,6 +162,7 @@ pub fn mapBuffer(value: resource.Buffer, mode: resource.MapMode, range: resource
     return bytes[@intCast(range.offset)..@intCast(range.offset + range.size)];
 }
 
+/// `Buffer.unmap` for DirectX 12, telling the driver which bytes were written.
 pub fn unmapBuffer(value: resource.Buffer, written: ?resource.BufferRange) void {
     const self = Dx12Buffer.fromHandle(value) catch return;
     var native_range: dx.D3D12_RANGE = .{ .Begin = 0, .End = 0 };
@@ -149,27 +174,21 @@ pub fn unmapBuffer(value: resource.Buffer, written: ?resource.BufferRange) void 
     self.resource.unwrap().lpVtbl.*.Unmap.?(self.resource.unwrap(), 0, &native_range);
 }
 
+/// `Texture.init` for DirectX 12, placed by D3D12MA (attachments in heaps of their own).
+/// Initial data is copied through a staging buffer, waiting for the copy.
 pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror!resource.Texture {
     if (desc.width == 0 or desc.height == 0 or desc.depth_or_layers == 0 or desc.mip_levels == 0 or desc.sample_count == 0) return error.InvalidTextureSize;
-    if (desc.initial_data != null and (desc.dimension != .d2 or desc.depth_or_layers != 1 or desc.sample_count != 1)) return error.UnsupportedInitialTextureShape;
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12Texture);
     self.* = .{ .allocator = device.allocator, .desc = desc };
     errdefer {
-        self.resource.deinit();
+        release(&self.resource, &self.allocation);
         if (self.label) |label| device.allocator.free(label);
         device.allocator.destroy(self);
     }
     self.label = if (desc.label) |label| try device.allocator.dupe(u8, label) else null;
     self.desc.label = self.label;
 
-    const heap = dx.D3D12_HEAP_PROPERTIES{
-        .Type = dx.D3D12_HEAP_TYPE_DEFAULT,
-        .CPUPageProperty = dx.D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-        .MemoryPoolPreference = dx.D3D12_MEMORY_POOL_UNKNOWN,
-        .CreationNodeMask = 1,
-        .VisibleNodeMask = 1,
-    };
     const native_desc = dx.D3D12_RESOURCE_DESC{
         .Dimension = switch (desc.dimension) {
             .d1 => dx.D3D12_RESOURCE_DIMENSION_TEXTURE1D,
@@ -186,31 +205,34 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
         .Layout = dx.D3D12_TEXTURE_LAYOUT_UNKNOWN,
         .Flags = textureFlags(desc.usage),
     };
-    try checkHr(device.device.unwrap().lpVtbl.*.CreateCommittedResource.?(
-        device.device.unwrap(),
-        &heap,
-        dx.D3D12_HEAP_FLAG_NONE,
+    // Render targets are resized and remade often; their own heaps keep the shared ones unfragmented.
+    const placement: d3d12ma.Placement = if (desc.usage.color_attachment or desc.usage.depth_stencil_attachment) .committed else .shared;
+    self.allocation = try d3d12ma.createResource(
+        device.memory,
+        dx.D3D12_HEAP_TYPE_DEFAULT,
+        placement,
         &native_desc,
         if (desc.initial_data != null) dx.D3D12_RESOURCE_STATE_COPY_DEST else dx.D3D12_RESOURCE_STATE_COMMON,
-        null,
-        &dx.IID_ID3D12Resource,
-        @ptrCast(self.resource.put()),
-    ));
+        &self.resource.ptr,
+    );
     utils.setD3D12Name(device.allocator, self.resource.unwrap(), desc.label);
-    if (desc.initial_data) |data| try uploadTexture(device.device.unwrap(), self.resource.unwrap(), &native_desc, desc, data);
+    if (desc.initial_data) |data| try uploadTexture(device, self.resource.unwrap(), &native_desc, desc, data);
     log.debug("created DX12 texture {}x{}x{} format={s}", .{ desc.width, desc.height, desc.depth_or_layers, @tagName(desc.format) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
 
+/// `Texture.deinit` for DirectX 12.
 pub fn destroyTexture(value: resource.Texture) void {
     const self = Dx12Texture.fromHandle(value) catch return;
     const allocator = self.allocator;
-    self.resource.deinit();
+    release(&self.resource, &self.allocation);
     if (self.label) |label| allocator.free(label);
     log.debug("destroyed DX12 texture {}x{}x{}", .{ self.desc.width, self.desc.height, self.desc.depth_or_layers });
     allocator.destroy(self);
 }
 
+/// `TextureView.init` for DirectX 12, with render-target and depth-stencil descriptors when
+/// the texture is an attachment.
 pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) anyerror!resource.TextureView {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const texture = try Dx12Texture.fromHandle(desc.texture);
@@ -252,19 +274,17 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
     }
     if (texture.desc.usage.color_attachment) {
         const allocation = try device.allocateRtv();
-        self.rtv = allocation.cpu;
         self.rtv_index = allocation.index;
         var rtv = renderTargetViewDesc(self.format, view_dimension, desc.base_mip, desc.base_layer, layer_count);
-        device.device.unwrap().lpVtbl.*.CreateRenderTargetView.?(device.device.unwrap(), self.resource, &rtv, self.rtv);
-        utils.setRenderDocDescriptorName(device.allocator, device.rtv_heap.unwrap(), allocation.index, desc.label);
+        device.device.unwrap().lpVtbl.*.CreateRenderTargetView.?(device.device.unwrap(), self.resource, &rtv, allocation.cpu);
+        device.rtvs.nameDescriptor(device.allocator, allocation.index, desc.label);
     }
     if (texture.desc.usage.depth_stencil_attachment) {
         const allocation = try device.allocateDsv();
-        self.dsv = allocation.cpu;
         self.dsv_index = allocation.index;
         var dsv = depthStencilViewDesc(self.format, view_dimension, desc.base_mip, desc.base_layer, layer_count);
-        device.device.unwrap().lpVtbl.*.CreateDepthStencilView.?(device.device.unwrap(), self.resource, &dsv, self.dsv);
-        utils.setRenderDocDescriptorName(device.allocator, device.dsv_heap.unwrap(), allocation.index, desc.label);
+        device.device.unwrap().lpVtbl.*.CreateDepthStencilView.?(device.device.unwrap(), self.resource, &dsv, allocation.cpu);
+        device.dsvs.nameDescriptor(device.allocator, allocation.index, desc.label);
     }
     log.debug("created DX12 texture view dimension={s} mips={} layers={}", .{ @tagName(view_dimension), mip_count, layer_count });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_view_vtable };
@@ -332,6 +352,7 @@ fn depthStencilViewDesc(format: dx.DXGI_FORMAT, dimension: resource.TextureViewD
     return result;
 }
 
+/// `TextureView.deinit` for DirectX 12, freeing its descriptors.
 pub fn destroyTextureView(value: resource.TextureView) void {
     const self = Dx12TextureView.fromHandle(value) catch return;
     if (self.rtv_index) |index| self.owner.?.freeRtv(index);
@@ -343,21 +364,21 @@ pub fn destroyTextureView(value: resource.TextureView) void {
     }
 }
 
-fn createCommittedBuffer(
-    device: *dx.ID3D12Device,
+/// Releases a resource, then the memory D3D12MA placed it in, as D3D12MA requires.
+fn release(owned: *ComPtr(dx.ID3D12Resource), allocation: *?d3d12ma.Allocation) void {
+    owned.deinit();
+    if (allocation.*) |memory| d3d12ma.releaseAllocation(memory);
+    allocation.* = null;
+}
+
+fn createBufferResource(
+    memory: d3d12ma.Allocator,
     heap_type: dx.D3D12_HEAP_TYPE,
     size: u64,
     flags: dx.D3D12_RESOURCE_FLAGS,
     initial_state: dx.D3D12_RESOURCE_STATES,
     output: *ComPtr(dx.ID3D12Resource),
-) !void {
-    const heap = dx.D3D12_HEAP_PROPERTIES{
-        .Type = heap_type,
-        .CPUPageProperty = dx.D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-        .MemoryPoolPreference = dx.D3D12_MEMORY_POOL_UNKNOWN,
-        .CreationNodeMask = 1,
-        .VisibleNodeMask = 1,
-    };
+) !d3d12ma.Allocation {
     const resource_desc = dx.D3D12_RESOURCE_DESC{
         .Dimension = dx.D3D12_RESOURCE_DIMENSION_BUFFER,
         .Alignment = 0,
@@ -370,16 +391,8 @@ fn createCommittedBuffer(
         .Layout = dx.D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
         .Flags = flags,
     };
-    try checkHr(device.lpVtbl.*.CreateCommittedResource.?(
-        device,
-        &heap,
-        dx.D3D12_HEAP_FLAG_NONE,
-        &resource_desc,
-        initial_state,
-        null,
-        &dx.IID_ID3D12Resource,
-        @ptrCast(output.put()),
-    ));
+    output.deinit();
+    return d3d12ma.createResource(memory, heap_type, .shared, &resource_desc, initial_state, &output.ptr);
 }
 
 fn writeMapped(buffer: *dx.ID3D12Resource, data: []const u8) !void {
@@ -391,10 +404,12 @@ fn writeMapped(buffer: *dx.ID3D12Resource, data: []const u8) !void {
     @memcpy(destination[0..data.len], data);
 }
 
-fn uploadToDevice(device: *dx.ID3D12Device, destination: *dx.ID3D12Resource, data: []const u8) !void {
+fn uploadToDevice(owner: *Dx12Device, destination: *dx.ID3D12Resource, data: []const u8) !void {
+    const device = owner.device.unwrap();
     var upload: ComPtr(dx.ID3D12Resource) = .{};
-    defer upload.deinit();
-    try createCommittedBuffer(device, dx.D3D12_HEAP_TYPE_UPLOAD, data.len, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
+    var upload_memory: ?d3d12ma.Allocation = null;
+    defer release(&upload, &upload_memory);
+    upload_memory = try createBufferResource(owner.memory, dx.D3D12_HEAP_TYPE_UPLOAD, data.len, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
     try writeMapped(upload.unwrap(), data);
 
     var queue: ComPtr(dx.ID3D12CommandQueue) = .{};
@@ -448,33 +463,44 @@ fn uploadToDevice(device: *dx.ID3D12Device, destination: *dx.ID3D12Resource, dat
 }
 
 fn uploadTexture(
-    device: *dx.ID3D12Device,
+    owner: *Dx12Device,
     destination: *dx.ID3D12Resource,
     texture_desc: *const dx.D3D12_RESOURCE_DESC,
     desc: resource.TextureDescriptor,
     data: []const u8,
 ) !void {
-    const packed_row_size = @as(u64, desc.width) * (bytesPerPixel(desc.format) orelse return error.UnsupportedUploadFormat);
-    const source_row_size = if (desc.bytes_per_row == 0) packed_row_size else desc.bytes_per_row;
-    if (source_row_size < packed_row_size or data.len < source_row_size * desc.height) return error.InitialDataTooSmall;
+    const device = owner.device.unwrap();
+    // The subresources the data covers, in D3D12's order (mips within each layer).
+    var subresources: std.ArrayList(texture_layout.Subresource) = .empty;
+    defer subresources.deinit(owner.allocator);
+    var walk: texture_layout.Iterator = try .init(desc);
+    while (try walk.next()) |sub| try subresources.append(owner.allocator, sub);
+    const count: u32 = @intCast(subresources.items.len);
 
-    var footprint: dx.D3D12_PLACED_SUBRESOURCE_FOOTPRINT = undefined;
-    var row_count: u32 = 0;
-    var row_size: u64 = 0;
+    const footprints = try owner.allocator.alloc(dx.D3D12_PLACED_SUBRESOURCE_FOOTPRINT, count);
+    defer owner.allocator.free(footprints);
+    const row_counts = try owner.allocator.alloc(u32, count);
+    defer owner.allocator.free(row_counts);
+    const row_sizes = try owner.allocator.alloc(u64, count);
+    defer owner.allocator.free(row_sizes);
     var upload_size: u64 = 0;
-    device.lpVtbl.*.GetCopyableFootprints.?(device, texture_desc, 0, 1, 0, &footprint, &row_count, &row_size, &upload_size);
+    device.lpVtbl.*.GetCopyableFootprints.?(device, texture_desc, 0, count, 0, footprints.ptr, row_counts.ptr, row_sizes.ptr, &upload_size);
 
     var upload: ComPtr(dx.ID3D12Resource) = .{};
-    defer upload.deinit();
-    try createCommittedBuffer(device, dx.D3D12_HEAP_TYPE_UPLOAD, upload_size, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
+    var upload_memory: ?d3d12ma.Allocation = null;
+    defer release(&upload, &upload_memory);
+    upload_memory = try createBufferResource(owner.memory, dx.D3D12_HEAP_TYPE_UPLOAD, upload_size, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
     var mapped: ?*anyopaque = null;
     const read_range = dx.D3D12_RANGE{ .Begin = 0, .End = 0 };
     try checkHr(upload.unwrap().lpVtbl.*.Map.?(upload.unwrap(), 0, &read_range, &mapped));
     const destination_bytes: [*]u8 = @ptrCast(mapped orelse return error.MapFailed);
-    for (0..row_count) |row| {
-        const source_offset = row * source_row_size;
-        const destination_offset = footprint.Offset + row * footprint.Footprint.RowPitch;
-        @memcpy(destination_bytes[destination_offset..][0..row_size], data[source_offset..][0..row_size]);
+    // Rows move from the packed layout to D3D12's pitched one, slice by slice.
+    for (subresources.items, footprints, row_counts, row_sizes) |sub, footprint, rows, row_size| {
+        for (0..sub.depth) |slice| for (0..rows) |row| {
+            const source_offset = sub.offset + (slice * sub.rows + row) * sub.bytes_per_row;
+            const destination_offset = footprint.Offset + (slice * rows + row) * footprint.Footprint.RowPitch;
+            @memcpy(destination_bytes[destination_offset..][0..row_size], data[source_offset..][0..row_size]);
+        };
     }
     upload.unwrap().lpVtbl.*.Unmap.?(upload.unwrap(), 0, null);
 
@@ -497,17 +523,19 @@ fn uploadTexture(
     try checkHr(device.lpVtbl.*.CreateCommandList.?(device, 0, dx.D3D12_COMMAND_LIST_TYPE_COPY, allocator.unwrap(), null, &dx.IID_ID3D12GraphicsCommandList, @ptrCast(list.put())));
 
     const commands = list.unwrap();
-    const source = dx.D3D12_TEXTURE_COPY_LOCATION{
-        .pResource = upload.unwrap(),
-        .Type = dx.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-        .unnamed_0 = .{ .PlacedFootprint = footprint },
-    };
-    const target = dx.D3D12_TEXTURE_COPY_LOCATION{
-        .pResource = destination,
-        .Type = dx.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-        .unnamed_0 = .{ .SubresourceIndex = 0 },
-    };
-    commands.lpVtbl.*.CopyTextureRegion.?(commands, &target, 0, 0, 0, &source, null);
+    for (subresources.items, footprints) |sub, footprint| {
+        const source = dx.D3D12_TEXTURE_COPY_LOCATION{
+            .pResource = upload.unwrap(),
+            .Type = dx.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+            .unnamed_0 = .{ .PlacedFootprint = footprint },
+        };
+        const target = dx.D3D12_TEXTURE_COPY_LOCATION{
+            .pResource = destination,
+            .Type = dx.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+            .unnamed_0 = .{ .SubresourceIndex = sub.index },
+        };
+        commands.lpVtbl.*.CopyTextureRegion.?(commands, &target, 0, 0, 0, &source, null);
+    }
     const barrier = dx.D3D12_RESOURCE_BARRIER{
         .Type = dx.D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
         .Flags = dx.D3D12_RESOURCE_BARRIER_FLAG_NONE,
@@ -554,6 +582,8 @@ test "every public texture format has a DXGI mapping" {
     }
 }
 
+/// Bytes per texel of uncompressed formats; null for block-compressed ones and `undefined`.
+/// `texture_layout.block` covers both.
 pub fn bytesPerPixel(format: resource.Format) ?u64 {
     return switch (format) {
         .undefined => null,
@@ -567,6 +597,7 @@ pub fn bytesPerPixel(format: resource.Format) ?u64 {
     };
 }
 
+/// Vitellus's format as DXGI names it.
 pub fn toDxFormat(format: resource.Format) dx.DXGI_FORMAT {
     return switch (format) {
         .undefined => dx.DXGI_FORMAT_UNKNOWN,

@@ -21,6 +21,7 @@ pub const vkQueue = struct {
         .waitIdleFn = waitIdleImpl,
     };
 
+    /// `Queue.init` for Vulkan: the device's queue for `desc.kind`'s family.
     pub fn init(device_ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) !Queue {
         if (desc.node_mask != 0) return error.InvalidNodeMask;
         const device: *@import("device.zig").vkDevice = @ptrCast(@alignCast(device_ptr));

@@ -12,12 +12,15 @@ pub const SlangShaderModule = struct {
         code: []const u8,
         entry_point: []const u8,
 
+        /// Compile for `request`'s backend and stage: SPIR-V, DXIL or WGSL. Fails with
+        /// `ShaderCompilerUnavailable` when the Slang library can't be loaded, and logs Slang's
+        /// diagnostics when the source doesn't compile.
         pub fn compile(self: *const Descriptor, allocator: std.mem.Allocator, request: vit.ShaderCompileRequest) !vit.CompiledShader {
             const target: Target, const format: vit.ShaderBinaryFormat = switch (request.backend) {
                 .vulkan => .{ .spirv, .spirv },
                 .dx12 => .{ .dxil, .dxil },
                 .webgpu => .{ .wgsl, .wgsl },
-                .metal, .custom => return error.UnsupportedShaderBackend,
+                .metal => return error.UnsupportedShaderBackend,
             };
             const stage: Stage = switch (request.stage) {
                 .vertex => .vertex,
@@ -30,10 +33,15 @@ pub const SlangShaderModule = struct {
         }
     };
 
+    /// A shader module that compiles `desc` when a `Shader` is made from it. `desc.code` is
+    /// borrowed until then.
     pub fn init(desc: Descriptor) vit.ShaderModule {
         return vit.ShaderModule.init(desc);
     }
 };
+
+/// The Slang release `build.zig.zon` pins; part of a cache key for Slang's output.
+pub const compiler_version = "slang 2026.18.2";
 
 pub const Stage = enum(u32) { vertex = 1, fragment = 5, compute = 6 };
 pub const Target = enum(u32) { spirv = 6, dxil = 10, wgsl = 28 };
@@ -100,4 +108,8 @@ test "Slang compiles to SPIR-V and WGSL" {
     const wgsl = try compileSource(std.testing.allocator, source, "vertexMain", .vertex, .wgsl);
     defer std.testing.allocator.free(wgsl);
     try std.testing.expect(std.mem.indexOf(u8, wgsl, "vertexMain") != null);
+}
+
+test {
+    _ = @import("compute_tests.zig");
 }
