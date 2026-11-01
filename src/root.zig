@@ -35,6 +35,7 @@ pub const AdapterDescriptor = hal.adapter.AdapterDescriptor;
 pub const AdapterInfo = hal.adapter.AdapterInfo;
 pub const Device = hal.device.Device;
 pub const DeviceDescriptor = hal.device.DeviceDescriptor;
+pub const MemoryBudget = hal.device.MemoryBudget;
 pub const Queue = hal.queue.Queue;
 pub const QueueDescriptor = hal.queue.QueueDescriptor;
 pub const Swapchain = hal.swapchain.Swapchain;
@@ -103,6 +104,7 @@ test {
     _ = @import("interface/shader.zig");
     _ = @import("interface/settings.zig");
     _ = @import("interface/texture_layout.zig");
+    _ = @import("interface/device.zig");
     if (comptime options.enable_dx12) {
         _ = @import("backends/dx12/resource.zig");
         _ = @import("backends/dx12/shader.zig");

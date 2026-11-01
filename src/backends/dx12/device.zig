@@ -60,6 +60,7 @@ pub const Dx12Device = struct {
 
     const vtable: Device.VTable = .{
         .deinitFn = deinitImpl,
+        .memoryBudgetFn = memoryBudgetImpl,
         .createQueueFn = createQueueImpl,
         .createShaderFn = shader.create,
         .createBufferFn = resource.createBuffer,
@@ -143,6 +144,11 @@ pub const Dx12Device = struct {
         self.device.deinit();
         log.debug("destroyed DX12 device and descriptor heaps", .{});
         allocator.destroy(self);
+    }
+
+    fn memoryBudgetImpl(ptr: *anyopaque) @import("../../interface/device.zig").MemoryBudget {
+        const self: *Dx12Device = @ptrCast(@alignCast(ptr));
+        return d3d12ma.budget(self.memory);
     }
 
     fn createQueueImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) anyerror!Queue {

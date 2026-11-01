@@ -36,4 +36,15 @@ void vit_d3d12ma_release_allocation(D3D12MA::Allocation* allocation) {
     allocation->Release();
 }
 
+// Usage and budget of video memory, then of system memory the GPU reads: out[0..2], out[2..4].
+void vit_d3d12ma_budget(D3D12MA::Allocator* allocator, uint64_t out[4]) {
+    D3D12MA::Budget local = {};
+    D3D12MA::Budget non_local = {};
+    allocator->GetBudget(&local, &non_local);
+    out[0] = local.UsageBytes;
+    out[1] = local.BudgetBytes;
+    out[2] = non_local.UsageBytes;
+    out[3] = non_local.BudgetBytes;
+}
+
 } // extern "C"

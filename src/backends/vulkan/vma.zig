@@ -1,5 +1,6 @@
 //! Sub-allocates Vulkan buffer and image memory from large blocks with the Vulkan Memory Allocator (`vma.cpp`).
 const vk = @import("vulkan");
+const MemoryBudget = @import("../../interface/device.zig").MemoryBudget;
 
 pub const Allocator = *opaque {};
 pub const Allocation = *opaque {};
@@ -28,14 +29,29 @@ pub fn createAllocator(
     api_version: u32,
     get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
     get_device_proc_addr: vk.PfnGetDeviceProcAddr,
+    budget_source: BudgetSource,
 ) !Allocator {
     var allocator: ?Allocator = null;
-    try check(vit_vma_create_allocator(instance, physical_device, device, api_version, get_instance_proc_addr, get_device_proc_addr, &allocator));
+    try check(vit_vma_create_allocator(instance, physical_device, device, api_version, get_instance_proc_addr, get_device_proc_addr, budget_source, &allocator));
     return allocator orelse error.InitializationFailed;
 }
 
 pub fn destroyAllocator(allocator: Allocator) void {
     vit_vma_destroy_allocator(allocator);
+}
+
+/// Where budgets come from: `driver` needs VK_EXT_memory_budget enabled on the device;
+/// `estimated` is VMA's guess (80% of each heap, counting only its own allocations).
+pub const BudgetSource = enum(c_int) { estimated = 0, driver = 1 };
+
+/// Memory in use and allowed, summed over device-local heaps and over the rest.
+pub fn budget(allocator: Allocator) MemoryBudget {
+    var totals: [4]u64 = @splat(0);
+    vit_vma_budget(allocator, &totals);
+    return .{
+        .device_local = .{ .usage_bytes = totals[0], .budget_bytes = totals[1] },
+        .shared = .{ .usage_bytes = totals[2], .budget_bytes = totals[3] },
+    };
 }
 
 pub fn createBuffer(allocator: Allocator, info: *const vk.BufferCreateInfo, host_access: HostAccess) !Buffer {
@@ -72,7 +88,8 @@ fn check(result: vk.Result) !void {
     };
 }
 
-extern fn vit_vma_create_allocator(vk.Instance, vk.PhysicalDevice, vk.Device, u32, vk.PfnGetInstanceProcAddr, vk.PfnGetDeviceProcAddr, *?Allocator) vk.Result;
+extern fn vit_vma_create_allocator(vk.Instance, vk.PhysicalDevice, vk.Device, u32, vk.PfnGetInstanceProcAddr, vk.PfnGetDeviceProcAddr, BudgetSource, *?Allocator) vk.Result;
+extern fn vit_vma_budget(Allocator, *[4]u64) void;
 extern fn vit_vma_destroy_allocator(Allocator) void;
 extern fn vit_vma_create_buffer(Allocator, *const vk.BufferCreateInfo, HostAccess, *vk.Buffer, *?Allocation, *?*anyopaque) vk.Result;
 extern fn vit_vma_destroy_buffer(Allocator, vk.Buffer, Allocation) void;

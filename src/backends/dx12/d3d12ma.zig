@@ -1,5 +1,6 @@
 //! Places DirectX 12 buffers and textures in large shared heaps with the D3D12 Memory Allocator (`d3d12ma.cpp`).
 const dx = @import("dx12_c");
+const MemoryBudget = @import("../../interface/device.zig").MemoryBudget;
 const checkHr = @import("utils.zig").checkHr;
 
 pub const Allocator = *opaque {};
@@ -42,3 +43,14 @@ extern fn vit_d3d12ma_create_allocator(*dx.ID3D12Device, *dx.IDXGIAdapter, *?All
 extern fn vit_d3d12ma_destroy_allocator(Allocator) void;
 extern fn vit_d3d12ma_create_resource(Allocator, dx.D3D12_HEAP_TYPE, Placement, *const dx.D3D12_RESOURCE_DESC, dx.D3D12_RESOURCE_STATES, *?Allocation, *?*dx.ID3D12Resource) dx.HRESULT;
 extern fn vit_d3d12ma_release_allocation(Allocation) void;
+extern fn vit_d3d12ma_budget(Allocator, *[4]u64) void;
+
+/// Video memory in use and allowed, then system memory the GPU reads.
+pub fn budget(allocator: Allocator) MemoryBudget {
+    var totals: [4]u64 = @splat(0);
+    vit_d3d12ma_budget(allocator, &totals);
+    return .{
+        .device_local = .{ .usage_bytes = totals[0], .budget_bytes = totals[1] },
+        .shared = .{ .usage_bytes = totals[2], .budget_bytes = totals[3] },
+    };
+}

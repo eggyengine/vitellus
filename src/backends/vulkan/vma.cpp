@@ -21,6 +21,7 @@ VkResult vit_vma_create_allocator(
     uint32_t api_version,
     PFN_vkGetInstanceProcAddr get_instance_proc_addr,
     PFN_vkGetDeviceProcAddr get_device_proc_addr,
+    int driver_budget,
     VmaAllocator* out) {
     VmaVulkanFunctions functions = {};
     functions.vkGetInstanceProcAddr = get_instance_proc_addr;
@@ -31,7 +32,21 @@ VkResult vit_vma_create_allocator(
     info.device = device;
     info.vulkanApiVersion = api_version;
     info.pVulkanFunctions = &functions;
+    if (driver_budget) info.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
     return vmaCreateAllocator(&info, out);
+}
+
+// Usage and budget of device-local heaps, then of the rest: out[0..2], out[2..4].
+void vit_vma_budget(VmaAllocator allocator, uint64_t out[4]) {
+    const VkPhysicalDeviceMemoryProperties* properties = nullptr;
+    vmaGetMemoryProperties(allocator, &properties);
+    VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
+    vmaGetHeapBudgets(allocator, budgets);
+    for (uint32_t heap = 0; heap < properties->memoryHeapCount; ++heap) {
+        const int base = (properties->memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? 0 : 2;
+        out[base] += budgets[heap].usage;
+        out[base + 1] += budgets[heap].budget;
+    }
 }
 
 void vit_vma_destroy_allocator(VmaAllocator allocator) {

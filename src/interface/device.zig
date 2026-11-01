@@ -22,6 +22,18 @@ pub const DeviceDescriptor = struct {
     pipeline_cache: ?*const @import("../shader_disk_cache.zig").ShaderDiskCache = null,
 };
 
+/// GPU memory this process uses and may use, from the driver where it reports it (VMA or
+/// D3D12MA estimate otherwise). Budgets change as other programs use the GPU: keep usage
+/// under budget, or the OS may page memory out and frames stall.
+pub const MemoryBudget = struct {
+    /// Memory on the GPU (VRAM; on integrated GPUs, what the driver sets aside for it).
+    device_local: Heap = .{},
+    /// System memory the GPU reads over the bus: upload and readback buffers.
+    shared: Heap = .{},
+
+    pub const Heap = struct { usage_bytes: u64 = 0, budget_bytes: u64 = 0 };
+};
+
 /// Owning handle to a logical GPU device.
 ///
 /// Objects created by this device must be destroyed before `deinit`.
@@ -32,6 +44,7 @@ pub const Device = struct {
 
     pub const VTable = struct {
         deinitFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
+        memoryBudgetFn: ?*const fn (ptr: *anyopaque) MemoryBudget = null,
         createQueueFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) anyerror!Queue,
         createShaderFn: ?*const fn (*anyopaque, std.mem.Allocator, shader.ShaderDescriptor) anyerror!shader.Shader = null,
         createBufferFn: ?*const fn (*anyopaque, resource.BufferDescriptor) anyerror!resource.Buffer = null,
@@ -56,8 +69,34 @@ pub const Device = struct {
         return adapter.vtable.createDeviceFn(adapter.ptr, adapter.allocator, desc);
     }
 
+    /// Memory in use and the budget for it now; null where the backend can't tell (WebGPU).
+    /// Cheap enough to call once a frame.
+    pub fn memoryBudget(self: Device) ?MemoryBudget {
+        const query = self.vtable.memoryBudgetFn orelse return null;
+        return query(self.ptr);
+    }
+
     /// Releases the logical device. All child objects must already be gone.
     pub fn deinit(self: Device) void {
         self.vtable.deinitFn(self.ptr, self.allocator);
     }
 };
+
+test "a device reports the memory its buffers take" {
+    const vit = @import("../root.zig");
+    const gpa = std.testing.allocator;
+    const instance = vit.Instance.init(gpa, .{ .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    const adapter = vit.Adapter.init(instance, .{}) catch return error.SkipZigTest;
+    defer adapter.deinit();
+    const device = try vit.Device.init(adapter, .{});
+    defer device.deinit();
+
+    const before = device.memoryBudget() orelse return error.SkipZigTest;
+    try std.testing.expect(before.device_local.budget_bytes > 0);
+    // Big enough to need a block of its own, on any allocator's block sizes.
+    const buffer = try vit.Buffer.init(device, .{ .size = 512 << 20, .usage = .{ .storage = true } });
+    defer buffer.deinit();
+    const after = device.memoryBudget().?;
+    try std.testing.expect(after.device_local.usage_bytes + after.shared.usage_bytes >= before.device_local.usage_bytes + before.shared.usage_bytes + (512 << 20));
+}

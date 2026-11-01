@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const vk = @import("vulkan");
+const MemoryBudget = @import("../../interface/device.zig").MemoryBudget;
 const Device = @import("../../interface/device.zig").Device;
 const DeviceDescriptor = @import("../../interface/device.zig").DeviceDescriptor;
 const Queue = @import("../../interface/queue.zig").Queue;
@@ -36,6 +37,7 @@ pub const vkDevice = struct {
 
     const vtable: Device.VTable = .{
         .deinitFn = deinitImpl,
+        .memoryBudgetFn = memoryBudgetImpl,
         .createQueueFn = createQueueImpl,
         .createShaderFn = shader_impl.create,
         .createBufferFn = resource_impl.createBuffer,
@@ -83,8 +85,12 @@ pub const vkDevice = struct {
             .p_next = @ptrCast(&timeline_features),
             .dynamic_rendering = .true,
         };
-        var extension_names: [2][*:0]const u8 = undefined;
-        const extensions = try deviceExtensions(adapter, allocator, &extension_names);
+        var extension_names: [3][*:0]const u8 = undefined;
+        const optional: OptionalExtensions = .{
+            .portability_subset = try hasDeviceExtension(adapter, allocator, vk.device_extensions.khr_portability_subset.name),
+            .memory_budget = try hasDeviceExtension(adapter, allocator, vk.device_extensions.ext_memory_budget.name),
+        };
+        const extensions = fillDeviceExtensions(optional, &extension_names);
         const get_device_proc_addr = adapter.instance.wrapper.dispatch.vkGetDeviceProcAddr orelse
             return error.VulkanLoaderMissingGetDeviceProcAddr;
         const handle = try adapter.instance.wrapper.createDevice(adapter.physical_device, &.{
@@ -114,6 +120,7 @@ pub const vkDevice = struct {
             @min(adapter.instance.api_version, adapter.props.api_version),
             adapter.instance.get_instance_proc_addr,
             get_device_proc_addr,
+            if (optional.memory_budget) .driver else .estimated,
         );
         errdefer vma.destroyAllocator(self.memory);
         self.props = adapter.props;
@@ -136,20 +143,37 @@ pub const vkDevice = struct {
         log.debug("destroyed Vulkan logical device", .{});
     }
 
+    fn memoryBudgetImpl(ptr: *anyopaque) MemoryBudget {
+        const self: *vkDevice = @ptrCast(@alignCast(ptr));
+        return vma.budget(self.memory);
+    }
+
     fn createQueueImpl(ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) anyerror!Queue {
         return vkQueue.init(ptr, allocator, desc);
     }
 };
 
-fn deviceExtensions(adapter: *vkAdapter, allocator: std.mem.Allocator, buf: *[2][*:0]const u8) ![]const [*:0]const u8 {
-    return fillDeviceExtensions(try hasDeviceExtension(adapter, allocator, vk.device_extensions.khr_portability_subset.name), buf);
-}
+/// Device extensions enabled when the driver has them.
+const OptionalExtensions = struct {
+    /// Required by MoltenVK and other non-conformant implementations that advertise it.
+    portability_subset: bool = false,
+    /// Lets `memoryBudget` report the driver's real budget rather than VMA's estimate.
+    memory_budget: bool = false,
+};
 
-fn fillDeviceExtensions(portability: bool, buf: *[2][*:0]const u8) []const [*:0]const u8 {
-    buf[0] = vk.device_extensions.khr_swapchain.name.ptr;
-    if (!portability) return buf[0..1];
-    buf[1] = vk.device_extensions.khr_portability_subset.name.ptr;
-    return buf[0..2];
+fn fillDeviceExtensions(optional: OptionalExtensions, buf: *[3][*:0]const u8) []const [*:0]const u8 {
+    var len: usize = 0;
+    buf[len] = vk.device_extensions.khr_swapchain.name.ptr;
+    len += 1;
+    if (optional.portability_subset) {
+        buf[len] = vk.device_extensions.khr_portability_subset.name.ptr;
+        len += 1;
+    }
+    if (optional.memory_budget) {
+        buf[len] = vk.device_extensions.ext_memory_budget.name.ptr;
+        len += 1;
+    }
+    return buf[0..len];
 }
 
 fn hasDeviceExtension(adapter: *vkAdapter, allocator: std.mem.Allocator, name: []const u8) !bool {
@@ -177,11 +201,13 @@ fn vkBool(value: bool) vk.Bool32 {
     return if (value) .true else .false;
 }
 
-test "device extensions include portability subset when advertised" {
-    var buf: [2][*:0]const u8 = undefined;
-    try std.testing.expectEqual(@as(usize, 1), fillDeviceExtensions(false, &buf).len);
-    try std.testing.expectEqual(@as(usize, 2), fillDeviceExtensions(true, &buf).len);
+test "device extensions include the optional ones advertised" {
+    var buf: [3][*:0]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), fillDeviceExtensions(.{}, &buf).len);
+    try std.testing.expectEqual(@as(usize, 2), fillDeviceExtensions(.{ .portability_subset = true }, &buf).len);
     try std.testing.expectEqualStrings(vk.device_extensions.khr_portability_subset.name, std.mem.span(buf[1]));
+    try std.testing.expectEqual(@as(usize, 3), fillDeviceExtensions(.{ .portability_subset = true, .memory_budget = true }, &buf).len);
+    try std.testing.expectEqualStrings(vk.device_extensions.ext_memory_budget.name, std.mem.span(buf[2]));
 }
 
 test "Vulkan logical device creates queues and semaphores" {
