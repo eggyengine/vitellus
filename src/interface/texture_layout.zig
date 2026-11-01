@@ -138,7 +138,6 @@ test "data may stop after a whole subresource but not inside one" {
 }
 
 test "every layer and mip of initial data reaches the texture" {
-    const vit = @import("../root.zig");
     const gpa = std.testing.allocator;
     const instance = vit.Instance.init(gpa, .{ .validation = .none }) catch return error.SkipZigTest;
     defer instance.deinit();
@@ -173,3 +172,5 @@ test "every layer and mip of initial data reaches the texture" {
     try std.testing.expectEqualSlices(u8, data[144..152], read[0..8]);
     try std.testing.expectEqualSlices(u8, data[152..160], read[256..264]);
 }
+
+const vit = @import("../root.zig");

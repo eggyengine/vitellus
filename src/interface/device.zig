@@ -85,7 +85,6 @@ pub const Device = struct {
 };
 
 test "a device reports the memory its buffers take" {
-    const vit = @import("../root.zig");
     const gpa = std.testing.allocator;
     const instance = vit.Instance.init(gpa, .{ .validation = .none }) catch return error.SkipZigTest;
     defer instance.deinit();
@@ -101,4 +100,28 @@ test "a device reports the memory its buffers take" {
     defer buffer.deinit();
     const after = device.memoryBudget().?;
     try std.testing.expect(after.device_local.usage_bytes + after.shared.usage_bytes >= before.device_local.usage_bytes + before.shared.usage_bytes + (512 << 20));
+}
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Device {
+    const instance = vit.Instance.init(std.testing.allocator, .{ .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    const adapter = vit.Adapter.init(instance, .{}) catch return error.SkipZigTest;
+    defer adapter.deinit();
+
+    // Optional features are off unless asked for, and asking for one the GPU lacks fails,
+    // so take the ones the adapter has.
+    const available = adapter.capabilities().features;
+    const device = try vit.Device.init(adapter, .{ .required_features = .{
+        .anisotropic_filtering = available.anisotropic_filtering,
+        .timestamp_query = available.timestamp_query,
+    } });
+    defer device.deinit();
+
+    // How much GPU memory is in use, against what the system lets this app have.
+    if (device.memoryBudget()) |budget| try std.testing.expect(budget.device_local.budget_bytes > 0);
 }

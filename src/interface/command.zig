@@ -383,3 +383,97 @@ pub const CommandBuffer = struct {
         return self.vtable.finishFn(self.ptr);
     }
 };
+
+const std = @import("std");
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test CommandPool {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // One pool for each thread that records and each frame in flight. `.transient` says
+    // its buffers live a frame.
+    const pool = try vit.CommandPool.init(gpu.device, .{ .kind = .graphics, .transient = true });
+    defer pool.deinit();
+    for (0..3) |_| {
+        const cmd = try vit.CommandBuffer.init(pool, .{ .label = "frame" });
+        try cmd.finish();
+        try gpu.queue.submit(.{ .command_buffers = &.{cmd} });
+        try gpu.queue.waitIdle();
+        // Once the GPU is done and the buffers are freed, reuse all their memory at once.
+        cmd.deinit();
+        try pool.reset();
+    }
+}
+
+test CommandBuffer {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+    const numbers = [4]u32{ 1, 2, 3, 4 };
+    const staging = try vit.Buffer.init(gpu.device, .{ .size = 16, .usage = .{ .transfer_src = true }, .memory = .upload, .initial_data = std.mem.asBytes(&numbers) });
+    defer staging.deinit();
+    const on_gpu = try vit.Buffer.init(gpu.device, .{ .size = 16, .usage = .{ .storage = true, .transfer_src = true, .transfer_dst = true } });
+    defer on_gpu.deinit();
+    const readback = try vit.Buffer.init(gpu.device, .{ .size = 16, .usage = .{ .transfer_dst = true }, .memory = .readback });
+    defer readback.deinit();
+
+    // Record, finish, submit. Vitellus inserts no barriers: move each resource into the
+    // state the next command needs, as here between the two copies.
+    const pool = try vit.CommandPool.init(gpu.device, .{});
+    defer pool.deinit();
+    const cmd = try vit.CommandBuffer.init(pool, .{});
+    defer cmd.deinit();
+    try cmd.barrier(&.{
+        .{ .buffer = .{ .buffer = staging, .before = .common, .after = .copy_source } },
+        .{ .buffer = .{ .buffer = on_gpu, .before = .common, .after = .copy_destination } },
+    });
+    try cmd.copyBuffer(.{ .source = staging, .destination = on_gpu, .size = 16 });
+    try cmd.barrier(&.{
+        .{ .buffer = .{ .buffer = on_gpu, .before = .copy_destination, .after = .copy_source } },
+        .{ .buffer = .{ .buffer = readback, .before = .common, .after = .copy_destination } },
+    });
+    try cmd.copyBuffer(.{ .source = on_gpu, .destination = readback, .size = 16 });
+    try cmd.barrier(&.{.{ .buffer = .{ .buffer = readback, .before = .copy_destination, .after = .host_read } }});
+    try cmd.finish();
+    try gpu.queue.submit(.{ .command_buffers = &.{cmd} });
+    try gpu.queue.waitIdle();
+
+    const read = try readback.map(.read, .{ .size = 16 });
+    defer readback.unmap(null);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&numbers), read[0..16]);
+}
+
+test QuerySet {
+    const gpu = try ExampleGpu.open(.{ .required_features = .{ .timestamp_query = true } });
+    defer gpu.close();
+
+    // Two timestamps around the GPU work to time, resolved into a buffer to read.
+    const queries = try vit.QuerySet.init(gpu.device, .{ .kind = .timestamp, .count = 2 });
+    defer queries.deinit();
+    const results = try vit.Buffer.init(gpu.device, .{ .size = 2 * @sizeOf(u64), .usage = .{ .query_resolve = true, .transfer_dst = true }, .memory = .readback });
+    defer results.deinit();
+    const pool = try vit.CommandPool.init(gpu.device, .{});
+    defer pool.deinit();
+    const cmd = try vit.CommandBuffer.init(pool, .{});
+    defer cmd.deinit();
+    cmd.resetQueries(queries, 0, 2);
+    cmd.writeTimestamp(queries, 0);
+    // The work being timed goes here.
+    cmd.writeTimestamp(queries, 1);
+    try cmd.barrier(&.{.{ .buffer = .{ .buffer = results, .before = .common, .after = .copy_destination } }});
+    cmd.resolveQueries(queries, 0, 2, results, 0);
+    try cmd.barrier(&.{.{ .buffer = .{ .buffer = results, .before = .copy_destination, .after = .host_read } }});
+    try cmd.finish();
+    try gpu.queue.submit(.{ .command_buffers = &.{cmd} });
+    try gpu.queue.waitIdle();
+
+    // Raw GPU ticks, whose length depends on the backend and GPU.
+    const read = try results.map(.read, .{ .size = 2 * @sizeOf(u64) });
+    defer results.unmap(null);
+    var ticks: [2]u64 = undefined;
+    @memcpy(std.mem.asBytes(&ticks), read[0 .. 2 * @sizeOf(u64)]);
+    try std.testing.expect(ticks[1] >= ticks[0]);
+}

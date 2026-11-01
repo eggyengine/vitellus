@@ -105,3 +105,53 @@ pub const BindGroup = struct {
         self.vtable.deinitFn(self);
     }
 };
+
+const std = @import("std");
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test BindGroupLayout {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // The shape of what a shader reads, by binding number: uniforms at 0 for both stages,
+    // then a texture and its sampler at 1 and 2 for the fragment shader.
+    const layout = try vit.BindGroupLayout.init(gpu.device, .{ .entries = &.{
+        .{ .binding = 0, .kind = .{ .buffer = .{ .kind = .uniform } }, .visibility = .{ .vertex = true, .fragment = true } },
+        .{ .binding = 1, .kind = .{ .sampled_texture = .{} }, .visibility = .{ .fragment = true } },
+        .{ .binding = 2, .kind = .{ .sampler = .filtering }, .visibility = .{ .fragment = true } },
+    } });
+    defer layout.deinit();
+}
+
+test BindGroup {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+    const layout = try vit.BindGroupLayout.init(gpu.device, .{ .entries = &.{
+        .{ .binding = 0, .kind = .{ .buffer = .{ .kind = .uniform } }, .visibility = .{ .vertex = true, .fragment = true } },
+        .{ .binding = 1, .kind = .{ .sampled_texture = .{} }, .visibility = .{ .fragment = true } },
+        .{ .binding = 2, .kind = .{ .sampler = .filtering }, .visibility = .{ .fragment = true } },
+    } });
+    defer layout.deinit();
+
+    const uniforms = try vit.Buffer.init(gpu.device, .{ .size = 256, .usage = .{ .uniform = true }, .memory = .upload });
+    defer uniforms.deinit();
+    const pixel = [4]u8{ 255, 255, 255, 255 };
+    const texture = try vit.Texture.init(gpu.device, .{ .width = 1, .height = 1, .format = .rgba8_unorm, .usage = .{ .sampled = true }, .initial_data = &pixel });
+    defer texture.deinit();
+    const view = try vit.TextureView.init(gpu.device, .{ .texture = texture });
+    defer view.deinit();
+    const sampler = try vit.Sampler.init(gpu.device, .{});
+    defer sampler.deinit();
+
+    // The resources themselves, one per layout entry. Bind with
+    // `cmd.setBindGroup(0, group, &.{})`; the resources must outlive the group's use.
+    const group = try vit.BindGroup.init(gpu.device, .{ .layout = layout, .entries = &.{
+        .{ .binding = 0, .resource = .{ .buffer = .{ .buffer = uniforms } } },
+        .{ .binding = 1, .resource = .{ .texture_view = view } },
+        .{ .binding = 2, .resource = .{ .sampler = sampler } },
+    } });
+    defer group.deinit();
+}

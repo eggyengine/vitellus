@@ -115,3 +115,25 @@ test "DX12 instance enumerates selectable adapters" {
 test "an empty backend set selects nothing" {
     try std.testing.expectError(error.NoSupportedBackend, Instance.init(std.testing.allocator, .{ .backend = .{}, .validation = .none }));
 }
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Instance {
+    // One instance per app. Vitellus takes the platform's first backend that works; set
+    // `.backend` to narrow the choice and `.validation` to have the API check every call.
+    const instance = vit.Instance.init(std.testing.allocator, .{ .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+
+    // Every GPU the backend can use, for a settings menu. A browser offers only one, so
+    // WebGPU can't list them.
+    const adapters = instance.enumerateAdapters() catch return error.SkipZigTest;
+    defer {
+        for (adapters) |adapter| adapter.deinit();
+        std.testing.allocator.free(adapters);
+    }
+    for (adapters) |adapter| try std.testing.expect(adapter.info().nameSlice().len > 0);
+    try std.testing.expect(instance.backend() != .metal);
+}

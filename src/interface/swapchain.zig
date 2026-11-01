@@ -116,3 +116,44 @@ pub const Swapchain = struct {
         return if (self.vtable.infoFn) |f| f(self.ptr) else .{ .extent = .{}, .format = .bgra8_unorm, .image_count = 0 };
     }
 };
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Swapchain {
+    // Compiled, not run: it needs a window.
+    const example = struct {
+        fn create(adapter: vit.Adapter, window: vit.Window, queue: vit.Queue, extent: vit.Extent2D) !vit.Swapchain {
+            // Presents on `queue`, in step with the display (`.fifo` never tears).
+            return vit.Swapchain.init(adapter, .{ .window = window, .queue = queue, .extent = extent, .present_mode = .fifo, .image_count = 3 });
+        }
+
+        // One frame. `cmd` is new this frame and kept until the GPU has run it;
+        // `render_done` holds a semaphore per swapchain image.
+        fn frame(swapchain: vit.Swapchain, queue: vit.Queue, cmd: vit.CommandBuffer, acquired: vit.Semaphore, render_done: []const vit.Semaphore, extent: vit.Extent2D) !void {
+            // Follow the window's pixel size, and draw nothing while it has none (minimised).
+            if (extent.width == 0 or extent.height == 0) return;
+            const current = swapchain.info().extent;
+            if (current.width != extent.width or current.height != extent.height) {
+                try queue.waitIdle();
+                try swapchain.resize(extent);
+            }
+
+            // Images arrive in `present` and must be back in it when presented.
+            const image = try swapchain.acquireNextImage(acquired);
+            try cmd.barrier(&.{.{ .texture_view = .{ .view = image.view, .before = .present, .after = .color_attachment } }});
+            try cmd.beginRenderPass(.{ .color_attachments = &.{.{ .view = image.view, .clear_value = .{ .r = 0.1, .g = 0.1, .b = 0.12 } }} });
+            cmd.endRenderPass();
+            try cmd.barrier(&.{.{ .texture_view = .{ .view = image.view, .before = .color_attachment, .after = .present } }});
+            try cmd.finish();
+
+            // Drawing waits for the image to be free; presenting waits for the drawing.
+            try queue.submit(.{ .command_buffers = &.{cmd}, .wait_semaphores = &.{acquired}, .signal_semaphores = &.{render_done[image.index]} });
+            _ = try swapchain.present(&.{render_done[image.index]});
+        }
+    };
+    _ = &example.create;
+    _ = &example.frame;
+}

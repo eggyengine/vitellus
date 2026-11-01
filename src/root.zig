@@ -106,6 +106,14 @@ test {
     _ = @import("interface/settings.zig");
     _ = @import("interface/texture_layout.zig");
     _ = @import("interface/device.zig");
+    _ = @import("interface/adapter.zig");
+    _ = @import("interface/binding.zig");
+    _ = @import("interface/command.zig");
+    _ = @import("interface/pipeline.zig");
+    _ = @import("interface/queue.zig");
+    _ = @import("interface/resource.zig");
+    _ = @import("interface/swapchain.zig");
+    _ = @import("interface/sync.zig");
     if (comptime options.enable_dx12) {
         _ = @import("backends/dx12/resource.zig");
         _ = @import("backends/dx12/shader.zig");

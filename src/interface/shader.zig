@@ -244,3 +244,49 @@ test "large custom shader modules can be borrowed by pointer" {
 
     try std.testing.expectEqualSlices(u8, &.{ 7, 7, 7, 7 }, compiled.bytes);
 }
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test ShaderModule {
+    // Any value with a `compile` method is a module. This one carries a shader built ahead
+    // of time for each backend and hands over the build for the one running; Vitellus's
+    // own `BinaryShaderModule`, `SlangShaderModule` and `HLSLShaderModule` work the same way.
+    const Prebuilt = struct {
+        spirv: []const u8,
+        dxil: []const u8,
+
+        pub fn compile(self: @This(), allocator: std.mem.Allocator, request: vit.ShaderCompileRequest) !vit.CompiledShader {
+            const bytes: []const u8, const format: vit.ShaderBinaryFormat = switch (request.backend) {
+                .vulkan => .{ self.spirv, .spirv },
+                .dx12 => .{ self.dxil, .dxil },
+                else => return error.UnsupportedShaderBackend,
+            };
+            return .{ .format = format, .bytes = try allocator.dupe(u8, bytes) };
+        }
+    };
+    const module = vit.ShaderModule.init(Prebuilt{ .spirv = &.{ 0x03, 0x02, 0x23, 0x07 }, .dxil = "DXBC" });
+
+    var compiled = try module.compile(std.testing.allocator, .{ .backend = .vulkan, .stage = .compute });
+    defer compiled.deinit(std.testing.allocator);
+    try std.testing.expectEqual(vit.ShaderBinaryFormat.spirv, compiled.format);
+}
+
+test Shader {
+    // Compiled, not run: it needs real shader bytes.
+    _ = &struct {
+        fn example(device: vit.Device, backend: vit.Backend, spirv: []const u8, dxil: []const u8) !vit.Shader {
+            // Bytes built ahead of time, for the backend in use (`Instance.backend()`). To
+            // compile source at run time, pass a `SlangShaderModule` or `HLSLShaderModule`.
+            const module = switch (backend) {
+                .vulkan => vit.BinaryShaderModule.init(.{ .backend = .vulkan, .format = .spirv, .bytes = spirv }),
+                .dx12 => vit.BinaryShaderModule.init(.{ .backend = .dx12, .format = .dxil, .bytes = dxil, .entry_point = "vs_main" }),
+                else => return error.UnsupportedShaderBackend,
+            };
+            // The shader can go once the pipelines made from it exist.
+            return vit.Shader.init(device, .{ .label = "sprite.vert", .stage = .vertex, .source = module });
+        }
+    }.example;
+}

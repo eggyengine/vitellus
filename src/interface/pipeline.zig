@@ -148,3 +148,62 @@ pub const ComputePipeline = struct {
         self.vtable.deinitFn(self);
     }
 };
+
+const std = @import("std");
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test PipelineLayout {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // Every bind group a pipeline's shaders read, in set order: here one, at set 0.
+    const material = try vit.BindGroupLayout.init(gpu.device, .{ .entries = &.{
+        .{ .binding = 0, .kind = .{ .buffer = .{ .kind = .uniform } }, .visibility = .{ .vertex = true } },
+    } });
+    defer material.deinit();
+    const layout = try vit.PipelineLayout.init(gpu.device, .{ .bind_group_layouts = &.{material} });
+    defer layout.deinit();
+}
+
+test GraphicsPipeline {
+    // Compiled, not run: the shaders come from your shader compiler (see `vit.Shader`).
+    _ = &struct {
+        fn example(device: vit.Device, vertex: vit.Shader, fragment: vit.Shader, layout: vit.PipelineLayout) !vit.GraphicsPipeline {
+            // Two floats of position per vertex at location 0, alpha-blended into an
+            // sRGB target. Everything here is fixed once made; make one pipeline per variant.
+            return vit.GraphicsPipeline.init(device, .{
+                .vertex = vertex,
+                .fragment = fragment,
+                .layout = layout,
+                .vertex_buffers = &.{.{ .stride = 2 * @sizeOf(f32), .attributes = &.{.{ .location = 0, .format = .float32x2, .offset = 0 }} }},
+                .raster = .{ .cull_mode = .none },
+                .color_targets = &.{.{
+                    .format = .bgra8_unorm_srgb,
+                    .blend = .{ .color = .{ .source = .src_alpha, .destination = .one_minus_src_alpha } },
+                }},
+            });
+        }
+    }.example;
+}
+
+test ComputePipeline {
+    // Compiled, not run: the shader comes from your shader compiler (see `vit.Shader`).
+    _ = &struct {
+        fn example(device: vit.Device, cmd: vit.CommandBuffer, compute: vit.Shader, layout: vit.PipelineLayout, group: vit.BindGroup, count: u32) !vit.ComputePipeline {
+            const pipeline = try vit.ComputePipeline.init(device, .{ .compute = compute, .layout = layout });
+            errdefer pipeline.deinit();
+
+            // One workgroup per 64 elements, for a shader declared `[numthreads(64, 1, 1)]`.
+            // Keep the pipeline until the GPU has run the commands.
+            try cmd.beginComputePass("scale");
+            cmd.setComputePipeline(pipeline);
+            cmd.setBindGroup(0, group, &.{});
+            cmd.dispatch((count + 63) / 64, 1, 1);
+            cmd.endComputePass();
+            return pipeline;
+        }
+    }.example;
+}

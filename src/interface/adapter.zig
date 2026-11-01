@@ -292,3 +292,24 @@ test "pick takes KosmicKrisp over MoltenVK for the same GPU, not over a discrete
     const discrete: AdapterInfo = .{ .kind = .discrete, .dedicated_vram = 4 << 30 };
     try std.testing.expect(!Adapter.better(kosmickrisp, discrete, .high_performance));
 }
+
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Adapter {
+    const instance = vit.Instance.init(std.testing.allocator, .{ .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    // The strongest GPU; `.source = .software` asks for a CPU rasterizer (WARP, llvmpipe).
+    const adapter = vit.Adapter.init(instance, .{}) catch return error.SkipZigTest;
+    defer adapter.deinit();
+
+    // Ask what it has before relying on it: optional features, limits and what each
+    // format can be used for.
+    const caps = adapter.capabilities();
+    const hdr = adapter.formatCapabilities(.rgba16_float);
+    try std.testing.expect(adapter.info().nameSlice().len > 0);
+    try std.testing.expect(caps.limits.max_texture_dimension_2d >= 4096);
+    try std.testing.expect(hdr.usage.sampled);
+}

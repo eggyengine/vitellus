@@ -69,3 +69,50 @@ pub const SubmitDescriptor = struct {
     wait_fences: []const FencePoint = &.{},
     signal_fences: []const FencePoint = &.{},
 };
+
+const std = @import("std");
+// Doc tests below: Zig's generated docs show each one as its type's example, and
+// `zig build test` runs it, on the machine's GPU when it has one.
+const vit = @import("../root.zig");
+const ExampleGpu = @import("example_gpu.zig");
+
+test Fence {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // A counter the GPU raises: each submission signals a higher value, and the CPU waits
+    // for the value it needs, such as the frame from two frames ago, instead of `waitIdle`.
+    const fence = try vit.Fence.init(gpu.device, .{});
+    defer fence.deinit();
+    const pool = try vit.CommandPool.init(gpu.device, .{});
+    defer pool.deinit();
+    const cmd = try vit.CommandBuffer.init(pool, .{});
+    defer cmd.deinit();
+    try cmd.finish();
+    try gpu.queue.submit(.{ .command_buffers = &.{cmd}, .signal_fences = &.{.{ .fence = fence, .value = 1 }} });
+
+    // Null waits as long as it takes; with a timeout, false means the time ran out first.
+    try std.testing.expect(try fence.wait(1, null));
+    try std.testing.expect(fence.currentValue() >= 1);
+}
+
+test Semaphore {
+    const gpu = try ExampleGpu.open(.{});
+    defer gpu.close();
+
+    // Orders two submissions on the GPU without the CPU waiting between them. A swapchain
+    // uses one to say an image is free to draw into.
+    const ready = try vit.Semaphore.init(gpu.device, .{});
+    defer ready.deinit();
+    const pool = try vit.CommandPool.init(gpu.device, .{});
+    defer pool.deinit();
+    const first = try vit.CommandBuffer.init(pool, .{});
+    defer first.deinit();
+    const second = try vit.CommandBuffer.init(pool, .{});
+    defer second.deinit();
+    try first.finish();
+    try second.finish();
+    try gpu.queue.submit(.{ .command_buffers = &.{first}, .signal_semaphores = &.{ready} });
+    try gpu.queue.submit(.{ .command_buffers = &.{second}, .wait_semaphores = &.{ready} });
+    try gpu.queue.waitIdle();
+}
