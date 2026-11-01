@@ -102,6 +102,7 @@ test {
     _ = @import("interface/instance.zig");
     _ = @import("interface/shader.zig");
     _ = @import("interface/settings.zig");
+    _ = @import("interface/texture_layout.zig");
     if (comptime options.enable_dx12) {
         _ = @import("backends/dx12/resource.zig");
         _ = @import("backends/dx12/shader.zig");

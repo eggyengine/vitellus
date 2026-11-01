@@ -6,6 +6,7 @@ const Dx12Device = @import("device.zig").Dx12Device;
 const dx = @import("dx12_c");
 const utils = @import("utils.zig");
 const d3d12ma = @import("d3d12ma.zig");
+const texture_layout = @import("../../interface/texture_layout.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
 const log = std.log.scoped(.dx12_resource);
@@ -165,7 +166,6 @@ pub fn unmapBuffer(value: resource.Buffer, written: ?resource.BufferRange) void 
 
 pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror!resource.Texture {
     if (desc.width == 0 or desc.height == 0 or desc.depth_or_layers == 0 or desc.mip_levels == 0 or desc.sample_count == 0) return error.InvalidTextureSize;
-    if (desc.initial_data != null and (desc.dimension != .d2 or desc.depth_or_layers != 1 or desc.sample_count != 1)) return error.UnsupportedInitialTextureShape;
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12Texture);
     self.* = .{ .allocator = device.allocator, .desc = desc };
@@ -454,15 +454,21 @@ fn uploadTexture(
     data: []const u8,
 ) !void {
     const device = owner.device.unwrap();
-    const packed_row_size = @as(u64, desc.width) * (bytesPerPixel(desc.format) orelse return error.UnsupportedUploadFormat);
-    const source_row_size = if (desc.bytes_per_row == 0) packed_row_size else desc.bytes_per_row;
-    if (source_row_size < packed_row_size or data.len < source_row_size * desc.height) return error.InitialDataTooSmall;
+    // The subresources the data covers, in D3D12's order (mips within each layer).
+    var subresources: std.ArrayList(texture_layout.Subresource) = .empty;
+    defer subresources.deinit(owner.allocator);
+    var walk: texture_layout.Iterator = try .init(desc);
+    while (try walk.next()) |sub| try subresources.append(owner.allocator, sub);
+    const count: u32 = @intCast(subresources.items.len);
 
-    var footprint: dx.D3D12_PLACED_SUBRESOURCE_FOOTPRINT = undefined;
-    var row_count: u32 = 0;
-    var row_size: u64 = 0;
+    const footprints = try owner.allocator.alloc(dx.D3D12_PLACED_SUBRESOURCE_FOOTPRINT, count);
+    defer owner.allocator.free(footprints);
+    const row_counts = try owner.allocator.alloc(u32, count);
+    defer owner.allocator.free(row_counts);
+    const row_sizes = try owner.allocator.alloc(u64, count);
+    defer owner.allocator.free(row_sizes);
     var upload_size: u64 = 0;
-    device.lpVtbl.*.GetCopyableFootprints.?(device, texture_desc, 0, 1, 0, &footprint, &row_count, &row_size, &upload_size);
+    device.lpVtbl.*.GetCopyableFootprints.?(device, texture_desc, 0, count, 0, footprints.ptr, row_counts.ptr, row_sizes.ptr, &upload_size);
 
     var upload: ComPtr(dx.ID3D12Resource) = .{};
     var upload_memory: ?d3d12ma.Allocation = null;
@@ -472,10 +478,13 @@ fn uploadTexture(
     const read_range = dx.D3D12_RANGE{ .Begin = 0, .End = 0 };
     try checkHr(upload.unwrap().lpVtbl.*.Map.?(upload.unwrap(), 0, &read_range, &mapped));
     const destination_bytes: [*]u8 = @ptrCast(mapped orelse return error.MapFailed);
-    for (0..row_count) |row| {
-        const source_offset = row * source_row_size;
-        const destination_offset = footprint.Offset + row * footprint.Footprint.RowPitch;
-        @memcpy(destination_bytes[destination_offset..][0..row_size], data[source_offset..][0..row_size]);
+    // Rows move from the packed layout to D3D12's pitched one, slice by slice.
+    for (subresources.items, footprints, row_counts, row_sizes) |sub, footprint, rows, row_size| {
+        for (0..sub.depth) |slice| for (0..rows) |row| {
+            const source_offset = sub.offset + (slice * sub.rows + row) * sub.bytes_per_row;
+            const destination_offset = footprint.Offset + (slice * rows + row) * footprint.Footprint.RowPitch;
+            @memcpy(destination_bytes[destination_offset..][0..row_size], data[source_offset..][0..row_size]);
+        };
     }
     upload.unwrap().lpVtbl.*.Unmap.?(upload.unwrap(), 0, null);
 
@@ -498,17 +507,19 @@ fn uploadTexture(
     try checkHr(device.lpVtbl.*.CreateCommandList.?(device, 0, dx.D3D12_COMMAND_LIST_TYPE_COPY, allocator.unwrap(), null, &dx.IID_ID3D12GraphicsCommandList, @ptrCast(list.put())));
 
     const commands = list.unwrap();
-    const source = dx.D3D12_TEXTURE_COPY_LOCATION{
-        .pResource = upload.unwrap(),
-        .Type = dx.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-        .unnamed_0 = .{ .PlacedFootprint = footprint },
-    };
-    const target = dx.D3D12_TEXTURE_COPY_LOCATION{
-        .pResource = destination,
-        .Type = dx.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-        .unnamed_0 = .{ .SubresourceIndex = 0 },
-    };
-    commands.lpVtbl.*.CopyTextureRegion.?(commands, &target, 0, 0, 0, &source, null);
+    for (subresources.items, footprints) |sub, footprint| {
+        const source = dx.D3D12_TEXTURE_COPY_LOCATION{
+            .pResource = upload.unwrap(),
+            .Type = dx.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+            .unnamed_0 = .{ .PlacedFootprint = footprint },
+        };
+        const target = dx.D3D12_TEXTURE_COPY_LOCATION{
+            .pResource = destination,
+            .Type = dx.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+            .unnamed_0 = .{ .SubresourceIndex = sub.index },
+        };
+        commands.lpVtbl.*.CopyTextureRegion.?(commands, &target, 0, 0, 0, &source, null);
+    }
     const barrier = dx.D3D12_RESOURCE_BARRIER{
         .Type = dx.D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
         .Flags = dx.D3D12_RESOURCE_BARRIER_FLAG_NONE,

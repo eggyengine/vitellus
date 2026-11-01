@@ -1,6 +1,7 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const resource = @import("../../interface/resource.zig");
+const texture_layout = @import("../../interface/texture_layout.zig");
 const vkDevice = @import("device.zig").vkDevice;
 const adapter_impl = @import("adapter.zig");
 const vma = @import("vma.zig");
@@ -240,21 +241,32 @@ fn destroySampler(value: resource.Sampler) void {
 }
 
 fn uploadTexture(device: *vkDevice, image: vk.Image, format: vk.Format, desc: resource.TextureDescriptor, data: []const u8) !void {
-    if (data.len == 0) return error.InvalidInitialData;
+    // One copy per subresource the data covers; the walk validates it first.
+    var regions: std.ArrayList(vk.BufferImageCopy) = .empty;
+    defer regions.deinit(device.allocator);
+    const aspect = aspectMask(.all, format);
+    const block = texture_layout.block(desc.format).?;
+    var walk: texture_layout.Iterator = try .init(desc);
+    while (try walk.next()) |sub| try regions.append(device.allocator, .{
+        .buffer_offset = sub.offset,
+        .buffer_row_length = @intCast(sub.bytes_per_row / block.bytes * block.width),
+        .buffer_image_height = 0,
+        .image_subresource = .{ .aspect_mask = aspect, .mip_level = sub.mip, .base_array_layer = sub.layer, .layer_count = 1 },
+        .image_offset = .{ .x = 0, .y = 0, .z = 0 },
+        .image_extent = .{ .width = sub.width, .height = sub.height, .depth = sub.depth },
+    });
+
     const made = try vma.createBuffer(device.memory, &.{ .size = data.len, .usage = .{ .transfer_src = true }, .sharing_mode = .exclusive }, .write);
     defer vma.destroyBuffer(device.memory, made.buffer, made.allocation);
-    const staging = made.buffer;
     @memcpy(made.mapped.?[0..data.len], data);
     const pool = try device.proxy.createCommandPool(&.{ .flags = .{ .transient = true }, .queue_family_index = device.queues.graphics_family }, null);
     defer device.proxy.destroyCommandPool(pool, null);
     var cmd: vk.CommandBuffer = undefined;
     try device.proxy.allocateCommandBuffers(&.{ .command_pool = pool, .level = .primary, .command_buffer_count = 1 }, @ptrCast(&cmd));
     try device.proxy.beginCommandBuffer(cmd, &.{ .flags = .{ .one_time_submit = true } });
-    const aspect = aspectMask(.all, format);
-    const range: vk.ImageSubresourceRange = .{ .aspect_mask = aspect, .base_mip_level = 0, .level_count = 1, .base_array_layer = 0, .layer_count = 1 };
+    const range: vk.ImageSubresourceRange = .{ .aspect_mask = aspect, .base_mip_level = 0, .level_count = vk.REMAINING_MIP_LEVELS, .base_array_layer = 0, .layer_count = vk.REMAINING_ARRAY_LAYERS };
     device.proxy.cmdPipelineBarrier(cmd, .{ .top_of_pipe = true }, .{ .transfer = true }, .{}, null, null, &.{.{ .src_access_mask = .{}, .dst_access_mask = .{ .transfer_write = true }, .old_layout = .undefined, .new_layout = .transfer_dst_optimal, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
-    const row_length = try bufferRowLength(format, desc.bytes_per_row);
-    device.proxy.cmdCopyBufferToImage(cmd, staging, image, .transfer_dst_optimal, &.{.{ .buffer_offset = 0, .buffer_row_length = row_length, .buffer_image_height = 0, .image_subresource = .{ .aspect_mask = aspect, .mip_level = 0, .base_array_layer = 0, .layer_count = 1 }, .image_offset = .{ .x = 0, .y = 0, .z = 0 }, .image_extent = .{ .width = desc.width, .height = desc.height, .depth = if (desc.dimension == .d3) desc.depth_or_layers else 1 } }});
+    device.proxy.cmdCopyBufferToImage(cmd, made.buffer, image, .transfer_dst_optimal, regions.items);
     device.proxy.cmdPipelineBarrier(cmd, .{ .transfer = true }, .{ .all_commands = true }, .{}, null, null, &.{.{ .src_access_mask = .{ .transfer_write = true }, .dst_access_mask = .{ .memory_read = true, .memory_write = true }, .old_layout = .transfer_dst_optimal, .new_layout = .general, .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED, .image = image, .subresource_range = range }});
     try device.proxy.endCommandBuffer(cmd);
     const queue = device.proxy.getDeviceQueue(device.queues.graphics_family, 0);

@@ -123,9 +123,12 @@ pub const TextureDescriptor = struct {
     sample_count: u32 = 1,
     format: Format,
     usage: TextureUsage,
-    /// Optional tightly packed data for mip 0 and array layer 0.
+    /// Optional data for the texture, copied during creation: array layer by layer (a cube's
+    /// six faces are layers), each layer's mips largest first, each tightly packed (rows of
+    /// texel blocks, then depth slices). It may stop after any whole subresource, leaving the
+    /// rest undefined. Not for multisampled textures. See `texture_layout.zig`.
     initial_data: ?[]const u8 = null,
-    /// Source row stride for `initial_data`; `0` uses width × format size.
+    /// Row stride for `initial_data` on single-mip textures; `0` packs rows tightly.
     bytes_per_row: u32 = 0,
 };
 /// Texture subresource range exposed by a view.
