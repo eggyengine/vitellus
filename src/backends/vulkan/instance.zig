@@ -35,6 +35,8 @@ pub const vkInstance = struct {
         .enumerateAdaptersFn = enumerateAdaptersImpl,
     };
 
+    /// `Instance.init` for Vulkan: loads the Vulkan loader at run time and makes an instance with
+    /// the surface extensions this platform needs, and validation as `config` asks.
     pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Instance {
         const self = try allocator.create(vkInstance);
         errdefer allocator.destroy(self);
@@ -231,9 +233,11 @@ pub const vkInstance = struct {
         self.release(allocator);
     }
 
+    /// Keep the instance alive for one more owner (an adapter), until its `release`.
     pub fn retain(self: *vkInstance) void {
         self.ref_count += 1;
     }
+    /// Drop one owner; the last one destroys the instance and unloads Vulkan.
     pub fn release(self: *vkInstance, allocator: std.mem.Allocator) void {
         self.ref_count -= 1;
         if (self.ref_count != 0) return;

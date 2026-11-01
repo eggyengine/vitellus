@@ -107,6 +107,7 @@ pub const SurfaceCapabilities = struct {
     max_image_count: u32,
     min_extent: swapchain.Extent2D,
     max_extent: swapchain.Extent2D,
+    /// Free the format and present-mode lists `Adapter.surfaceCapabilities` allocated.
     pub fn deinit(self: SurfaceCapabilities) void {
         self.allocator.free(self.formats);
         self.allocator.free(self.present_modes);
@@ -165,6 +166,8 @@ pub const Adapter = struct {
         surfaceCapabilitiesFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, window: Window) anyerror!SurfaceCapabilities,
     };
 
+    /// Pick a GPU from `instance` by `desc`'s preference (power, a named device, or a
+    /// surface it must present to). Destroy it with `deinit` after every device made from it.
     pub fn init(instance: Instance, desc: AdapterDescriptor) !Adapter {
         var adapter = try instance.createAdapter(desc);
         adapter.validation = instance.config.validation;
@@ -242,12 +245,18 @@ pub const Adapter = struct {
         return self.vtable.infoFn(self.ptr);
     }
 
+    /// What this GPU supports: limits, optional features and its identity. Check
+    /// `features` before asking for one in `DeviceDescriptor.required_features`.
     pub fn capabilities(self: Adapter) AdapterCapabilities {
         return self.vtable.capabilitiesFn(self.ptr);
     }
+    /// How `format` may be used on this GPU (sampled, storage, attachments) and which sample
+    /// counts it takes; all false for formats it can't use at all.
     pub fn formatCapabilities(self: Adapter, format: resource.Format) FormatCapabilities {
         return self.vtable.formatCapabilitiesFn(self.ptr, format);
     }
+    /// The formats and present modes this GPU can show `window` with. The caller owns the
+    /// result; free it with `SurfaceCapabilities.deinit`.
     pub fn surfaceCapabilities(self: Adapter, allocator: std.mem.Allocator, window: Window) !SurfaceCapabilities {
         return self.vtable.surfaceCapabilitiesFn(self.ptr, allocator, window);
     }

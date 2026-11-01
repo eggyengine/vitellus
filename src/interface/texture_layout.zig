@@ -5,6 +5,7 @@ const resource = @import("resource.zig");
 /// A format's texel block: 1×1 for uncompressed formats, 4×4 for BC.
 pub const Block = struct { width: u32 = 1, height: u32 = 1, bytes: u32 };
 
+/// The texel block `format` is stored in; null for `undefined`.
 pub fn block(format: resource.Format) ?Block {
     return switch (format) {
         .undefined => null,
@@ -34,6 +35,7 @@ pub const Subresource = struct {
     height: u32,
     depth: u32,
 
+    /// Bytes the subresource takes in the data.
     pub fn size(self: Subresource) u64 {
         return self.bytes_per_row * self.rows * self.depth;
     }
@@ -50,6 +52,8 @@ pub const Iterator = struct {
     mip: u32 = 0,
     layer: u32 = 0,
 
+    /// Start walking `desc.initial_data`. Fails for empty data, multisampled textures, formats
+    /// with no block size, and `bytes_per_row` on a texture with several mips.
     pub fn init(desc: resource.TextureDescriptor) !Iterator {
         const data = desc.initial_data orelse return error.InvalidInitialData;
         if (data.len == 0) return error.InvalidInitialData;

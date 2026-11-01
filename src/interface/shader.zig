@@ -137,6 +137,7 @@ pub const BinaryShaderModule = struct {
         bytes: []const u8,
         entry_point: []const u8,
 
+        /// Hand back a copy of the bytes, for the backend they were built for only.
         pub fn compile(
             self: *const Context,
             allocator: std.mem.Allocator,
@@ -175,9 +176,12 @@ pub const Shader = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (Shader) void };
 
+    /// Compile `desc.source` for this device's backend and stage. Pipelines take a copy, so the
+    /// shader may be destroyed once they are made.
     pub fn init(device: anytype, desc: ShaderDescriptor) !Shader {
         return if (device.vtable.createShaderFn) |f| f(device.ptr, device.allocator, desc) else error.Unsupported;
     }
+    /// Destroy the shader.
     pub fn deinit(self: Shader) void {
         self.vtable.deinitFn(self);
     }

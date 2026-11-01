@@ -42,6 +42,7 @@ pub const Dx12Adapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
+    /// `Adapter.init` for DirectX 12: the DXGI adapter `desc` prefers, by power preference.
     pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
         const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
         const self = try allocator.create(Dx12Adapter);

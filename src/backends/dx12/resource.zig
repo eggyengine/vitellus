@@ -19,6 +19,7 @@ pub const Dx12Buffer = struct {
     memory: resource.MemoryLocation,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 buffer behind an interface handle.
     pub fn fromHandle(value: resource.Buffer) !*Dx12Buffer {
         if (value.handle == 0) return error.InvalidBuffer;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -32,6 +33,7 @@ pub const Dx12Texture = struct {
     desc: resource.TextureDescriptor,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 texture behind an interface handle.
     pub fn fromHandle(value: resource.Texture) !*Dx12Texture {
         if (value.handle == 0) return error.InvalidTexture;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -62,6 +64,7 @@ pub const Dx12TextureView = struct {
     dsv_index: ?u32 = null,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 texture view behind an interface handle.
     pub fn fromHandle(value: resource.TextureView) !*Dx12TextureView {
         if (value.handle == 0) return error.InvalidTextureView;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -73,6 +76,7 @@ pub const Dx12TextureView = struct {
         return if (self.rtv.ptr == 0) null else self.rtv;
     }
 
+    /// The depth-stencil view, looked up now like `rtvHandle`; null when the view has none.
     pub fn dsvHandle(self: *const Dx12TextureView) ?dx.D3D12_CPU_DESCRIPTOR_HANDLE {
         const index = self.dsv_index orelse return null;
         return self.owner.?.dsvs.cpu(index);
@@ -87,6 +91,9 @@ const buffer_vtable: resource.Buffer.VTable = .{
 const texture_vtable: resource.Texture.VTable = .{ .deinitFn = destroyTexture };
 pub const texture_view_vtable: resource.TextureView.VTable = .{ .deinitFn = destroyTextureView };
 
+/// `Buffer.init` for DirectX 12, placed by D3D12MA. Initial data is written through the
+/// mapping for upload buffers, and copied through a staging buffer for device ones, waiting
+/// for the copy.
 pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!resource.Buffer {
     if (desc.size == 0) return error.InvalidBufferSize;
     if (desc.initial_data) |data| {
@@ -130,6 +137,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &buffer_vtable };
 }
 
+/// `Buffer.deinit` for DirectX 12.
 pub fn destroyBuffer(value: resource.Buffer) void {
     const self = Dx12Buffer.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -139,6 +147,7 @@ pub fn destroyBuffer(value: resource.Buffer) void {
     allocator.destroy(self);
 }
 
+/// `Buffer.map` for DirectX 12: readback buffers map for reading, upload buffers for writing.
 pub fn mapBuffer(value: resource.Buffer, mode: resource.MapMode, range: resource.BufferRange) anyerror![]u8 {
     const self = try Dx12Buffer.fromHandle(value);
     if (range.size == 0 or range.offset > self.size or range.size > self.size - range.offset) return error.InvalidMapRange;
@@ -153,6 +162,7 @@ pub fn mapBuffer(value: resource.Buffer, mode: resource.MapMode, range: resource
     return bytes[@intCast(range.offset)..@intCast(range.offset + range.size)];
 }
 
+/// `Buffer.unmap` for DirectX 12, telling the driver which bytes were written.
 pub fn unmapBuffer(value: resource.Buffer, written: ?resource.BufferRange) void {
     const self = Dx12Buffer.fromHandle(value) catch return;
     var native_range: dx.D3D12_RANGE = .{ .Begin = 0, .End = 0 };
@@ -164,6 +174,8 @@ pub fn unmapBuffer(value: resource.Buffer, written: ?resource.BufferRange) void 
     self.resource.unwrap().lpVtbl.*.Unmap.?(self.resource.unwrap(), 0, &native_range);
 }
 
+/// `Texture.init` for DirectX 12, placed by D3D12MA (attachments in heaps of their own).
+/// Initial data is copied through a staging buffer, waiting for the copy.
 pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror!resource.Texture {
     if (desc.width == 0 or desc.height == 0 or desc.depth_or_layers == 0 or desc.mip_levels == 0 or desc.sample_count == 0) return error.InvalidTextureSize;
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
@@ -209,6 +221,7 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
 
+/// `Texture.deinit` for DirectX 12.
 pub fn destroyTexture(value: resource.Texture) void {
     const self = Dx12Texture.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -218,6 +231,8 @@ pub fn destroyTexture(value: resource.Texture) void {
     allocator.destroy(self);
 }
 
+/// `TextureView.init` for DirectX 12, with render-target and depth-stencil descriptors when
+/// the texture is an attachment.
 pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) anyerror!resource.TextureView {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const texture = try Dx12Texture.fromHandle(desc.texture);
@@ -337,6 +352,7 @@ fn depthStencilViewDesc(format: dx.DXGI_FORMAT, dimension: resource.TextureViewD
     return result;
 }
 
+/// `TextureView.deinit` for DirectX 12, freeing its descriptors.
 pub fn destroyTextureView(value: resource.TextureView) void {
     const self = Dx12TextureView.fromHandle(value) catch return;
     if (self.rtv_index) |index| self.owner.?.freeRtv(index);
@@ -566,6 +582,8 @@ test "every public texture format has a DXGI mapping" {
     }
 }
 
+/// Bytes per texel of uncompressed formats; null for block-compressed ones and `undefined`.
+/// `texture_layout.block` covers both.
 pub fn bytesPerPixel(format: resource.Format) ?u64 {
     return switch (format) {
         .undefined => null,
@@ -579,6 +597,7 @@ pub fn bytesPerPixel(format: resource.Format) ?u64 {
     };
 }
 
+/// Vitellus's format as DXGI names it.
 pub fn toDxFormat(format: resource.Format) dx.DXGI_FORMAT {
     return switch (format) {
         .undefined => dx.DXGI_FORMAT_UNKNOWN,

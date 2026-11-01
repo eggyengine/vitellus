@@ -74,6 +74,9 @@ pub const Uploader = struct {
         self.gpa.destroy(self);
     }
 
+    /// Record copying `write.data` into `write.buffer` at `write.offset`, moving the buffer from
+    /// `before` to `after`. The data is copied now, so it may be freed on return; the GPU copies
+    /// it once the next `flush` is submitted.
     pub fn writeBuffer(self: *Uploader, write: BufferWrite) !void {
         if (write.data.len == 0) return;
         const batch = try self.open();
@@ -83,6 +86,8 @@ pub const Uploader = struct {
         try batch.cmd.barrier(&.{.{ .buffer = .{ .buffer = write.buffer, .before = .copy_destination, .after = write.after } }});
     }
 
+    /// Record copying each of `write.levels` from `write.data` into the texture's subresources,
+    /// moving all of them from `before` to `after`. Like `writeBuffer`, the data is copied now.
     pub fn writeTexture(self: *Uploader, write: TextureWrite) !void {
         if (write.levels.len == 0) return;
         const batch = try self.open();

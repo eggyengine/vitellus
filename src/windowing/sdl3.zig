@@ -12,6 +12,8 @@ pub const Sdl3Window = struct {
     window: sdl.video.Window,
     metal_view: ?sdl.MetalView = null,
 
+    /// Wrap an SDL window for Vitellus, making the Metal view macOS and iOS surfaces need.
+    /// Takes ownership of `window`: `deinit` destroys it.
     pub fn init(window: sdl.video.Window) Sdl3Window {
         return .{
             .window = window,
@@ -19,11 +21,13 @@ pub const Sdl3Window = struct {
         };
     }
 
+    /// Destroy the Metal view, if any, and the window.
     pub fn deinit(self: *Sdl3Window) void {
         if (self.metal_view) |view| view.deinit();
         self.window.deinit();
     }
 
+    /// Wrap an SDL window with a Metal view the caller already made; `deinit` destroys both.
     pub fn initWithMetalView(window: sdl.video.Window, metal_view: sdl.MetalView) Sdl3Window {
         return .{
             .window = window,
@@ -31,6 +35,8 @@ pub const Sdl3Window = struct {
         };
     }
 
+    /// The window as Vitellus takes it for surfaces and swapchains. Borrows `self`, which must
+    /// stay where it is while the result is used.
     pub fn asWindow(self: *const @This()) !vitellus.Window {
         return .{
             .display_handle = candler.HasDisplayHandle.init(self),
@@ -38,6 +44,8 @@ pub const Sdl3Window = struct {
         };
     }
 
+    /// The native window (Win32, X11, Wayland, Cocoa, UIKit or Android) SDL made, for the
+    /// backend to make a surface on.
     pub fn windowHandle(self: *const Sdl3Window) candler.HandleError!candler.WindowHandle {
         const props = self.properties() catch return error.Unavailable;
 
@@ -93,6 +101,7 @@ pub const Sdl3Window = struct {
         return error.NotSupported;
     }
 
+    /// The native display connection that goes with `windowHandle`.
     pub fn displayHandle(self: *const Sdl3Window) candler.HandleError!candler.DisplayHandle {
         const props = self.properties() catch return error.Unavailable;
 

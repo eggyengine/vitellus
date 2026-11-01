@@ -22,6 +22,7 @@ pub const Dx12Instance = struct {
         .enumerateAdaptersFn = enumerateAdaptersImpl,
     };
 
+    /// `Instance.init` for DirectX 12: a DXGI factory, with the debug layer as `config` asks.
     pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Instance {
         const self = try allocator.create(Dx12Instance);
         self.* = .{};

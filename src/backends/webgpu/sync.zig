@@ -21,6 +21,7 @@ pub const WgpuFence = struct {
 
     const vtable: sync.Fence.VTable = .{ .deinitFn = deinit, .currentValueFn = currentValue, .waitFn = wait };
 
+    /// `Fence.init` for WebGPU, which has no fences: values are set as the queue reports work done.
     pub fn create(ptr: *anyopaque, desc: sync.FenceDescriptor) anyerror!sync.Fence {
         const device: *WgpuDevice = @ptrCast(@alignCast(ptr));
         const self = try device.allocator.create(WgpuFence);
@@ -28,6 +29,7 @@ pub const WgpuFence = struct {
         return .{ .handle = handleOf(self), .vtable = &vtable };
     }
 
+    /// Set the fence to `value` once the work submitted to `queue` so far is done.
     pub fn signalAfter(self: *WgpuFence, queue: c.WGPUQueue, value: u64) !void {
         const signal = try self.allocator.create(Signal);
         signal.* = .{ .fence = self, .value = value };

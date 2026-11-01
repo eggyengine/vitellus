@@ -41,6 +41,7 @@ pub const Hasher = struct {
         }
     }
 
+    /// The key for everything hashed so far.
     pub fn finish(self: *Hasher) ShaderDiskCache.Key {
         var digest: [std.crypto.hash.Blake3.digest_length]u8 = undefined;
         self.inner.final(&digest);

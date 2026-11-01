@@ -38,6 +38,8 @@ pub const Queue = struct {
         waitIdleFn: ?*const fn (*anyopaque) anyerror!void = null,
     };
 
+    /// Get a queue of `desc.kind` from `device`. Submit command buffers from pools of the same
+    /// kind; destroy the queue after waiting for it and before the device.
     pub fn init(device: anytype, desc: QueueDescriptor) !Queue {
         return device.vtable.createQueueFn(device.ptr, device.allocator, desc);
     }

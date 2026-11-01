@@ -22,6 +22,7 @@ pub const Dx12PipelineLayout = struct {
     root_signature: ComPtr(dx.ID3D12RootSignature) = .{},
     /// Of the serialized root signature, for pipeline cache keys.
     root_signature_hash: [32]u8 = @splat(0),
+    /// The DirectX 12 pipeline layout behind an interface handle.
     pub fn fromHandle(value: pipeline.PipelineLayout) !*Dx12PipelineLayout {
         if (value.handle == 0) return error.InvalidPipelineLayout;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -38,6 +39,7 @@ pub const Dx12GraphicsPipeline = struct {
     bind_group_roots: [8]BindGroupRoots = @splat(.{}),
     bind_group_count: u32 = 0,
 
+    /// The DirectX 12 graphics pipeline behind an interface handle.
     pub fn fromHandle(value: pipeline.GraphicsPipeline) !*Dx12GraphicsPipeline {
         if (value.handle == 0) return error.InvalidPipeline;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -48,6 +50,7 @@ pub const Dx12ComputePipeline = struct {
     allocator: std.mem.Allocator,
     layout: *Dx12PipelineLayout,
     state: ComPtr(dx.ID3D12PipelineState) = .{},
+    /// The DirectX 12 compute pipeline behind an interface handle.
     pub fn fromHandle(value: pipeline.ComputePipeline) !*Dx12ComputePipeline {
         if (value.handle == 0) return error.InvalidPipeline;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -58,6 +61,8 @@ const layout_vtable: pipeline.PipelineLayout.VTable = .{ .deinitFn = destroyLayo
 const graphics_vtable: pipeline.GraphicsPipeline.VTable = .{ .deinitFn = destroyGraphics };
 const compute_vtable: pipeline.ComputePipeline.VTable = .{ .deinitFn = destroyCompute };
 
+/// `PipelineLayout.init` for DirectX 12: a root signature with one descriptor table for each
+/// bind group's resources and one for its samplers, up to eight groups.
 pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) anyerror!pipeline.PipelineLayout {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     if (desc.bind_group_layouts.len > 8) return error.TooManyBindGroups;
@@ -71,6 +76,7 @@ pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) an
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
+/// `PipelineLayout.deinit` for DirectX 12.
 pub fn destroyLayout(value: pipeline.PipelineLayout) void {
     const self = Dx12PipelineLayout.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -79,6 +85,8 @@ pub fn destroyLayout(value: pipeline.PipelineLayout) void {
     allocator.destroy(self);
 }
 
+/// `GraphicsPipeline.init` for DirectX 12: a pipeline state, from the disk cache when it holds
+/// one for the same description.
 pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor) anyerror!pipeline.GraphicsPipeline {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const layout = try Dx12PipelineLayout.fromHandle(desc.layout);
@@ -238,6 +246,7 @@ fn descriptorTableParameter(ranges: []const dx.D3D12_DESCRIPTOR_RANGE) dx.D3D12_
     };
 }
 
+/// `GraphicsPipeline.deinit` for DirectX 12.
 pub fn destroyGraphics(value: pipeline.GraphicsPipeline) void {
     const self = Dx12GraphicsPipeline.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -247,6 +256,8 @@ pub fn destroyGraphics(value: pipeline.GraphicsPipeline) void {
     allocator.destroy(self);
 }
 
+/// `ComputePipeline.init` for DirectX 12: a pipeline state, from the disk cache when it holds
+/// one for the same shader and layout.
 pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) anyerror!pipeline.ComputePipeline {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const layout = try Dx12PipelineLayout.fromHandle(desc.layout);
@@ -268,6 +279,7 @@ pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) 
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &compute_vtable };
 }
 
+/// `ComputePipeline.deinit` for DirectX 12.
 pub fn destroyCompute(value: pipeline.ComputePipeline) void {
     const self = Dx12ComputePipeline.fromHandle(value) catch return;
     const allocator = self.allocator;

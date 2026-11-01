@@ -50,10 +50,12 @@ pub const HLSLProfile = enum {
     lib_6_6,
     lib_6_7,
 
+    /// The profile as DXC's `-T` option spells it, such as `ps_6_0`.
     pub fn name(self: HLSLProfile) []const u8 {
         return @tagName(self);
     }
 
+    /// Whether the profile compiles a shader of `stage`; library profiles (`lib_`) take any.
     pub fn supportsStage(self: HLSLProfile, stage: vit.ShaderStage) bool {
         if (std.mem.startsWith(u8, self.name(), "lib_")) return true;
         const prefix: []const u8 = switch (stage) {
@@ -75,6 +77,8 @@ pub const HLSLShaderModule = struct {
         entry_point: []const u8 = "main",
         profile: HLSLProfile,
 
+        /// Compile the HLSL with DXC for `self.profile`: DXIL for DirectX 12, SPIR-V for Vulkan.
+        /// The profile must suit the requested stage. The caller owns the result.
         pub fn compile(
             self: *const Descriptor,
             allocator: std.mem.Allocator,
@@ -156,6 +160,8 @@ pub const HLSLShaderModule = struct {
         }
     };
 
+    /// A shader module that compiles `desc`'s HLSL with DXC when a `Shader` is made from it, for
+    /// DirectX 12 or Vulkan. `desc.code` is borrowed until then.
     pub fn init(desc: Descriptor) ShaderModule {
         return ShaderModule.init(desc);
     }

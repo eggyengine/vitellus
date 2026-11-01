@@ -71,6 +71,7 @@ pub const Dx12CommandBuffer = struct {
     };
     const Table = struct { heap: enum { resources, samplers }, index: u32 };
 
+    /// The DirectX 12 command list behind an interface command buffer.
     pub fn fromCommandBuffer(value: command.CommandBuffer) *Dx12CommandBuffer {
         return @ptrCast(@alignCast(value.ptr));
     }
@@ -142,6 +143,8 @@ pub const command_buffer_vtable: command.CommandBuffer.VTable = .{
     .finishFn = finish,
 };
 
+/// `CommandPool.init` for DirectX 12. Each command buffer has an allocator of its own, so
+/// the pool only counts them.
 pub fn createPool(ptr: *anyopaque, desc: command.CommandPoolDescriptor) anyerror!command.CommandPool {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12CommandPool);
@@ -155,6 +158,7 @@ pub fn createPool(ptr: *anyopaque, desc: command.CommandPoolDescriptor) anyerror
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &pool_vtable };
 }
 
+/// `CommandBuffer.init` for DirectX 12: a command allocator and a list, recording.
 pub fn createBuffer(value: command.CommandPool, desc: command.CommandBufferDescriptor) anyerror!command.CommandBuffer {
     const pool = try Dx12CommandPool.fromHandle(value);
     const self = try pool.allocator.create(Dx12CommandBuffer);
@@ -171,6 +175,7 @@ pub fn createBuffer(value: command.CommandPool, desc: command.CommandBufferDescr
     return .{ .ptr = self, .vtable = &command_buffer_vtable };
 }
 
+/// `CommandPool.deinit` for DirectX 12; does nothing while command buffers remain.
 pub fn destroyPool(value: command.CommandPool) void {
     const self = Dx12CommandPool.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -180,11 +185,14 @@ pub fn destroyPool(value: command.CommandPool) void {
     allocator.destroy(self);
 }
 
+/// `CommandPool.reset` for DirectX 12: nothing to reclaim, as each command buffer frees its
+/// own allocator.
 pub fn resetPool(value: command.CommandPool) anyerror!void {
     const self = try Dx12CommandPool.fromHandle(value);
     if (self.live_buffers != 0) return error.CommandBuffersStillAlive;
 }
 
+/// `CommandBuffer.deinit` for DirectX 12, freeing descriptors made for dynamic offsets.
 pub fn destroyBuffer(ptr: *anyopaque) void {
     const self: *Dx12CommandBuffer = @ptrCast(@alignCast(ptr));
     self.dispatch_signature.deinit();
@@ -198,6 +206,7 @@ pub fn destroyBuffer(ptr: *anyopaque) void {
     self.allocator.destroy(self);
 }
 
+/// `QuerySet.init` for DirectX 12: a query heap.
 pub fn createQuerySet(ptr: *anyopaque, desc: command.QuerySetDescriptor) anyerror!command.QuerySet {
     if (desc.count == 0) return error.InvalidQueryCount;
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
@@ -215,6 +224,7 @@ pub fn createQuerySet(ptr: *anyopaque, desc: command.QuerySetDescriptor) anyerro
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &query_set_vtable };
 }
 
+/// `QuerySet.deinit` for DirectX 12.
 pub fn destroyQuerySet(value: command.QuerySet) void {
     const self = Dx12QuerySet.fromHandle(value) catch return;
     const allocator = self.allocator;

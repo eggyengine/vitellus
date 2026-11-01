@@ -56,6 +56,8 @@ pub const WgpuDevice = struct {
         .createSemaphoreFn = createSemaphore,
     };
 
+    /// `Device.init` for WebGPU: requests a device with the features `desc` requires, waiting for
+    /// the browser's answer.
     pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: device_if.DeviceDescriptor) anyerror!device_if.Device {
         const adapter: *WgpuAdapter = @ptrCast(@alignCast(ptr));
         var features: std.ArrayList(c.WGPUFeatureName) = .empty;
@@ -405,6 +407,7 @@ pub const WgpuDevice = struct {
     }
 };
 
+/// A blend equation as WebGPU names it.
 pub fn blendComponent(component: pipeline.BlendComponent) c.WGPUBlendComponent {
     return .{
         .operation = wgpuEnum("WGPUBlendOperation_", component.operation),
@@ -413,6 +416,7 @@ pub fn blendComponent(component: pipeline.BlendComponent) c.WGPUBlendComponent {
     };
 }
 
+/// One face's stencil state as WebGPU names it.
 pub fn stencilFace(face: pipeline.StencilFaceState) c.WGPUStencilFaceState {
     return .{
         .compare = wgpuEnum("WGPUCompareFunction_", face.compare),

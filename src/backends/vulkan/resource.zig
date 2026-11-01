@@ -18,6 +18,7 @@ pub const vkBuffer = struct {
     size: u64,
     location: resource.MemoryLocation,
 
+    /// The Vulkan buffer behind an interface handle.
     pub fn fromHandle(value: resource.Buffer) !*vkBuffer {
         if (value.handle == 0) return error.InvalidBuffer;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -34,6 +35,7 @@ pub const vkTextureView = struct {
     aspect: vk.ImageAspectFlags = .{ .color = true },
     layout: vk.ImageLayout = .undefined,
 
+    /// The Vulkan image view behind an interface handle.
     pub fn fromHandle(value: resource.TextureView) !*vkTextureView {
         if (value.handle == 0) return error.InvalidTextureView;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -51,6 +53,7 @@ pub const vkTexture = struct {
     layers: u32,
     dimension: resource.TextureDimension,
     layout: vk.ImageLayout = .undefined,
+    /// The Vulkan image behind an interface handle.
     pub fn fromHandle(value: resource.Texture) !*vkTexture {
         if (value.handle == 0) return error.InvalidTexture;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -61,6 +64,7 @@ pub const vkSampler = struct {
     allocator: std.mem.Allocator,
     device: vk.DeviceProxy,
     handle: vk.Sampler,
+    /// The Vulkan sampler behind an interface handle.
     pub fn fromHandle(value: resource.Sampler) !*vkSampler {
         if (value.handle == 0) return error.InvalidSampler;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -77,6 +81,9 @@ const texture_vtable: resource.Texture.VTable = .{ .deinitFn = destroyTexture };
 const texture_view_vtable: resource.TextureView.VTable = .{ .deinitFn = destroyTextureView };
 const sampler_vtable: resource.Sampler.VTable = .{ .deinitFn = destroySampler };
 
+/// `Buffer.init` for Vulkan, in memory VMA picks; host-visible buffers stay mapped. Device
+/// buffers given initial data are made CPU-writable and the data copied straight in, so for
+/// large or often-replaced data prefer `Uploader`, which keeps it in device-only memory.
 pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!resource.Buffer {
     if (desc.size == 0) return error.InvalidBufferSize;
     if (desc.initial_data) |data| {
@@ -145,6 +152,8 @@ fn toVkBufferUsage(usage: resource.BufferUsage) vk.BufferUsageFlags {
     };
 }
 
+/// `Texture.init` for Vulkan. Initial data is copied through a staging buffer, waiting for
+/// the copy, and leaves the image in the general layout.
 pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) !resource.Texture {
     if (desc.width == 0 or desc.height == 0 or desc.depth_or_layers == 0 or desc.mip_levels == 0) return error.InvalidTextureSize;
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
@@ -173,6 +182,7 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) !resourc
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
 
+/// `TextureView.init` for Vulkan.
 pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) !resource.TextureView {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const texture = try vkTexture.fromHandle(desc.texture);
@@ -194,6 +204,7 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_view_vtable };
 }
 
+/// `Sampler.init` for Vulkan.
 pub fn createSampler(ptr: *anyopaque, desc: resource.SamplerDescriptor) !resource.Sampler {
     if (desc.max_anisotropy == 0 or desc.lod_min > desc.lod_max) return error.InvalidSamplerDescriptor;
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
@@ -354,6 +365,7 @@ fn address(v: resource.AddressMode) vk.SamplerAddressMode {
         .clamp_to_edge => .clamp_to_edge,
     };
 }
+/// Vitellus's comparison as Vulkan names it.
 pub fn compare(v: resource.CompareOp) vk.CompareOp {
     return switch (v) {
         .never => .never,

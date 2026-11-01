@@ -36,6 +36,7 @@ pub fn createAllocator(
     return allocator orelse error.InitializationFailed;
 }
 
+/// Destroy the allocator, after every buffer and image it made.
 pub fn destroyAllocator(allocator: Allocator) void {
     vit_vma_destroy_allocator(allocator);
 }
@@ -54,6 +55,8 @@ pub fn budget(allocator: Allocator) MemoryBudget {
     };
 }
 
+/// Make a buffer with its memory. `host_access` picks mapped, coherent memory for writing
+/// or (cached) for reading; `none` prefers device-local memory.
 pub fn createBuffer(allocator: Allocator, info: *const vk.BufferCreateInfo, host_access: HostAccess) !Buffer {
     var buffer: vk.Buffer = .null;
     var allocation: ?Allocation = null;
@@ -62,10 +65,12 @@ pub fn createBuffer(allocator: Allocator, info: *const vk.BufferCreateInfo, host
     return .{ .buffer = buffer, .allocation = allocation.?, .mapped = @ptrCast(mapped) };
 }
 
+/// Destroy a buffer `createBuffer` made, and free its memory.
 pub fn destroyBuffer(allocator: Allocator, buffer: vk.Buffer, allocation: Allocation) void {
     vit_vma_destroy_buffer(allocator, buffer, allocation);
 }
 
+/// Make an image in device-local memory; attachments get an allocation of their own.
 pub fn createImage(allocator: Allocator, info: *const vk.ImageCreateInfo) !Image {
     var image: vk.Image = .null;
     var allocation: ?Allocation = null;
@@ -73,6 +78,7 @@ pub fn createImage(allocator: Allocator, info: *const vk.ImageCreateInfo) !Image
     return .{ .image = image, .allocation = allocation.? };
 }
 
+/// Destroy an image `createImage` made, and free its memory.
 pub fn destroyImage(allocator: Allocator, image: vk.Image, allocation: Allocation) void {
     vit_vma_destroy_image(allocator, image, allocation);
 }

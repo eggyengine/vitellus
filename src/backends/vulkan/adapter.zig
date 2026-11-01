@@ -48,6 +48,7 @@ pub const vkAdapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
+    /// `Adapter.init` for Vulkan: the high-performance GPU when there is one, else the first.
     pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, _: AdapterDescriptor) !Adapter {
         const adapters = try enumerateSlice(instance_ptr, allocator);
         defer allocator.free(adapters);
@@ -59,10 +60,13 @@ pub const vkAdapter = struct {
         return selected;
     }
 
+    /// `Instance.enumerateAdapters` for Vulkan. The caller owns the slice and its adapters.
     pub fn enumerate(instance_ptr: *anyopaque, allocator: std.mem.Allocator) ![]Adapter {
         return enumerateSlice(instance_ptr, allocator);
     }
 
+    /// Every Vulkan GPU, through a short-lived instance of its own, for listing GPUs before
+    /// the app chooses a backend.
     pub fn enumerateStandalone(allocator: std.mem.Allocator) ![]Adapter {
         const instance = try vkInstance.init(allocator, .{ .backend = .{ .vulkan = true }, .validation = .none });
         const backend: *vkInstance = @ptrCast(@alignCast(instance.ptr));
@@ -328,6 +332,7 @@ fn kindFromVk(device_type: vk.PhysicalDeviceType) adapter_interface.Kind {
     };
 }
 
+/// Vitellus's format as Vulkan names it.
 pub fn toVkFormat(format: resource.Format) vk.Format {
     return switch (format) {
         .undefined => .undefined,

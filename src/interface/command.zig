@@ -41,14 +41,19 @@ pub const CommandPool = struct {
         createCommandBufferFn: *const fn (CommandPool, CommandBufferDescriptor) anyerror!CommandBuffer,
     };
 
+    /// Make a pool to allocate command buffers from, for queues of `desc.kind`. Pools aren't
+    /// thread-safe: record from one thread per pool.
     pub fn init(device: anytype, desc: CommandPoolDescriptor) !CommandPool {
         return if (device.vtable.createCommandPoolFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// Reclaim the memory of every command buffer allocated from the pool. Fails with
+    /// `CommandBuffersStillAlive` until they have all been destroyed.
     pub fn reset(self: CommandPool) !void {
         return self.vtable.resetFn(self);
     }
 
+    /// Destroy the pool, after every command buffer allocated from it.
     pub fn deinit(self: CommandPool) void {
         self.vtable.deinitFn(self);
     }
@@ -86,9 +91,12 @@ pub const QuerySet = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (QuerySet) void };
 
+    /// Make `desc.count` occlusion or timestamp queries. Timestamps need the
+    /// `timestamp_query` feature; occlusion queries `occlusion_query`.
     pub fn init(device: anytype, desc: QuerySetDescriptor) !QuerySet {
         return if (device.vtable.createQuerySetFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
+    /// Destroy the queries, once no submitted work still writes or resolves them.
     pub fn deinit(self: QuerySet) void {
         self.vtable.deinitFn(self);
     }
@@ -190,9 +198,12 @@ pub const CommandBuffer = struct {
         insertDebugMarkerFn: *const fn (*anyopaque, []const u8) void,
         finishFn: *const fn (*anyopaque) anyerror!void,
     };
+    /// Allocate a command buffer from `pool`, ready to record. Record, `finish`, then submit it
+    /// to a queue of the pool's kind; destroy it once the GPU has run it.
     pub fn init(pool: CommandPool, desc: CommandBufferDescriptor) !CommandBuffer {
         return pool.vtable.createCommandBufferFn(pool, desc);
     }
+    /// Free the command buffer. The GPU must have finished running it.
     pub fn deinit(self: CommandBuffer) void {
         self.vtable.deinitFn(self.ptr);
     }
@@ -204,9 +215,13 @@ pub const CommandBuffer = struct {
     pub fn setGraphicsPipeline(self: CommandBuffer, value: pipeline.GraphicsPipeline) void {
         self.vtable.setGraphicsPipelineFn(self.ptr, value);
     }
+    /// Start a compute pass: set a compute pipeline and its bind groups, then `dispatch`.
+    /// Barriers go between passes, not inside one. `label` names the pass in GPU debuggers.
     pub fn beginComputePass(self: CommandBuffer, label: ?[]const u8) !void {
         return self.vtable.beginComputePassFn(self.ptr, label);
     }
+    /// Use `value` for the dispatches that follow in this compute pass. Set bind groups after
+    /// it: they are checked against its layout.
     pub fn setComputePipeline(self: CommandBuffer, value: pipeline.ComputePipeline) void {
         self.vtable.setComputePipelineFn(self.ptr, value);
     }
@@ -258,9 +273,13 @@ pub const CommandBuffer = struct {
     pub fn drawIndexed(self: CommandBuffer, indices: u32, instances: u32, first_index: u32, base_vertex: i32, first_instance: u32) void {
         self.vtable.drawIndexedFn(self.ptr, indices, instances, first_index, base_vertex, first_instance);
     }
+    /// Draw with arguments the GPU reads from `buffer` at `offset`: vertex count, instance
+    /// count, first vertex, first instance, as four u32s. `buffer` needs `indirect` usage.
     pub fn drawIndirect(self: CommandBuffer, buffer: resource.Buffer, offset: u64) void {
         self.vtable.drawIndirectFn(self.ptr, buffer, offset);
     }
+    /// Draw indexed with arguments read from `buffer` at `offset`: index count, instance count,
+    /// first index, vertex offset (i32), first instance, as five 32-bit values.
     pub fn drawIndexedIndirect(self: CommandBuffer, buffer: resource.Buffer, offset: u64) void {
         self.vtable.drawIndexedIndirectFn(self.ptr, buffer, offset);
     }
@@ -280,12 +299,18 @@ pub const CommandBuffer = struct {
     pub fn drawIndexedIndirectCount(self: CommandBuffer, buffer: resource.Buffer, offset: u64, count_buffer: resource.Buffer, count_offset: u64, max_draw_count: u32) void {
         self.vtable.drawIndexedIndirectCountFn(self.ptr, buffer, offset, count_buffer, count_offset, max_draw_count);
     }
+    /// Run the compute pipeline over `x` × `y` × `z` workgroups, each the size the shader's
+    /// `numthreads` declares; round up so the groups cover the data, and bounds-check in the
+    /// shader. Stay within `max_compute_workgroups` in `Adapter.capabilities().limits`.
     pub fn dispatch(self: CommandBuffer, x: u32, y: u32, z: u32) void {
         self.vtable.dispatchFn(self.ptr, x, y, z);
     }
+    /// Dispatch with the workgroup counts the GPU reads from `buffer` at `offset` (three u32s),
+    /// so GPU work can size the next dispatch. `buffer` needs `indirect` usage.
     pub fn dispatchIndirect(self: CommandBuffer, buffer: resource.Buffer, offset: u64) void {
         self.vtable.dispatchIndirectFn(self.ptr, buffer, offset);
     }
+    /// End the active compute pass.
     pub fn endComputePass(self: CommandBuffer) void {
         self.vtable.endComputePassFn(self.ptr);
     }
@@ -293,6 +318,9 @@ pub const CommandBuffer = struct {
     pub fn endRenderPass(self: CommandBuffer) void {
         self.vtable.endRenderPassFn(self.ptr);
     }
+    /// Order GPU work around resources changing use: each barrier says how a resource was
+    /// used and how it is used next (a storage write, then a read or another storage write, as
+    /// between two dispatches). Outside render and compute passes only.
     pub fn barrier(self: CommandBuffer, barriers: []const ResourceBarrier) !void {
         return self.vtable.barrierFn(self.ptr, barriers);
     }
@@ -316,18 +344,25 @@ pub const CommandBuffer = struct {
     pub fn resolveTexture(self: CommandBuffer, region: TextureResolveRegion) !void {
         return self.vtable.resolveTextureFn(self.ptr, region);
     }
+    /// Reset queries `first..first + count` before they are written again. Outside passes.
     pub fn resetQueries(self: CommandBuffer, set: QuerySet, first: u32, count: u32) void {
         self.vtable.resetQueriesFn(self.ptr, set, first, count);
     }
+    /// Start counting samples that pass depth testing into occlusion query `index`.
     pub fn beginQuery(self: CommandBuffer, set: QuerySet, index: u32) void {
         self.vtable.beginQueryFn(self.ptr, set, index);
     }
+    /// Stop the occlusion query `beginQuery` started.
     pub fn endQuery(self: CommandBuffer, set: QuerySet, index: u32) void {
         self.vtable.endQueryFn(self.ptr, set, index);
     }
+    /// Write the GPU's clock into timestamp query `index` once earlier commands finish.
+    /// Timestamps are raw ticks; compare two from the same queue.
     pub fn writeTimestamp(self: CommandBuffer, set: QuerySet, index: u32) void {
         self.vtable.writeTimestampFn(self.ptr, set, index);
     }
+    /// Copy queries `first..first + count` into `destination` at `offset`, one u64 each, for
+    /// reading back after the submit completes. `destination` needs `transfer_dst` usage.
     pub fn resolveQueries(self: CommandBuffer, set: QuerySet, first: u32, count: u32, destination: resource.Buffer, offset: u64) void {
         self.vtable.resolveQueriesFn(self.ptr, set, first, count, destination, offset);
     }

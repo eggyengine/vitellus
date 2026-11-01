@@ -62,6 +62,8 @@ pub const Device = struct {
         createSemaphoreFn: ?*const fn (*anyopaque, sync.SemaphoreDescriptor) anyerror!sync.Semaphore = null,
     };
 
+    /// Open a logical device on `adapter`, with the features `desc` requires (failing with
+    /// `RequiredFeatureUnsupported` when the adapter lacks one). Everything else is made from it.
     pub fn init(adapter: anytype, desc: DeviceDescriptor) !Device {
         const required: u32 = @bitCast(desc.required_features);
         const available: u32 = @bitCast(adapter.capabilities().features);

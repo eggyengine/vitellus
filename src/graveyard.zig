@@ -94,6 +94,7 @@ pub const Graveyard = struct {
             gpa: std.mem.Allocator,
             object: *T,
 
+            /// Destroy the boxed object, then free its box.
             pub fn deinit(self: @This()) void {
                 self.object.deinit();
                 self.gpa.destroy(self.object);

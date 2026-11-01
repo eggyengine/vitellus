@@ -86,6 +86,8 @@ pub const Swapchain = struct {
         infoFn: ?*const fn (*anyopaque) SwapchainInfo = null,
     };
 
+    /// Make the images a window shows, presented by `desc.queue`. Recreate them with `resize`
+    /// when the window's size changes or `present` reports them suboptimal.
     pub fn init(adapter: anytype, desc: SwapchainDescriptor) !Swapchain {
         return adapter.vtable.createSwapchainFn(adapter.ptr, adapter.allocator, desc);
     }
@@ -104,9 +106,12 @@ pub const Swapchain = struct {
     pub fn present(self: Swapchain, waits: []const sync.Semaphore) !PresentStatus {
         return if (self.vtable.presentFn) |f| f(self.ptr, waits) else error.Unsupported;
     }
+    /// Remake the images at `extent` (both sides non-zero). Waits for the GPU to finish with the
+    /// old ones first, so call it only when the size has really changed.
     pub fn resize(self: Swapchain, extent: Extent2D) !void {
         return if (self.vtable.resizeFn) |f| f(self.ptr, extent) else error.Unsupported;
     }
+    /// The images' size, format and count.
     pub fn info(self: Swapchain) SwapchainInfo {
         return if (self.vtable.infoFn) |f| f(self.ptr) else .{ .extent = .{}, .format = .bgra8_unorm, .image_count = 0 };
     }

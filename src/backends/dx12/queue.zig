@@ -26,6 +26,7 @@ pub const Dx12Queue = struct {
         .waitIdleFn = sync.waitIdle,
     };
 
+    /// `Queue.init` for DirectX 12: a command queue of `desc.kind`, with a fence for `waitIdle`.
     pub fn init(device_ptr: *anyopaque, allocator: std.mem.Allocator, desc: QueueDescriptor) !Queue {
         const self = try allocator.create(Dx12Queue);
         self.* = .{ .kind = desc.kind };
@@ -76,6 +77,7 @@ pub const Dx12Queue = struct {
     }
 };
 
+/// Block until everything submitted to the queue has finished.
 pub fn waitIdle(self: *Dx12Queue) !void {
     waitForQueue(self) catch |err| {
         noteLost(self, err);

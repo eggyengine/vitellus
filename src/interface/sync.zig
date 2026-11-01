@@ -17,18 +17,24 @@ pub const Fence = struct {
         waitFn: *const fn (FencePoint, ?u64) anyerror!bool,
     };
 
+    /// Make a timeline fence starting at `desc.initial_value`. Submits signal it to higher values;
+    /// the CPU reads or waits for them, and later submits can wait for them on the GPU.
     pub fn init(device: anytype, desc: FenceDescriptor) !Fence {
         return if (device.vtable.createFenceFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// The highest value the GPU has signalled so far, without waiting.
     pub fn currentValue(self: Fence) u64 {
         return self.vtable.currentValueFn(self);
     }
 
+    /// Block until the fence reaches `value`: true when it did, false when `timeout_ns` ran out
+    /// (null waits for ever).
     pub fn wait(self: Fence, value: u64, timeout_ns: ?u64) !bool {
         return self.vtable.waitFn(.{ .fence = self, .value = value }, timeout_ns);
     }
 
+    /// Destroy the fence once no pending submit signals or waits for it.
     pub fn deinit(self: Fence) void {
         self.vtable.deinitFn(self);
     }
@@ -42,9 +48,12 @@ pub const Semaphore = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (Semaphore) void };
 
+    /// Make a semaphore that orders GPU work: one submit or present signals it, the next waits
+    /// for it (as between acquiring a swapchain image and drawing to it).
     pub fn init(device: anytype, desc: SemaphoreDescriptor) !Semaphore {
         return if (device.vtable.createSemaphoreFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
+    /// Destroy the semaphore once no pending work signals or waits for it.
     pub fn deinit(self: Semaphore) void {
         self.vtable.deinitFn(self);
     }

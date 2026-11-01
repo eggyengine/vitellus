@@ -43,6 +43,7 @@ pub const vkSwapchain = struct {
         .resizeFn = resizeImpl,
         .infoFn = infoImpl,
     };
+    /// `Swapchain.init` for Vulkan: a surface on the window and a swapchain on it.
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: SwapchainDescriptor) !Swapchain {
         const adapter: *vkAdapter = @ptrCast(@alignCast(adapter_ptr));
         const queue: *vkQueue = @ptrCast(@alignCast(desc.queue.ptr));

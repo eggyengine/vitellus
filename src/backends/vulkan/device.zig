@@ -55,6 +55,8 @@ pub const vkDevice = struct {
         .createSemaphoreFn = sync_impl.createSemaphore,
     };
 
+    /// `Device.init` for Vulkan: the logical device with dynamic rendering and timeline
+    /// semaphores, its memory allocator (VMA) and its pipeline cache.
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: DeviceDescriptor) !Device {
         const adapter: *vkAdapter = @ptrCast(@alignCast(adapter_ptr));
         const self = try allocator.create(vkDevice);

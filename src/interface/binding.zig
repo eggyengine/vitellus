@@ -49,9 +49,12 @@ pub const BindGroupLayout = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (BindGroupLayout) void };
 
+    /// Declare the bindings one bind-group slot holds, for pipeline layouts and bind groups to
+    /// match. Destroy it after every pipeline layout and bind group that uses it.
     pub fn init(device: anytype, desc: BindGroupLayoutDescriptor) !BindGroupLayout {
         return if (device.vtable.createBindGroupLayoutFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
+    /// Destroy the layout.
     pub fn deinit(self: BindGroupLayout) void {
         self.vtable.deinitFn(self);
     }
@@ -92,9 +95,12 @@ pub const BindGroup = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (BindGroup) void };
 
+    /// Bind resources to `desc.layout`'s bindings. Every binding the layout declares needs an
+    /// entry; the resources must outlive the group and the GPU's use of it.
     pub fn init(device: anytype, desc: BindGroupDescriptor) !BindGroup {
         return if (device.vtable.createBindGroupFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
+    /// Destroy the group. Command buffers that set it must have finished on the GPU.
     pub fn deinit(self: BindGroup) void {
         self.vtable.deinitFn(self);
     }

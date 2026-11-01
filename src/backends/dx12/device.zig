@@ -78,6 +78,8 @@ pub const Dx12Device = struct {
         .createSemaphoreFn = sync.createSemaphore,
     };
 
+    /// `Device.init` for DirectX 12: the device at feature level 11.0, its memory allocator
+    /// (D3D12MA) and its four descriptor heaps.
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: DeviceDescriptor) !Device {
         const adapter: *Dx12Adapter = @ptrCast(@alignCast(adapter_ptr));
 
@@ -155,31 +157,39 @@ pub const Dx12Device = struct {
         return Dx12Queue.init(ptr, allocator, desc);
     }
 
+    /// `count` consecutive CBV/SRV/UAV descriptors, growing the heap when full.
     pub fn allocateResourceDescriptors(self: *Dx12Device, count: u32) !DescriptorAllocation {
         return allocateFrom(&self.resources, self, count);
     }
 
+    /// `count` consecutive sampler descriptors, growing the heap when full.
     pub fn allocateSamplerDescriptors(self: *Dx12Device, count: u32) !DescriptorAllocation {
         return allocateFrom(&self.samplers, self, count);
     }
 
+    /// One render-target view descriptor.
     pub fn allocateRtv(self: *Dx12Device) !DescriptorAllocation {
         return allocateFrom(&self.rtvs, self, 1);
     }
 
+    /// One depth-stencil view descriptor.
     pub fn allocateDsv(self: *Dx12Device) !DescriptorAllocation {
         return allocateFrom(&self.dsvs, self, 1);
     }
 
+    /// Return descriptors `allocateResourceDescriptors` gave.
     pub fn freeResourceDescriptors(self: *Dx12Device, index: u32, count: u32) void {
         self.resources.free(index, count);
     }
+    /// Return descriptors `allocateSamplerDescriptors` gave.
     pub fn freeSamplerDescriptors(self: *Dx12Device, index: u32, count: u32) void {
         self.samplers.free(index, count);
     }
+    /// Return a descriptor `allocateRtv` gave.
     pub fn freeRtv(self: *Dx12Device, index: u32) void {
         self.rtvs.free(index, 1);
     }
+    /// Return a descriptor `allocateDsv` gave.
     pub fn freeDsv(self: *Dx12Device, index: u32) void {
         self.dsvs.free(index, 1);
     }

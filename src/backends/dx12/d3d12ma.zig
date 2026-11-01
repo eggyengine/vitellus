@@ -16,6 +16,7 @@ pub fn createAllocator(device: *dx.ID3D12Device, adapter: *dx.IDXGIAdapter) !All
     return allocator orelse error.HrFailed;
 }
 
+/// Destroy the allocator, after every allocation it made is released.
 pub fn destroyAllocator(allocator: Allocator) void {
     vit_d3d12ma_destroy_allocator(allocator);
 }
@@ -35,6 +36,7 @@ pub fn createResource(
     return allocation orelse error.HrFailed;
 }
 
+/// Free an allocation's memory, after releasing its resource.
 pub fn releaseAllocation(allocation: Allocation) void {
     vit_d3d12ma_release_allocation(allocation);
 }

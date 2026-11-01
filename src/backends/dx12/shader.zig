@@ -16,6 +16,7 @@ pub const Dx12Shader = struct {
     bindings: []spirv_reflect.ReflectedBinding = &.{},
     label: ?[]u8 = null,
 
+    /// The DirectX 12 shader behind an interface handle.
     pub fn fromHandle(value: shader.Shader) !*Dx12Shader {
         if (value.handle == 0) return error.InvalidShader;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -24,6 +25,8 @@ pub const Dx12Shader = struct {
 
 const vtable: shader.Shader.VTable = .{ .deinitFn = destroy };
 
+/// `Shader.init` for DirectX 12: compiles the source to DXIL and keeps the bytecode and its
+/// reflected bindings for pipelines and layouts.
 pub fn create(_: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDescriptor) anyerror!shader.Shader {
     var compiled = try desc.source.compile(allocator, .{
         .backend = .dx12,
@@ -65,6 +68,7 @@ pub fn create(_: *anyopaque, allocator: std.mem.Allocator, desc: shader.ShaderDe
     return .{ .handle = @intCast(@intFromPtr(dx_shader)), .vtable = &vtable };
 }
 
+/// `Shader.deinit` for DirectX 12.
 pub fn destroy(value: shader.Shader) void {
     const dx_shader = Dx12Shader.fromHandle(value) catch return;
     const allocator = dx_shader.allocator;

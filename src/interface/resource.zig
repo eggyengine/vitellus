@@ -173,6 +173,8 @@ pub const Buffer = struct {
         unmapFn: *const fn (Buffer, ?BufferRange) void,
     };
 
+    /// Make a buffer of `desc.size` bytes in `desc.memory`, filled from `desc.initial_data`
+    /// when given (the rest is undefined). `upload` and `readback` buffers can be mapped.
     pub fn init(device: anytype, desc: BufferDescriptor) !Buffer {
         return if (device.vtable.createBufferFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
@@ -187,6 +189,7 @@ pub const Buffer = struct {
         self.vtable.unmapFn(self, written);
     }
 
+    /// Destroy the buffer once no submitted work uses it (see `Graveyard`).
     pub fn deinit(self: Buffer) void {
         self.vtable.deinitFn(self);
     }
@@ -198,10 +201,14 @@ pub const Texture = struct {
 
     pub const VTable = struct { deinitFn: *const fn (Texture) void };
 
+    /// Make a texture, filled from `desc.initial_data` when given. Usage must include
+    /// everything it will be used for; the formats an adapter allows are in
+    /// `Adapter.formatCapabilities`.
     pub fn init(device: anytype, desc: TextureDescriptor) !Texture {
         return if (device.vtable.createTextureFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// Destroy the texture, after its views and once no submitted work uses it.
     pub fn deinit(self: Texture) void {
         self.vtable.deinitFn(self);
     }
@@ -213,10 +220,13 @@ pub const TextureView = struct {
 
     pub const VTable = struct { deinitFn: *const fn (TextureView) void };
 
+    /// View some of a texture's mips and layers, possibly as another dimension (a cube from six
+    /// layers), for binding or as an attachment. The texture must outlive it.
     pub fn init(device: anytype, desc: TextureViewDescriptor) !TextureView {
         return if (device.vtable.createTextureViewFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// Destroy the view once no submitted work uses it.
     pub fn deinit(self: TextureView) void {
         self.vtable.deinitFn(self);
     }
@@ -228,10 +238,12 @@ pub const Sampler = struct {
 
     pub const VTable = struct { deinitFn: *const fn (Sampler) void };
 
+    /// Make a sampler: filtering, addressing, mip and comparison settings for sampling textures.
     pub fn init(device: anytype, desc: SamplerDescriptor) !Sampler {
         return if (device.vtable.createSamplerFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
 
+    /// Destroy the sampler, after the bind groups that use it.
     pub fn deinit(self: Sampler) void {
         self.vtable.deinitFn(self);
     }

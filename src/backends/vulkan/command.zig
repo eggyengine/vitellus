@@ -27,6 +27,7 @@ pub const vkCommandBuffer = struct {
     rendering: bool = false,
     finished: bool = false,
     debug_utils: bool = false,
+    /// The Vulkan command buffer behind an interface one.
     pub fn fromInterface(value: command.CommandBuffer) *vkCommandBuffer {
         return @ptrCast(@alignCast(value.ptr));
     }
@@ -90,6 +91,7 @@ const buffer_vtable: command.CommandBuffer.VTable = .{
     .finishFn = finish,
 };
 
+/// `CommandPool.init` for Vulkan, on the queue family for `desc.kind`.
 pub fn createPool(ptr: *anyopaque, desc: command.CommandPoolDescriptor) !command.CommandPool {
     const device: *vkDevice = @ptrCast(@alignCast(ptr));
     const family = switch (desc.kind) {
@@ -133,6 +135,7 @@ fn destroyBuffer(ptr: *anyopaque) void {
     self.allocator.destroy(self);
 }
 
+/// `QuerySet.init` for Vulkan: a query pool.
 pub fn createQuerySet(ptr: *anyopaque, desc: command.QuerySetDescriptor) !command.QuerySet {
     if (desc.count == 0) return error.InvalidQueryCount;
     const device: *vkDevice = @ptrCast(@alignCast(ptr));

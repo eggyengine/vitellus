@@ -12,6 +12,9 @@ pub const SlangShaderModule = struct {
         code: []const u8,
         entry_point: []const u8,
 
+        /// Compile for `request`'s backend and stage: SPIR-V, DXIL or WGSL. Fails with
+        /// `ShaderCompilerUnavailable` when the Slang library can't be loaded, and logs Slang's
+        /// diagnostics when the source doesn't compile.
         pub fn compile(self: *const Descriptor, allocator: std.mem.Allocator, request: vit.ShaderCompileRequest) !vit.CompiledShader {
             const target: Target, const format: vit.ShaderBinaryFormat = switch (request.backend) {
                 .vulkan => .{ .spirv, .spirv },
@@ -30,6 +33,8 @@ pub const SlangShaderModule = struct {
         }
     };
 
+    /// A shader module that compiles `desc` when a `Shader` is made from it. `desc.code` is
+    /// borrowed until then.
     pub fn init(desc: Descriptor) vit.ShaderModule {
         return vit.ShaderModule.init(desc);
     }

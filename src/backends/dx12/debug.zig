@@ -67,6 +67,7 @@ pub const Dx12DebugController = struct {
         if (level == .gpu_based) controller.lpVtbl.*.SetEnableGPUBasedValidation.?(controller, 1);
     }
 
+    /// Release the debug interface.
     pub fn deinit(self: *Dx12DebugController) void {
         const enabled = self.debug.get() != null;
         self.debug.deinit();
@@ -78,6 +79,7 @@ pub const Dx12DebugDevice = struct {
     debug: ComPtr(dx.ID3D12DebugDevice) = .{},
     info_queue: ComPtr(dx.ID3D12InfoQueue) = .{},
 
+    /// The debug-layer interfaces of `device`, when the debug layer is on; empty otherwise.
     pub fn init(device: ComPtr(dx.ID3D12Device)) Dx12DebugDevice {
         var self: Dx12DebugDevice = .{};
 
@@ -91,6 +93,7 @@ pub const Dx12DebugDevice = struct {
         return self;
     }
 
+    /// Log and clear the debug layer's stored messages, to explain a failed call.
     pub fn logMessages(self: Dx12DebugDevice) void {
         const queue = self.info_queue.get() orelse return;
         const count = queue.lpVtbl.*.GetNumStoredMessages.?(queue);
@@ -113,6 +116,7 @@ pub const Dx12DebugDevice = struct {
         queue.lpVtbl.*.ClearStoredMessages.?(queue);
     }
 
+    /// Report the objects still alive, for finding leaks at device destruction.
     pub fn reportLiveObjects(self: Dx12DebugDevice) void {
         const debug = self.debug.get() orelse return;
         if (debug.lpVtbl) |vtbl| {
@@ -123,6 +127,7 @@ pub const Dx12DebugDevice = struct {
         }
     }
 
+    /// Release the debug interfaces.
     pub fn deinit(self: *Dx12DebugDevice) void {
         const enabled = self.debug.get() != null;
         self.info_queue.deinit();

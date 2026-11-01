@@ -91,9 +91,12 @@ pub const PipelineLayout = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (PipelineLayout) void };
 
+    /// Combine bind-group layouts, slot by slot in order, into the layout pipelines are made
+    /// with. The bind-group layouts must outlive it.
     pub fn init(device: anytype, desc: PipelineLayoutDescriptor) !PipelineLayout {
         return if (device.vtable.createPipelineLayoutFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
+    /// Destroy the layout, after every pipeline made with it.
     pub fn deinit(self: PipelineLayout) void {
         self.vtable.deinitFn(self);
     }
@@ -119,9 +122,13 @@ pub const GraphicsPipeline = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (GraphicsPipeline) void };
 
+    /// Compile a graphics pipeline: shaders, vertex layout, raster, depth and blend state, and
+    /// the attachment formats it draws to. Slow: make pipelines up front, not per frame, and
+    /// pass `DeviceDescriptor.pipeline_cache` to skip compiling them again next run.
     pub fn init(device: anytype, desc: GraphicsPipelineDescriptor) !GraphicsPipeline {
         return if (device.vtable.createGraphicsPipelineFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
+    /// Destroy the pipeline once no submitted work uses it.
     pub fn deinit(self: GraphicsPipeline) void {
         self.vtable.deinitFn(self);
     }
@@ -132,9 +139,11 @@ pub const ComputePipeline = struct {
     vtable: *const VTable,
     pub const VTable = struct { deinitFn: *const fn (ComputePipeline) void };
 
+    /// Compile a compute pipeline from a compute shader and the layout of its bindings.
     pub fn init(device: anytype, desc: ComputePipelineDescriptor) !ComputePipeline {
         return if (device.vtable.createComputePipelineFn) |f| f(device.ptr, desc) else error.Unsupported;
     }
+    /// Destroy the pipeline once no submitted work uses it.
     pub fn deinit(self: ComputePipeline) void {
         self.vtable.deinitFn(self);
     }

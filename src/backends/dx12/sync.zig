@@ -38,6 +38,7 @@ const fence_vtable: sync.Fence.VTable = .{
 };
 const semaphore_vtable: sync.Semaphore.VTable = .{ .deinitFn = destroySemaphore };
 
+/// `Fence.init` for DirectX 12: an ID3D12Fence.
 pub fn createFence(ptr: *anyopaque, desc: sync.FenceDescriptor) anyerror!sync.Fence {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12Fence);
@@ -49,6 +50,7 @@ pub fn createFence(ptr: *anyopaque, desc: sync.FenceDescriptor) anyerror!sync.Fe
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &fence_vtable };
 }
 
+/// `Fence.deinit` for DirectX 12.
 pub fn destroyFence(value: sync.Fence) void {
     const self = Dx12Fence.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -57,6 +59,7 @@ pub fn destroyFence(value: sync.Fence) void {
     allocator.destroy(self);
 }
 
+/// `Semaphore.init` for DirectX 12: a fence whose next value each signal takes.
 pub fn createSemaphore(ptr: *anyopaque, desc: sync.SemaphoreDescriptor) anyerror!sync.Semaphore {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const self = try device.allocator.create(Dx12Semaphore);
@@ -68,6 +71,7 @@ pub fn createSemaphore(ptr: *anyopaque, desc: sync.SemaphoreDescriptor) anyerror
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &semaphore_vtable };
 }
 
+/// `Semaphore.deinit` for DirectX 12.
 pub fn destroySemaphore(value: sync.Semaphore) void {
     const self = Dx12Semaphore.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -76,11 +80,13 @@ pub fn destroySemaphore(value: sync.Semaphore) void {
     allocator.destroy(self);
 }
 
+/// `Fence.currentValue` for DirectX 12.
 pub fn fenceValue(value: sync.Fence) u64 {
     const self = Dx12Fence.fromHandle(value) catch return 0;
     return self.fence.unwrap().lpVtbl.*.GetCompletedValue.?(self.fence.unwrap());
 }
 
+/// `Fence.wait` for DirectX 12, through an event.
 pub fn waitFence(point: sync.FencePoint, timeout_ns: ?u64) anyerror!bool {
     const self = try Dx12Fence.fromHandle(point.fence);
     const fence = self.fence.unwrap();
@@ -96,6 +102,8 @@ pub fn waitFence(point: sync.FencePoint, timeout_ns: ?u64) anyerror!bool {
     };
 }
 
+/// `Queue.submit` for DirectX 12: waits, command lists, then signals, in that order on the
+/// queue. Logs the removal reason when the device is lost.
 pub fn submit(ptr: *anyopaque, desc: sync.SubmitDescriptor) anyerror!void {
     const self: *Dx12Queue = @ptrCast(@alignCast(ptr));
     submitTo(self, desc) catch |err| {
@@ -125,23 +133,27 @@ fn submitTo(self: *Dx12Queue, desc: sync.SubmitDescriptor) !void {
     }
 }
 
+/// Make `queue` wait for the semaphore's latest signal.
 pub fn waitSemaphore(queue: *dx.ID3D12CommandQueue, value: sync.Semaphore) !void {
     const semaphore = try Dx12Semaphore.fromHandle(value);
     try checkHr(queue.lpVtbl.*.Wait.?(queue, semaphore.fence.unwrap(), semaphore.value));
 }
 
+/// Signal the semaphore's next value from `queue`.
 pub fn signalSemaphore(queue: *dx.ID3D12CommandQueue, value: sync.Semaphore) !void {
     const semaphore = try Dx12Semaphore.fromHandle(value);
     semaphore.value += 1;
     try checkHr(queue.lpVtbl.*.Signal.?(queue, semaphore.fence.unwrap(), semaphore.value));
 }
 
+/// Signal the semaphore's next value from the CPU, for a swapchain image that is ready now.
 pub fn signalSemaphoreCpu(value: sync.Semaphore) !void {
     const semaphore = try Dx12Semaphore.fromHandle(value);
     semaphore.value += 1;
     try checkHr(semaphore.fence.unwrap().lpVtbl.*.Signal.?(semaphore.fence.unwrap(), semaphore.value));
 }
 
+/// `Queue.waitIdle` for DirectX 12.
 pub fn waitIdle(ptr: *anyopaque) anyerror!void {
     const self: *Dx12Queue = @ptrCast(@alignCast(ptr));
     try queue_impl.waitIdle(self);

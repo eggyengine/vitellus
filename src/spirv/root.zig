@@ -13,6 +13,8 @@ pub const SPIRVShaderModule = struct {
         /// Where DirectX 12's translations are kept between runs; translated each time without one.
         cache: ?*const vit.ShaderDiskCache = null,
 
+        /// Hand Vulkan a copy of the SPIR-V; translate it to DXIL for DirectX 12 (with
+        /// `-Denable_spirv_cross`, cached in `cache` when given).
         pub fn compile(
             self: *const Descriptor,
             allocator: std.mem.Allocator,
@@ -30,6 +32,7 @@ pub const SPIRVShaderModule = struct {
         }
     };
 
+    /// A shader module for SPIR-V `desc.code`, borrowed until a `Shader` is made from it.
     pub fn init(desc: Descriptor) vit.ShaderModule {
         return vit.ShaderModule.init(desc);
     }

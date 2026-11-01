@@ -56,6 +56,7 @@ pub const WgpuInstance = struct {
     }
 };
 
+/// `Instance.init` for WebGPU, with timed waits so Vitellus can block on its futures.
 pub fn createInstance(allocator: std.mem.Allocator, config: settings.VitellusConfig) anyerror!instance_if.Instance {
     _ = config;
     const features = [_]c.WGPUInstanceFeatureName{c.WGPUInstanceFeatureName_TimedWaitAny};

@@ -154,6 +154,7 @@ pub const WgpuAdapter = struct {
     }
 };
 
+/// A surface on the page's canvas, found by its CSS selector.
 pub fn createSurface(instance: c.WGPUInstance) !c.WGPUSurface {
     var canvas = c.WGPUEmscriptenSurfaceSourceCanvasHTMLSelector{
         .chain = .{ .next = null, .sType = c.WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector },

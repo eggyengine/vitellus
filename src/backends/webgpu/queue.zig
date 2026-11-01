@@ -20,6 +20,7 @@ pub const WgpuQueue = struct {
 
     const vtable: queue_if.Queue.VTable = .{ .deinitFn = deinit, .submitFn = submit, .waitIdleFn = waitIdle };
 
+    /// `Queue.init` for WebGPU: the device's one queue, whatever kind `desc` asks for.
     pub fn create(ptr: *anyopaque, allocator: std.mem.Allocator, desc: queue_if.QueueDescriptor) anyerror!queue_if.Queue {
         _ = desc; // WebGPU has one queue that does everything.
         const device: *WgpuDevice = @ptrCast(@alignCast(ptr));

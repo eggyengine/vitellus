@@ -8,6 +8,8 @@ const spvc = @import("spirv_cross_c");
 
 const log = std.log.scoped(.spirv_cross);
 
+/// Translate SPIR-V to HLSL with SPIRV-Cross, then compile it to shader model 6.0 DXIL with
+/// DXC. The caller owns the result.
 pub fn compileDx12(
     code: []const u8,
     entry_point: []const u8,

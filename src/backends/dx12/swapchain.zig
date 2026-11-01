@@ -41,6 +41,8 @@ pub const Dx12Swapchain = struct {
         .infoFn = infoImpl,
     };
 
+    /// `Swapchain.init` for DirectX 12: a flip-model DXGI swapchain on the window, presented by
+    /// a graphics queue.
     pub fn init(adapter_ptr: *anyopaque, allocator: std.mem.Allocator, desc: SwapchainDescriptor) !Swapchain {
         const adapter: *Dx12Adapter = @ptrCast(@alignCast(adapter_ptr));
         const queue: *Dx12Queue = @ptrCast(@alignCast(desc.queue.ptr));
@@ -259,6 +261,7 @@ fn toDxSwapchainDesc(desc: SwapchainDescriptor) dx.DXGI_SWAP_CHAIN_DESC1 {
     };
 }
 
+/// A swapchain format as DXGI names it.
 pub fn toDxFormat(format: SwapchainFormat) dx.DXGI_FORMAT {
     return switch (format) {
         .bgra8_unorm => dx.DXGI_FORMAT_B8G8R8A8_UNORM,

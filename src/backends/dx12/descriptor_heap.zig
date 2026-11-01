@@ -40,6 +40,8 @@ pub const DescriptorHeap = struct {
         start: dx.D3D12_CPU_DESCRIPTOR_HANDLE,
     };
 
+    /// A heap of `kind` with room for `capacity` descriptors, growing up to `max_capacity`.
+    /// `name` labels its heaps in debuggers and must outlive it.
     pub fn init(
         allocator: std.mem.Allocator,
         device: *dx.ID3D12Device,
@@ -65,6 +67,7 @@ pub const DescriptorHeap = struct {
         return self;
     }
 
+    /// Release every heap, outgrown ones included. Nothing may use them any more.
     pub fn deinit(self: *DescriptorHeap, allocator: std.mem.Allocator) void {
         for (self.outgrown.items) |*heap| heap.deinit();
         self.outgrown.deinit(allocator);

@@ -19,6 +19,9 @@ pub const Instance = struct {
         enumerateAdaptersFn: ?*const fn (ptr: *anyopaque, allocator: std.mem.Allocator) anyerror![]Adapter = null,
     };
 
+    /// Start the first backend that works, in the order `config.backend` and the
+    /// `VITELLUS_BACKEND` environment variable choose; `backend` says which it was. Returns the
+    /// last backend's error when none starts.
     pub fn init(allocator: std.mem.Allocator, config: VitellusConfig) !Instance {
         var last_error: anyerror = error.NoSupportedBackend;
         var buffer: [settings.platform_backends.len]Backend = undefined;
@@ -49,10 +52,12 @@ pub const Instance = struct {
         return last_error;
     }
 
+    /// Shut the backend down, after every adapter made from it.
     pub fn deinit(self: Instance) void {
         self.vtable.deinitFn(self.ptr, self.allocator);
     }
 
+    /// Pick a GPU; `Adapter.init` is the usual way to call this.
     pub fn createAdapter(self: Instance, desc: AdapterDescriptor) !Adapter {
         return self.vtable.createAdapterFn(self.ptr, self.allocator, desc);
     }
@@ -72,6 +77,7 @@ pub const Instance = struct {
         return adapters;
     }
 
+    /// The backend `init` started.
     pub fn backend(self: Instance) Backend {
         return self.selected_backend;
     }

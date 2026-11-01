@@ -16,6 +16,7 @@ pub const Dx12BindGroupLayout = struct {
     sampler_count: u32,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 layout behind an interface handle.
     pub fn fromHandle(value: binding.BindGroupLayout) !*Dx12BindGroupLayout {
         if (value.handle == 0) return error.InvalidBindGroupLayout;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -27,6 +28,7 @@ pub const Dx12Sampler = struct {
     desc: dx.D3D12_SAMPLER_DESC,
     label: ?[]u8 = null,
 
+    /// The DirectX 12 sampler description behind an interface handle.
     pub fn fromHandle(value: resource_interface.Sampler) !*Dx12Sampler {
         if (value.handle == 0) return error.InvalidSampler;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -44,6 +46,7 @@ pub const Dx12BindGroup = struct {
     entries: []binding.BindGroupEntry = &.{},
     label: ?[]u8 = null,
 
+    /// The DirectX 12 bind group behind an interface handle.
     pub fn fromHandle(value: binding.BindGroup) !*Dx12BindGroup {
         if (value.handle == 0) return error.InvalidBindGroup;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -54,6 +57,8 @@ const layout_vtable: binding.BindGroupLayout.VTable = .{ .deinitFn = destroyLayo
 const sampler_vtable: resource_interface.Sampler.VTable = .{ .deinitFn = destroySampler };
 const group_vtable: binding.BindGroup.VTable = .{ .deinitFn = destroyGroup };
 
+/// `BindGroupLayout.init` for DirectX 12: the descriptor ranges its root signature tables
+/// will hold, from `desc.entries` or reflected from `desc.shader`.
 pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) anyerror!binding.BindGroupLayout {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     if (desc.shader != null and desc.entries.len != 0) return error.AmbiguousBindGroupLayout;
@@ -112,6 +117,7 @@ pub fn createLayout(ptr: *anyopaque, desc: binding.BindGroupLayoutDescriptor) an
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
 }
 
+/// `BindGroupLayout.deinit` for DirectX 12.
 pub fn destroyLayout(value: binding.BindGroupLayout) void {
     const self = Dx12BindGroupLayout.fromHandle(value) catch return;
     const allocator = self.allocator;
@@ -121,6 +127,8 @@ pub fn destroyLayout(value: binding.BindGroupLayout) void {
     allocator.destroy(self);
 }
 
+/// `Sampler.init` for DirectX 12. Samplers live in bind groups' descriptors, so this keeps
+/// the description to write there.
 pub fn createSampler(ptr: *anyopaque, desc: resource_interface.SamplerDescriptor) anyerror!resource_interface.Sampler {
     if (desc.max_anisotropy == 0 or desc.lod_min > desc.lod_max) return error.InvalidSamplerDescriptor;
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
@@ -148,6 +156,7 @@ pub fn createSampler(ptr: *anyopaque, desc: resource_interface.SamplerDescriptor
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &sampler_vtable };
 }
 
+/// `Sampler.deinit` for DirectX 12.
 pub fn destroySampler(value: resource_interface.Sampler) void {
     const self = Dx12Sampler.fromHandle(value) catch return;
     if (self.label) |label| self.allocator.free(label);
@@ -155,6 +164,8 @@ pub fn destroySampler(value: resource_interface.Sampler) void {
     self.allocator.destroy(self);
 }
 
+/// `BindGroup.init` for DirectX 12: writes the group's views and samplers to the CPU-only
+/// descriptor heaps, then publishes them to the shader-visible ones.
 pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!binding.BindGroup {
     const device: *Dx12Device = @ptrCast(@alignCast(ptr));
     const layout = try Dx12BindGroupLayout.fromHandle(desc.layout);
@@ -340,6 +351,7 @@ pub fn createGroup(ptr: *anyopaque, desc: binding.BindGroupDescriptor) anyerror!
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &group_vtable };
 }
 
+/// `BindGroup.deinit` for DirectX 12: frees the group's descriptors.
 pub fn destroyGroup(value: binding.BindGroup) void {
     const self = Dx12BindGroup.fromHandle(value) catch return;
     if (self.resource_count != 0) self.owner.freeResourceDescriptors(self.resource_index, self.resource_count);
@@ -350,6 +362,8 @@ pub fn destroyGroup(value: binding.BindGroup) void {
     self.allocator.destroy(self);
 }
 
+/// A copy of `group`'s resource descriptors with its dynamic-offset buffers' views moved by
+/// `offsets`, for one `setBindGroup`. The command buffer frees it when destroyed.
 pub fn dynamicResources(device: *Dx12Device, group: *Dx12BindGroup, offsets: []const u32) !Dx12Device.DescriptorAllocation {
     const allocation = try device.allocateResourceDescriptors(group.resource_count);
     errdefer device.freeResourceDescriptors(allocation.index, allocation.count);
