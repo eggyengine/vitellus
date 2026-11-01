@@ -232,7 +232,14 @@ pub fn build(b: *std.Build) void {
             addRuntimeLibrary(b, dep.path(file), installed);
         }
         const slang_tests = b.addRunArtifact(b.addTest(.{ .root_module = slangc }));
-        if (slang) |dep| if (target.result.os.tag == .windows) slang_tests.setCwd(dep.path("bin"));
+        if (slang) |dep| if (target.result.os.tag == .windows) {
+            // Slang makes DXIL through DXC, which it looks for beside itself: run from a folder
+            // with both (DXC only when `-Denable_dxc` fetched it).
+            const dlls = b.addWriteFiles();
+            _ = dlls.addCopyDirectory(dep.path("bin"), "", .{});
+            if (dxc_bin_dir) |dir| _ = dlls.addCopyDirectory(dir, "", .{});
+            slang_tests.setCwd(dlls.getDirectory());
+        };
         b.step("test-slang", "Run vitellus_slangc tests").dependOn(&slang_tests.step);
     }
 

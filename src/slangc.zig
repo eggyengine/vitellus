@@ -17,7 +17,7 @@ pub const SlangShaderModule = struct {
                 .vulkan => .{ .spirv, .spirv },
                 .dx12 => .{ .dxil, .dxil },
                 .webgpu => .{ .wgsl, .wgsl },
-                .metal, .custom => return error.UnsupportedShaderBackend,
+                .metal => return error.UnsupportedShaderBackend,
             };
             const stage: Stage = switch (request.stage) {
                 .vertex => .vertex,
@@ -103,4 +103,8 @@ test "Slang compiles to SPIR-V and WGSL" {
     const wgsl = try compileSource(std.testing.allocator, source, "vertexMain", .vertex, .wgsl);
     defer std.testing.allocator.free(wgsl);
     try std.testing.expect(std.mem.indexOf(u8, wgsl, "vertexMain") != null);
+}
+
+test {
+    _ = @import("compute_tests.zig");
 }
