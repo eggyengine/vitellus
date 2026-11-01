@@ -13,6 +13,7 @@ const command = @import("command.zig");
 const sync = @import("sync.zig");
 const binding = @import("binding.zig");
 const debug = @import("debug.zig");
+const d3d12ma = @import("d3d12ma.zig");
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
@@ -33,6 +34,8 @@ pub const Dx12Device = struct {
     rtv_used: [256]bool = @splat(false),
     dsv_used: [256]bool = @splat(false),
     debug_device: debug.Dx12DebugDevice = .{},
+    /// Where every buffer's and texture's memory comes from; set right after the device is made.
+    memory: d3d12ma.Allocator = undefined,
 
     pub const resource_capacity = 4096;
     pub const sampler_capacity = 256;
@@ -96,6 +99,8 @@ pub const Dx12Device = struct {
         ));
         utils.setD3D12Name(allocator, self.device.unwrap(), desc.label);
         log.debug("ID3D12Device successfully initialised", .{});
+        self.memory = try d3d12ma.createAllocator(self.device.unwrap(), @ptrCast(adapter.adapter.unwrap()));
+        errdefer d3d12ma.destroyAllocator(self.memory);
 
         try self.createDescriptorHeap(&self.resource_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, resource_capacity, true);
         try self.createDescriptorHeap(&self.sampler_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, sampler_capacity, true);
@@ -120,6 +125,7 @@ pub const Dx12Device = struct {
         self.dsv_heap.deinit();
         self.sampler_heap.deinit();
         self.resource_heap.deinit();
+        d3d12ma.destroyAllocator(self.memory);
         self.debug_device.reportLiveObjects();
         self.debug_device.deinit();
         self.device.deinit();

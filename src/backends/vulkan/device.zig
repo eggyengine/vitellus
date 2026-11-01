@@ -14,6 +14,7 @@ const resource_impl = @import("resource.zig");
 const binding_impl = @import("binding.zig");
 const pipeline_impl = @import("pipeline.zig");
 const command_impl = @import("command.zig");
+const vma = @import("vma.zig");
 
 const log = std.log.scoped(.vk_device);
 
@@ -24,7 +25,8 @@ pub const vkDevice = struct {
     wrapper: vk.DeviceWrapper,
     proxy: vk.DeviceProxy,
     queues: @import("adapter.zig").QueueAllocation,
-    memory_props: vk.PhysicalDeviceMemoryProperties,
+    /// Where every buffer's and image's memory comes from.
+    memory: vma.Allocator,
 
     const vtable: Device.VTable = .{
         .deinitFn = deinitImpl,
@@ -98,7 +100,15 @@ pub const vkDevice = struct {
         self.wrapper = wrapper;
         self.proxy = vk.DeviceProxy.init(handle, &self.wrapper);
         self.queues = adapter.queues;
-        self.memory_props = adapter.memory_props;
+        // VMA may use what both the instance and the device support, and no more.
+        self.memory = try vma.createAllocator(
+            adapter.instance.instance,
+            adapter.physical_device,
+            handle,
+            @min(adapter.instance.api_version, adapter.props.api_version),
+            adapter.instance.get_instance_proc_addr,
+            get_device_proc_addr,
+        );
 
         self.instance.nameObject(allocator, self.proxy, .device, @intFromPtr(handle), desc.label);
         log.debug("created Vulkan logical device with {} queue family/families", .{queue_info_count});
@@ -108,6 +118,7 @@ pub const vkDevice = struct {
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *vkDevice = @ptrCast(@alignCast(ptr));
         _ = self.proxy.deviceWaitIdle() catch |err| log.warn("Vulkan device wait-idle failed during destruction: {}", .{err});
+        vma.destroyAllocator(self.memory);
         self.proxy.destroyDevice(null);
         allocator.destroy(self);
         log.debug("destroyed Vulkan logical device", .{});

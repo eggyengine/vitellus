@@ -5,6 +5,7 @@ const resource = @import("../../interface/resource.zig");
 const Dx12Device = @import("device.zig").Dx12Device;
 const dx = @import("dx12_c");
 const utils = @import("utils.zig");
+const d3d12ma = @import("d3d12ma.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
 const log = std.log.scoped(.dx12_resource);
@@ -12,6 +13,7 @@ const log = std.log.scoped(.dx12_resource);
 pub const Dx12Buffer = struct {
     allocator: std.mem.Allocator,
     resource: ComPtr(dx.ID3D12Resource) = .{},
+    allocation: ?d3d12ma.Allocation = null,
     size: u64,
     memory: resource.MemoryLocation,
     label: ?[]u8 = null,
@@ -25,6 +27,7 @@ pub const Dx12Buffer = struct {
 pub const Dx12Texture = struct {
     allocator: std.mem.Allocator,
     resource: ComPtr(dx.ID3D12Resource) = .{},
+    allocation: ?d3d12ma.Allocation = null,
     desc: resource.TextureDescriptor,
     label: ?[]u8 = null,
 
@@ -83,7 +86,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
     const self = try device.allocator.create(Dx12Buffer);
     self.* = .{ .allocator = device.allocator, .size = desc.size, .memory = desc.memory };
     errdefer {
-        self.resource.deinit();
+        release(&self.resource, &self.allocation);
         if (self.label) |label| device.allocator.free(label);
         device.allocator.destroy(self);
     }
@@ -94,8 +97,8 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
         .upload => dx.D3D12_RESOURCE_STATE_GENERIC_READ,
         .readback => dx.D3D12_RESOURCE_STATE_COPY_DEST,
     };
-    try createCommittedBuffer(
-        device.device.unwrap(),
+    self.allocation = try createBufferResource(
+        device.memory,
         heapType(desc.memory),
         // Room for a 256-byte constant buffer view of the whole buffer (allocations are 64 KiB anyway).
         std.mem.alignForward(u64, desc.size, 256),
@@ -107,7 +110,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
 
     if (desc.initial_data) |data| switch (desc.memory) {
         .upload => try writeMapped(self.resource.unwrap(), data),
-        .device => try uploadToDevice(device.device.unwrap(), self.resource.unwrap(), data),
+        .device => try uploadToDevice(device, self.resource.unwrap(), data),
         .readback => unreachable,
     };
 
@@ -118,7 +121,7 @@ pub fn createBuffer(ptr: *anyopaque, desc: resource.BufferDescriptor) anyerror!r
 pub fn destroyBuffer(value: resource.Buffer) void {
     const self = Dx12Buffer.fromHandle(value) catch return;
     const allocator = self.allocator;
-    self.resource.deinit();
+    release(&self.resource, &self.allocation);
     if (self.label) |label| allocator.free(label);
     log.debug("destroyed DX12 buffer size={}", .{self.size});
     allocator.destroy(self);
@@ -156,20 +159,13 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
     const self = try device.allocator.create(Dx12Texture);
     self.* = .{ .allocator = device.allocator, .desc = desc };
     errdefer {
-        self.resource.deinit();
+        release(&self.resource, &self.allocation);
         if (self.label) |label| device.allocator.free(label);
         device.allocator.destroy(self);
     }
     self.label = if (desc.label) |label| try device.allocator.dupe(u8, label) else null;
     self.desc.label = self.label;
 
-    const heap = dx.D3D12_HEAP_PROPERTIES{
-        .Type = dx.D3D12_HEAP_TYPE_DEFAULT,
-        .CPUPageProperty = dx.D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-        .MemoryPoolPreference = dx.D3D12_MEMORY_POOL_UNKNOWN,
-        .CreationNodeMask = 1,
-        .VisibleNodeMask = 1,
-    };
     const native_desc = dx.D3D12_RESOURCE_DESC{
         .Dimension = switch (desc.dimension) {
             .d1 => dx.D3D12_RESOURCE_DIMENSION_TEXTURE1D,
@@ -186,18 +182,18 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
         .Layout = dx.D3D12_TEXTURE_LAYOUT_UNKNOWN,
         .Flags = textureFlags(desc.usage),
     };
-    try checkHr(device.device.unwrap().lpVtbl.*.CreateCommittedResource.?(
-        device.device.unwrap(),
-        &heap,
-        dx.D3D12_HEAP_FLAG_NONE,
+    // Render targets are resized and remade often; their own heaps keep the shared ones unfragmented.
+    const placement: d3d12ma.Placement = if (desc.usage.color_attachment or desc.usage.depth_stencil_attachment) .committed else .shared;
+    self.allocation = try d3d12ma.createResource(
+        device.memory,
+        dx.D3D12_HEAP_TYPE_DEFAULT,
+        placement,
         &native_desc,
         if (desc.initial_data != null) dx.D3D12_RESOURCE_STATE_COPY_DEST else dx.D3D12_RESOURCE_STATE_COMMON,
-        null,
-        &dx.IID_ID3D12Resource,
-        @ptrCast(self.resource.put()),
-    ));
+        &self.resource.ptr,
+    );
     utils.setD3D12Name(device.allocator, self.resource.unwrap(), desc.label);
-    if (desc.initial_data) |data| try uploadTexture(device.device.unwrap(), self.resource.unwrap(), &native_desc, desc, data);
+    if (desc.initial_data) |data| try uploadTexture(device, self.resource.unwrap(), &native_desc, desc, data);
     log.debug("created DX12 texture {}x{}x{} format={s}", .{ desc.width, desc.height, desc.depth_or_layers, @tagName(desc.format) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_vtable };
 }
@@ -205,7 +201,7 @@ pub fn createTexture(ptr: *anyopaque, desc: resource.TextureDescriptor) anyerror
 pub fn destroyTexture(value: resource.Texture) void {
     const self = Dx12Texture.fromHandle(value) catch return;
     const allocator = self.allocator;
-    self.resource.deinit();
+    release(&self.resource, &self.allocation);
     if (self.label) |label| allocator.free(label);
     log.debug("destroyed DX12 texture {}x{}x{}", .{ self.desc.width, self.desc.height, self.desc.depth_or_layers });
     allocator.destroy(self);
@@ -343,21 +339,21 @@ pub fn destroyTextureView(value: resource.TextureView) void {
     }
 }
 
-fn createCommittedBuffer(
-    device: *dx.ID3D12Device,
+/// Releases a resource, then the memory D3D12MA placed it in, as D3D12MA requires.
+fn release(owned: *ComPtr(dx.ID3D12Resource), allocation: *?d3d12ma.Allocation) void {
+    owned.deinit();
+    if (allocation.*) |memory| d3d12ma.releaseAllocation(memory);
+    allocation.* = null;
+}
+
+fn createBufferResource(
+    memory: d3d12ma.Allocator,
     heap_type: dx.D3D12_HEAP_TYPE,
     size: u64,
     flags: dx.D3D12_RESOURCE_FLAGS,
     initial_state: dx.D3D12_RESOURCE_STATES,
     output: *ComPtr(dx.ID3D12Resource),
-) !void {
-    const heap = dx.D3D12_HEAP_PROPERTIES{
-        .Type = heap_type,
-        .CPUPageProperty = dx.D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-        .MemoryPoolPreference = dx.D3D12_MEMORY_POOL_UNKNOWN,
-        .CreationNodeMask = 1,
-        .VisibleNodeMask = 1,
-    };
+) !d3d12ma.Allocation {
     const resource_desc = dx.D3D12_RESOURCE_DESC{
         .Dimension = dx.D3D12_RESOURCE_DIMENSION_BUFFER,
         .Alignment = 0,
@@ -370,16 +366,8 @@ fn createCommittedBuffer(
         .Layout = dx.D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
         .Flags = flags,
     };
-    try checkHr(device.lpVtbl.*.CreateCommittedResource.?(
-        device,
-        &heap,
-        dx.D3D12_HEAP_FLAG_NONE,
-        &resource_desc,
-        initial_state,
-        null,
-        &dx.IID_ID3D12Resource,
-        @ptrCast(output.put()),
-    ));
+    output.deinit();
+    return d3d12ma.createResource(memory, heap_type, .shared, &resource_desc, initial_state, &output.ptr);
 }
 
 fn writeMapped(buffer: *dx.ID3D12Resource, data: []const u8) !void {
@@ -391,10 +379,12 @@ fn writeMapped(buffer: *dx.ID3D12Resource, data: []const u8) !void {
     @memcpy(destination[0..data.len], data);
 }
 
-fn uploadToDevice(device: *dx.ID3D12Device, destination: *dx.ID3D12Resource, data: []const u8) !void {
+fn uploadToDevice(owner: *Dx12Device, destination: *dx.ID3D12Resource, data: []const u8) !void {
+    const device = owner.device.unwrap();
     var upload: ComPtr(dx.ID3D12Resource) = .{};
-    defer upload.deinit();
-    try createCommittedBuffer(device, dx.D3D12_HEAP_TYPE_UPLOAD, data.len, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
+    var upload_memory: ?d3d12ma.Allocation = null;
+    defer release(&upload, &upload_memory);
+    upload_memory = try createBufferResource(owner.memory, dx.D3D12_HEAP_TYPE_UPLOAD, data.len, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
     try writeMapped(upload.unwrap(), data);
 
     var queue: ComPtr(dx.ID3D12CommandQueue) = .{};
@@ -448,12 +438,13 @@ fn uploadToDevice(device: *dx.ID3D12Device, destination: *dx.ID3D12Resource, dat
 }
 
 fn uploadTexture(
-    device: *dx.ID3D12Device,
+    owner: *Dx12Device,
     destination: *dx.ID3D12Resource,
     texture_desc: *const dx.D3D12_RESOURCE_DESC,
     desc: resource.TextureDescriptor,
     data: []const u8,
 ) !void {
+    const device = owner.device.unwrap();
     const packed_row_size = @as(u64, desc.width) * (bytesPerPixel(desc.format) orelse return error.UnsupportedUploadFormat);
     const source_row_size = if (desc.bytes_per_row == 0) packed_row_size else desc.bytes_per_row;
     if (source_row_size < packed_row_size or data.len < source_row_size * desc.height) return error.InitialDataTooSmall;
@@ -465,8 +456,9 @@ fn uploadTexture(
     device.lpVtbl.*.GetCopyableFootprints.?(device, texture_desc, 0, 1, 0, &footprint, &row_count, &row_size, &upload_size);
 
     var upload: ComPtr(dx.ID3D12Resource) = .{};
-    defer upload.deinit();
-    try createCommittedBuffer(device, dx.D3D12_HEAP_TYPE_UPLOAD, upload_size, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
+    var upload_memory: ?d3d12ma.Allocation = null;
+    defer release(&upload, &upload_memory);
+    upload_memory = try createBufferResource(owner.memory, dx.D3D12_HEAP_TYPE_UPLOAD, upload_size, dx.D3D12_RESOURCE_FLAG_NONE, dx.D3D12_RESOURCE_STATE_GENERIC_READ, &upload);
     var mapped: ?*anyopaque = null;
     const read_range = dx.D3D12_RANGE{ .Begin = 0, .End = 0 };
     try checkHr(upload.unwrap().lpVtbl.*.Map.?(upload.unwrap(), 0, &read_range, &mapped));

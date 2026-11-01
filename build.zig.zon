@@ -81,6 +81,16 @@
             .url = "git+https://github.com/eggyengine/better-dynlib#8d45e065337f486d32ce7d63dd0a18fd4363e481",
             .hash = "better_dynlib-0.1.0-_pGZeoIZAACBUt3s3UMPTXcMVplZO8XbzJOjrShycqFJ",
         },
+        .vma = .{
+            .url = "git+https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator#0f1a757da579831283413295cc7f3b47eb521c77",
+            .hash = "N-V-__8AAIwTQQCo2Vn2vnA6AyuuVuy1gDUXA4Hld0ROVTJe",
+            .lazy = true,
+        },
+        .d3d12ma = .{
+            .url = "git+https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator#1753823e86d274ae1a2a55e6b9f9d206c3c30945",
+            .hash = "N-V-__8AAGB4LwDPhgNJnLr1Frfjx7Kpp_OAvI_cJSR93gdO",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

@@ -25,6 +25,8 @@ pub const vkInstance = struct {
     debug_utils_enabled: bool,
     /// The Vulkan version the instance was created for.
     api_version: u32,
+    /// What the loader (or driver) resolves every Vulkan function with; the memory allocator uses it too.
+    get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
     ref_count: usize = 1,
 
     const vtable: Instance.VTable = .{
@@ -193,6 +195,7 @@ pub const vkInstance = struct {
             .validation_layer_enabled = validation_enabled,
             .debug_utils_enabled = debug_utils_enabled,
             .api_version = api_version,
+            .get_instance_proc_addr = get_instance_proc_addr,
         };
 
         log.debug("initialised Vulkan instance", .{});
