@@ -54,6 +54,7 @@ pub const Shader = hal.shader.Shader;
 pub const ShaderModule = hal.shader.ShaderModule;
 pub const BinaryShaderModule = hal.shader.BinaryShaderModule;
 pub const ShaderDiskCache = @import("shader_disk_cache.zig").ShaderDiskCache;
+pub const Graveyard = @import("graveyard.zig").Graveyard;
 /// Browser console logging and panics for Emscripten builds.
 pub const web = @import("web.zig");
 pub const CompiledShader = hal.shader.CompiledShader;
@@ -95,6 +96,7 @@ pub const SubmitDescriptor = hal.sync.SubmitDescriptor;
 
 test {
     _ = @import("shader_disk_cache.zig");
+    _ = @import("graveyard.zig");
     _ = @import("interface/instance.zig");
     _ = @import("interface/shader.zig");
     _ = @import("interface/settings.zig");
