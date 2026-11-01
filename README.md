@@ -12,7 +12,7 @@ requires zig `0.17.0`
 
 to use this with the zig build system, import as so:
 ```bash
-zig fetch --save git+https://github.com/eggyengine/vitellus#0.17.0
+zig fetch --save git+https://github.com/eggyengine/vitellus
 ```
 
 and then in `build.zig`:
