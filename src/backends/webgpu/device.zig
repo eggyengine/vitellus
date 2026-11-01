@@ -67,6 +67,8 @@ pub const WgpuDevice = struct {
         if (wanted.indirect_first_instance) try features.append(allocator, c.WGPUFeatureName_IndirectFirstInstance);
         if (wanted.depth_clip_control) try features.append(allocator, c.WGPUFeatureName_DepthClipControl);
         if (wanted.bc_compression) try features.append(allocator, c.WGPUFeatureName_TextureCompressionBC);
+        if (wanted.shader_float16) try features.append(allocator, c.WGPUFeatureName_ShaderF16);
+        if (wanted.subgroup_operations) try features.append(allocator, c.WGPUFeatureName_Subgroups);
         if (wanted.wireframe) return error.RequiredFeatureUnsupported;
 
         const Result = struct {

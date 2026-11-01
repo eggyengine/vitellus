@@ -25,8 +25,18 @@ const DeviceCandidate = struct {
     props: vk.PhysicalDeviceProperties,
     memory_props: vk.PhysicalDeviceMemoryProperties,
     features: vk.PhysicalDeviceFeatures,
+    shaders: ShaderSupport,
     queues: QueueAllocation,
     driver: adapter_interface.Driver,
+};
+
+/// Shader types and subgroup operations, which only the Vulkan 1.1 and 1.2 queries report.
+const ShaderSupport = struct {
+    float16: bool = false,
+    int16: bool = false,
+    int8: bool = false,
+    subgroups: bool = false,
+    subgroup_size: u32 = 0,
 };
 
 pub const vkAdapter = struct {
@@ -35,6 +45,7 @@ pub const vkAdapter = struct {
     props: vk.PhysicalDeviceProperties,
     memory_props: vk.PhysicalDeviceMemoryProperties,
     features: vk.PhysicalDeviceFeatures,
+    shaders: ShaderSupport,
     queues: QueueAllocation,
     driver: adapter_interface.Driver,
 
@@ -107,6 +118,7 @@ pub const vkAdapter = struct {
             .props = candidate.props,
             .memory_props = candidate.memory_props,
             .features = candidate.features,
+            .shaders = candidate.shaders,
             .queues = candidate.queues,
             .driver = candidate.driver,
         };
@@ -122,8 +134,40 @@ pub const vkAdapter = struct {
             .props = props,
             .memory_props = instance.wrapper.getPhysicalDeviceMemoryProperties(pdev),
             .features = instance.wrapper.getPhysicalDeviceFeatures(pdev),
+            .shaders = shaderSupportOf(instance, pdev, props),
             .queues = queues,
             .driver = driverOf(instance, pdev, props),
+        };
+    }
+
+    // A type counts only when buffers can hold it too, since shaders read their inputs from
+    // buffers; subgroups count when compute shaders have the common operations.
+    fn shaderSupportOf(instance: *vkInstance, pdev: vk.PhysicalDevice, props: vk.PhysicalDeviceProperties) ShaderSupport {
+        if (instance.api_version < vk.API_VERSION_1_1.toU32() or props.api_version < vk.API_VERSION_1_2.toU32()) return .{};
+        var v12: vk.PhysicalDeviceVulkan12Features = .{};
+        var v11: vk.PhysicalDeviceVulkan11Features = .{ .p_next = &v12 };
+        var features2: vk.PhysicalDeviceFeatures2 = .{ .p_next = &v11, .features = .{} };
+        instance.wrapper.getPhysicalDeviceFeatures2(pdev, &features2);
+        var subgroup: vk.PhysicalDeviceSubgroupProperties = .{
+            .subgroup_size = 0,
+            .supported_stages = .{},
+            .supported_operations = .{},
+            .quad_operations_in_all_stages = .false,
+        };
+        var props2: vk.PhysicalDeviceProperties2 = .{ .p_next = &subgroup, .properties = undefined };
+        instance.wrapper.getPhysicalDeviceProperties2(pdev, &props2);
+
+        const storage16 = v11.storage_buffer_16_bit_access == .true and v11.uniform_and_storage_buffer_16_bit_access == .true;
+        const storage8 = v12.storage_buffer_8_bit_access == .true and v12.uniform_and_storage_buffer_8_bit_access == .true;
+        const ops = subgroup.supported_operations;
+        const subgroups = subgroup.supported_stages.compute and ops.basic and ops.vote and ops.arithmetic and ops.ballot and ops.shuffle;
+        return .{
+            .float16 = v12.shader_float_16 == .true and storage16,
+            .int16 = features2.features.shader_int_16 == .true and storage16,
+            .int8 = v12.shader_int_8 == .true and storage8,
+            .subgroups = subgroups,
+            // ponytail: one width, the default; report subgroup size control's range (Vulkan 1.3) when shaders can pick a width
+            .subgroup_size = if (subgroups) subgroup.subgroup_size else 0,
         };
     }
 
@@ -227,6 +271,12 @@ pub const vkAdapter = struct {
                 .wireframe = self.features.fill_mode_non_solid == .true,
                 .anisotropic_filtering = self.features.sampler_anisotropy == .true,
                 .bc_compression = self.features.texture_compression_bc == .true,
+                .shader_float16 = self.shaders.float16,
+                .shader_int16 = self.shaders.int16,
+                .shader_int8 = self.shaders.int8,
+                .shader_int64 = self.features.shader_int_64 == .true,
+                .shader_float64 = self.features.shader_float_64 == .true,
+                .subgroup_operations = self.shaders.subgroups,
             },
             .limits = .{
                 .max_buffer_size = limits.max_storage_buffer_range,
@@ -248,6 +298,8 @@ pub const vkAdapter = struct {
                 .max_compute_invocations = limits.max_compute_work_group_invocations,
                 .max_compute_workgroup_size = limits.max_compute_work_group_size,
                 .max_compute_workgroups = limits.max_compute_work_group_count,
+                .subgroup_size_min = self.shaders.subgroup_size,
+                .subgroup_size_max = self.shaders.subgroup_size,
                 .max_sampler_anisotropy = anisotropy,
             },
         };

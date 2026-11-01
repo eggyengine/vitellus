@@ -100,7 +100,10 @@ test "backend order filters the platform list and promotes the preferred backend
 /// Amount of backend and API validation requested by the application.
 pub const ValidationLevel = enum { none, core, extended, gpu_based };
 
-/// Optional capabilities that must be checked before device creation.
+/// Optional capabilities. `Adapter.capabilities().features` says which a GPU has; ask for the
+/// ones you use in `DeviceDescriptor.required_features`, and device creation fails with
+/// `RequiredFeatureUnsupported` if the GPU lacks one. A shader that uses a feature the device
+/// wasn't made with is invalid even where the GPU has it.
 pub const FeatureSet = packed struct(u32) {
     timestamp_query: bool = false,
     occlusion_query: bool = false,
@@ -109,5 +112,23 @@ pub const FeatureSet = packed struct(u32) {
     wireframe: bool = false,
     anisotropic_filtering: bool = false,
     bc_compression: bool = false,
-    _pad: u25 = 0,
+    /// 16-bit floats (`half`, `float16_t`) in shader arithmetic and in storage and uniform
+    /// buffers. DirectX 12 has 16-bit floats and integers together (native 16-bit shader ops,
+    /// shader model 6.2 with DXC's `-enable-16bit-types`); WebGPU's `shader-f16`.
+    shader_float16: bool = false,
+    /// 16-bit integers in shader arithmetic and in storage and uniform buffers.
+    shader_int16: bool = false,
+    /// 8-bit integers in shader arithmetic and in storage and uniform buffers. Vulkan only:
+    /// DirectX 12 and WebGPU have no 8-bit types (DirectX 12's packed 8-bit dot products are
+    /// a different thing).
+    shader_int8: bool = false,
+    /// 64-bit integers in shader arithmetic.
+    shader_int64: bool = false,
+    /// 64-bit floats (`double`) in shader arithmetic. Often far slower than 32-bit.
+    shader_float64: bool = false,
+    /// Subgroup (wave) operations in compute shaders: vote, ballot, shuffle and arithmetic
+    /// reductions across the invocations running together, for fast sums and maxima. Their
+    /// width is `Limits.subgroup_size_min` to `subgroup_size_max` (in `adapter.zig`).
+    subgroup_operations: bool = false,
+    _pad: u19 = 0,
 };

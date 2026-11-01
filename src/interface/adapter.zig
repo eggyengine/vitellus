@@ -94,6 +94,10 @@ pub const Limits = struct {
     max_compute_workgroup_size: [3]u32 = .{ 0, 0, 0 },
     max_compute_workgroups: [3]u32 = .{ 0, 0, 0 },
     max_sampler_anisotropy: u16 = 1,
+    /// The fewest and most invocations a subgroup (wave) runs; equal on GPUs with one width.
+    /// 0 when the GPU has no subgroup operations.
+    subgroup_size_min: u32 = 0,
+    subgroup_size_max: u32 = 0,
 };
 pub const AdapterCapabilities = struct { features: FeatureSet = .{}, limits: Limits = .{} };
 pub const SampleCounts = packed struct(u8) { one: bool = true, two: bool = false, four: bool = false, eight: bool = false, _pad: u4 = 0 };

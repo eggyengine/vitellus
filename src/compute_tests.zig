@@ -146,3 +146,82 @@ test "a tiled matmul and an in-place pass over its output match the CPU" {
     const result = std.mem.bytesAsSlice(f32, read[0..@sizeOf(@TypeOf(a))]);
     for (expected, result) |want, got| try std.testing.expectApproxEqAbs(want, got, 1e-3);
 }
+
+test "a device made with shader_float16 runs half-precision arithmetic" {
+    if (comptime !options.available) return error.SkipZigTest;
+    const gpa = std.testing.allocator;
+    const instance = vit.Instance.init(gpa, .{ .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    const adapter = vit.Adapter.init(instance, .{}) catch return error.SkipZigTest;
+    defer adapter.deinit();
+    if (!adapter.capabilities().features.shader_float16) return error.SkipZigTest;
+    const device = try vit.Device.init(adapter, .{ .required_features = .{ .shader_float16 = true } });
+    defer device.deinit();
+    const queue = try vit.Queue.init(device, .{});
+    defer queue.deinit();
+
+    // Each input squared in half precision, written out widened to 32 bits. Every value and
+    // square is exact in 16 bits, so a correct result is exact.
+    const half_source =
+        \\[[vk::binding(0, 0)]] ByteAddressBuffer input : register(t0, space0);
+        \\[[vk::binding(1, 0)]] RWByteAddressBuffer output : register(u1, space0);
+        \\[shader("compute")] [numthreads(4, 1, 1)]
+        \\void square(uint3 id : SV_DispatchThreadID) {
+        \\    half x = input.Load<half>(id.x * 2);
+        \\    output.Store(id.x * 4, asuint(float(x * x)));
+        \\}
+    ;
+    const inputs = [4]f16{ 0.5, -1.5, 2.25, 3 };
+    const input = try vit.Buffer.init(device, .{ .size = @sizeOf(@TypeOf(inputs)), .usage = .{ .storage = true }, .initial_data = std.mem.asBytes(&inputs) });
+    defer input.deinit();
+    const output = try vit.Buffer.init(device, .{ .size = 16, .usage = .{ .storage = true, .transfer_src = true } });
+    defer output.deinit();
+    const readback = try vit.Buffer.init(device, .{ .size = 16, .usage = .{ .transfer_dst = true }, .memory = .readback });
+    defer readback.deinit();
+
+    const layout = try vit.hal.binding.BindGroupLayout.init(device, .{ .entries = &.{
+        .{ .binding = 0, .kind = .{ .buffer = .{ .kind = .storage_read } }, .visibility = .{ .compute = true } },
+        .{ .binding = 1, .kind = .{ .buffer = .{ .kind = .storage_read_write } }, .visibility = .{ .compute = true } },
+    } });
+    defer layout.deinit();
+    const group = try vit.hal.binding.BindGroup.init(device, .{ .layout = layout, .entries = &.{
+        .{ .binding = 0, .resource = .{ .buffer = .{ .buffer = input } } },
+        .{ .binding = 1, .resource = .{ .buffer = .{ .buffer = output } } },
+    } });
+    defer group.deinit();
+    const pipeline_layout = try vit.PipelineLayout.init(device, .{ .bind_group_layouts = &.{layout} });
+    defer pipeline_layout.deinit();
+    const shader = try vit.Shader.init(device, .{ .stage = .compute, .source = SlangShaderModule.init(.{ .code = half_source, .entry_point = "square" }) });
+    defer shader.deinit();
+    const pipeline = try vit.ComputePipeline.init(device, .{ .compute = shader, .layout = pipeline_layout });
+    defer pipeline.deinit();
+
+    const pool = try vit.CommandPool.init(device, .{});
+    defer pool.deinit();
+    const cmd = try vit.CommandBuffer.init(pool, .{});
+    defer cmd.deinit();
+    try cmd.barrier(&.{
+        .{ .buffer = .{ .buffer = input, .before = .common, .after = .storage_read } },
+        .{ .buffer = .{ .buffer = output, .before = .common, .after = .storage_write } },
+    });
+    try cmd.beginComputePass("square");
+    cmd.setComputePipeline(pipeline);
+    cmd.setBindGroup(0, group, &.{});
+    cmd.dispatch(1, 1, 1);
+    cmd.endComputePass();
+    try cmd.barrier(&.{
+        .{ .buffer = .{ .buffer = output, .before = .storage_write, .after = .copy_source } },
+        .{ .buffer = .{ .buffer = readback, .before = .common, .after = .copy_destination } },
+    });
+    try cmd.copyBuffer(.{ .source = output, .destination = readback, .size = 16 });
+    try cmd.barrier(&.{.{ .buffer = .{ .buffer = readback, .before = .copy_destination, .after = .host_read } }});
+    try cmd.finish();
+    try queue.submit(.{ .command_buffers = &.{cmd} });
+    try queue.waitIdle();
+
+    const read = try readback.map(.read, .{ .size = 16 });
+    defer readback.unmap(null);
+    var squares: [4]f32 = undefined;
+    @memcpy(std.mem.asBytes(&squares), read[0..16]);
+    try std.testing.expectEqualSlices(f32, &.{ 0.25, 2.25, 5.0625, 9 }, &squares);
+}

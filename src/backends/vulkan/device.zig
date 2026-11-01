@@ -82,9 +82,24 @@ pub const vkDevice = struct {
         }
 
         const enabled_features = requiredVkFeatures(desc);
-        var timeline_features: vk.PhysicalDeviceTimelineSemaphoreFeatures = .{ .timeline_semaphore = .true };
+        // Timeline semaphores always; the shader types only when asked for, as each costs the
+        // driver nothing until a shader uses it but must be enabled to be used.
+        const wanted = desc.required_features;
+        var v12_features: vk.PhysicalDeviceVulkan12Features = .{
+            .timeline_semaphore = .true,
+            .shader_float_16 = vkBool(wanted.shader_float16),
+            .shader_int_8 = vkBool(wanted.shader_int8),
+            .storage_buffer_8_bit_access = vkBool(wanted.shader_int8),
+            .uniform_and_storage_buffer_8_bit_access = vkBool(wanted.shader_int8),
+        };
+        const storage16 = wanted.shader_float16 or wanted.shader_int16;
+        var v11_features: vk.PhysicalDeviceVulkan11Features = .{
+            .p_next = @ptrCast(&v12_features),
+            .storage_buffer_16_bit_access = vkBool(storage16),
+            .uniform_and_storage_buffer_16_bit_access = vkBool(storage16),
+        };
         var dynamic_rendering_features: vk.PhysicalDeviceDynamicRenderingFeatures = .{
-            .p_next = @ptrCast(&timeline_features),
+            .p_next = @ptrCast(&v11_features),
             .dynamic_rendering = .true,
         };
         var extension_names: [3][*:0]const u8 = undefined;
@@ -196,6 +211,9 @@ fn requiredVkFeatures(desc: DeviceDescriptor) vk.PhysicalDeviceFeatures {
         .fill_mode_non_solid = vkBool(desc.required_features.wireframe),
         .sampler_anisotropy = vkBool(desc.required_features.anisotropic_filtering),
         .texture_compression_bc = vkBool(desc.required_features.bc_compression),
+        .shader_int_16 = vkBool(desc.required_features.shader_int16),
+        .shader_int_64 = vkBool(desc.required_features.shader_int64),
+        .shader_float_64 = vkBool(desc.required_features.shader_float64),
     };
 }
 

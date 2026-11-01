@@ -65,6 +65,23 @@ pub const HLSLProfile = enum {
         };
         return std.mem.startsWith(u8, self.name(), prefix);
     }
+
+    /// The shader model's minor version: 2 for `cs_6_2`.
+    pub fn minor(self: HLSLProfile) u8 {
+        const spelled = self.name();
+        return spelled[spelled.len - 1] - '0';
+    }
+};
+
+/// What HLSL's 16-bit types mean.
+pub const SixteenBitTypes = enum {
+    /// `half` and `min16float` are hints for at least 16 bits, and `float16_t` and `int16_t`
+    /// don't exist. Runs on every GPU.
+    minimum_precision,
+    /// `half`, `float16_t`, `int16_t` and `uint16_t` are exactly 16 bits, in registers and in
+    /// buffers (DXC's `-enable-16bit-types`). Needs a 6.2 or later profile and a device made
+    /// with `shader_float16` or `shader_int16`.
+    native,
 };
 
 /// HLSL shader module compilation backed by the [DirectX Shader Compiler](https://github.com/microsoft/directxshadercompiler).
@@ -76,6 +93,7 @@ pub const HLSLShaderModule = struct {
         code: []const u8,
         entry_point: []const u8 = "main",
         profile: HLSLProfile,
+        sixteen_bit_types: SixteenBitTypes = .minimum_precision,
 
         /// Compile the HLSL with DXC for `self.profile`: DXIL for DirectX 12, SPIR-V for Vulkan.
         /// The profile must suit the requested stage. The caller owns the result.
@@ -90,6 +108,7 @@ pub const HLSLShaderModule = struct {
                 .metal, .webgpu => return error.UnsupportedShaderBackend,
             };
             if (!self.profile.supportsStage(request.stage)) return error.ShaderProfileStageMismatch;
+            if (self.sixteen_bit_types == .native and self.profile.minor() < 2) return error.ShaderProfileTooOld;
 
             var raw_compiler: ?*anyopaque = null;
             try checkHr(dxc.DxcCreateInstance(
@@ -110,13 +129,17 @@ pub const HLSLShaderModule = struct {
                 L("-T"),   profile.ptr,
                 L("-HV"),  L("2021"),
                 L("-O3"),  undefined,
-                undefined,
+                undefined, undefined,
             };
             var argument_count: u32 = 7;
             if (format == .spirv) {
-                arguments[7] = L("-spirv");
-                arguments[8] = L("-fspv-target-env=vulkan1.3");
-                argument_count = arguments.len;
+                arguments[argument_count] = L("-spirv");
+                arguments[argument_count + 1] = L("-fspv-target-env=vulkan1.3");
+                argument_count += 2;
+            }
+            if (self.sixteen_bit_types == .native) {
+                arguments[argument_count] = L("-enable-16bit-types");
+                argument_count += 1;
             }
 
             const source: dxc.DxcBuffer = .{
@@ -222,6 +245,20 @@ test "HLSL module compiles DXIL as an inline temporary" {
 
     try std.testing.expect(compiled.format == .dxil);
     try std.testing.expectEqualStrings("DXBC", compiled.bytes[0..4]);
+}
+
+test "native 16-bit types compile from a 6.2 profile and are refused below it" {
+    const code =
+        \\RWByteAddressBuffer data : register(u0);
+        \\[numthreads(1, 1, 1)] void main() { float16_t x = data.Load<float16_t>(0); data.Store<int16_t>(2, int16_t(x * 2.0h)); }
+    ;
+    for ([_]vit.Backend{ .dx12, .vulkan }) |backend| {
+        const module = HLSLShaderModule.init(.{ .code = code, .profile = .cs_6_2, .sixteen_bit_types = .native });
+        var compiled = try module.compile(std.testing.allocator, .{ .backend = backend, .stage = .compute });
+        compiled.deinit(std.testing.allocator);
+    }
+    const too_old = HLSLShaderModule.init(.{ .code = code, .profile = .cs_6_0, .sixteen_bit_types = .native });
+    try std.testing.expectError(error.ShaderProfileTooOld, too_old.compile(std.testing.allocator, .{ .backend = .dx12, .stage = .compute }));
 }
 
 test "HLSL module compiles SPIR-V" {

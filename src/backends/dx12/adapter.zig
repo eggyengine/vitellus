@@ -82,6 +82,29 @@ pub const Dx12Adapter = struct {
                 dx.D3D12_RESOURCE_BINDING_TIER_2 => 256,
                 else => 1024,
             };
+            caps.features.shader_float64 = options.DoublePrecisionFloatShaderOps != 0;
+        }
+
+        // Shader types and wave operations need nothing enabled at device creation, only
+        // the GPU's support and a shader model new enough to express them.
+        var options1 = std.mem.zeroes(dx.D3D12_FEATURE_DATA_D3D12_OPTIONS1);
+        if (checkFeature(device, dx.D3D12_FEATURE_D3D12_OPTIONS1, &options1)) {
+            caps.features.shader_int64 = options1.Int64ShaderOps != 0;
+            caps.features.subgroup_operations = options1.WaveOps != 0;
+            if (options1.WaveOps != 0) {
+                caps.limits.subgroup_size_min = options1.WaveLaneCountMin;
+                caps.limits.subgroup_size_max = options1.WaveLaneCountMax;
+            }
+        }
+        var shader_model: dx.D3D12_FEATURE_DATA_SHADER_MODEL = .{ .HighestShaderModel = dx.D3D_SHADER_MODEL_6_2 };
+        var options4 = std.mem.zeroes(dx.D3D12_FEATURE_DATA_D3D12_OPTIONS4);
+        if (checkFeature(device, dx.D3D12_FEATURE_SHADER_MODEL, &shader_model) and
+            shader_model.HighestShaderModel >= dx.D3D_SHADER_MODEL_6_2 and
+            checkFeature(device, dx.D3D12_FEATURE_D3D12_OPTIONS4, &options4))
+        {
+            // Native 16-bit types come as floats and integers together.
+            caps.features.shader_float16 = options4.Native16BitShaderOpsSupported != 0;
+            caps.features.shader_int16 = options4.Native16BitShaderOpsSupported != 0;
         }
 
         var va = std.mem.zeroes(dx.D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT);
