@@ -51,8 +51,25 @@ pub const Dx12CommandBuffer = struct {
     draw_signature: ComPtr(dx.ID3D12CommandSignature) = .{},
     draw_indexed_signature: ComPtr(dx.ID3D12CommandSignature) = .{},
     dispatch_signature: ComPtr(dx.ID3D12CommandSignature) = .{},
-    dynamic_descriptors: [64]Dx12Device.DescriptorAllocation = undefined,
-    dynamic_descriptor_count: usize = 0,
+    /// Descriptors made for bind groups with dynamic offsets, freed with the list.
+    dynamic_descriptors: std.ArrayList(Dx12Device.DescriptorAllocation) = .empty,
+    /// The descriptor heaps this list has bound, by generation; null until the first bind group.
+    bound_heaps: ?[2]u32 = null,
+    /// The descriptor tables set on each root parameter, set again when growth rebinds the heaps.
+    graphics_tables: Tables = .{},
+    compute_tables: Tables = .{},
+
+    const Tables = struct {
+        root_signature: ?*dx.ID3D12RootSignature = null,
+        by_parameter: [16]?Table = @splat(null),
+
+        // Setting a different root signature drops the tables set for the old one.
+        fn use(self: *Tables, root_signature: *dx.ID3D12RootSignature) void {
+            if (self.root_signature == root_signature) return;
+            self.* = .{ .root_signature = root_signature };
+        }
+    };
+    const Table = struct { heap: enum { resources, samplers }, index: u32 };
 
     pub fn fromCommandBuffer(value: command.CommandBuffer) *Dx12CommandBuffer {
         return @ptrCast(@alignCast(value.ptr));
@@ -173,7 +190,8 @@ pub fn destroyBuffer(ptr: *anyopaque) void {
     self.dispatch_signature.deinit();
     self.draw_indexed_signature.deinit();
     self.draw_signature.deinit();
-    if (self.device) |device| for (self.dynamic_descriptors[0..self.dynamic_descriptor_count]) |allocation| device.freeResourceDescriptors(allocation.index, allocation.count);
+    if (self.device) |device| for (self.dynamic_descriptors.items) |allocation| device.freeResourceDescriptors(allocation.index, allocation.count);
+    self.dynamic_descriptors.deinit(self.allocator);
     self.list.deinit();
     self.command_allocator.deinit();
     self.pool.live_buffers -= 1;
@@ -215,8 +233,8 @@ fn beginRenderPass(ptr: *anyopaque, desc: command.RenderPassDescriptor) anyerror
     const list = self.list.unwrap();
     for (desc.color_attachments, 0..) |attachment, i| {
         const view = try resource.Dx12TextureView.fromHandle(attachment.view);
-        if (view.rtv.ptr == 0) return error.InvalidColorAttachment;
-        handles[i] = view.rtv;
+        const rtv = view.rtvHandle() orelse return error.InvalidColorAttachment;
+        handles[i] = rtv;
         self.attachments[i] = view;
         self.resolve_attachments[i] = if (attachment.resolve_target) |target| try resource.Dx12TextureView.fromHandle(target) else null;
         self.discard_at_end[i] = attachment.store_op == .discard;
@@ -225,7 +243,7 @@ fn beginRenderPass(ptr: *anyopaque, desc: command.RenderPassDescriptor) anyerror
             .discard => list.lpVtbl.*.DiscardResource.?(list, view.resource, null),
             .clear => {
                 const color = [4]f32{ attachment.clear_value.r, attachment.clear_value.g, attachment.clear_value.b, attachment.clear_value.a };
-                list.lpVtbl.*.ClearRenderTargetView.?(list, view.rtv, &color, 0, null);
+                list.lpVtbl.*.ClearRenderTargetView.?(list, rtv, &color, 0, null);
             },
         }
     }
@@ -234,15 +252,15 @@ fn beginRenderPass(ptr: *anyopaque, desc: command.RenderPassDescriptor) anyerror
     var dsv: ?dx.D3D12_CPU_DESCRIPTOR_HANDLE = null;
     if (desc.depth_stencil_attachment) |attachment| {
         const view = try resource.Dx12TextureView.fromHandle(attachment.view);
-        if (view.dsv.ptr == 0) return error.InvalidDepthStencilAttachment;
+        const view_dsv = view.dsvHandle() orelse return error.InvalidDepthStencilAttachment;
         self.depth_attachment = view;
         self.discard_depth_at_end = attachment.depth_store_op == .discard or attachment.stencil_store_op == .discard;
-        dsv = view.dsv;
+        dsv = view_dsv;
         var clear_flags: dx.D3D12_CLEAR_FLAGS = 0;
         if (attachment.depth_load_op == .clear) clear_flags |= dx.D3D12_CLEAR_FLAG_DEPTH;
         if (attachment.stencil_load_op == .clear) clear_flags |= dx.D3D12_CLEAR_FLAG_STENCIL;
         if (attachment.depth_load_op == .discard or attachment.stencil_load_op == .discard) list.lpVtbl.*.DiscardResource.?(list, view.resource, null);
-        if (clear_flags != 0) list.lpVtbl.*.ClearDepthStencilView.?(list, view.dsv, clear_flags, attachment.depth_clear, attachment.stencil_clear, 0, null);
+        if (clear_flags != 0) list.lpVtbl.*.ClearDepthStencilView.?(list, view_dsv, clear_flags, attachment.depth_clear, attachment.stencil_clear, 0, null);
     }
     list.lpVtbl.*.OMSetRenderTargets.?(list, @intCast(self.attachment_count), if (self.attachment_count == 0) null else &handles, 0, if (dsv) |*value| value else null);
 
@@ -269,6 +287,7 @@ fn setGraphicsPipeline(ptr: *anyopaque, value: pipeline.GraphicsPipeline) void {
     const state = pipeline_impl.Dx12GraphicsPipeline.fromHandle(value) catch return;
     const list = self.list.unwrap();
     list.lpVtbl.*.SetGraphicsRootSignature.?(list, state.root_signature.unwrap());
+    self.graphics_tables.use(state.root_signature.unwrap());
     list.lpVtbl.*.SetPipelineState.?(list, state.state.unwrap());
     list.lpVtbl.*.IASetPrimitiveTopology.?(list, state.topology);
     self.active_pipeline = state;
@@ -290,6 +309,7 @@ fn setComputePipeline(ptr: *anyopaque, value: pipeline.ComputePipeline) void {
     const state = pipeline_impl.Dx12ComputePipeline.fromHandle(value) catch return;
     const list = self.list.unwrap();
     list.lpVtbl.*.SetComputeRootSignature.?(list, state.layout.root_signature.unwrap());
+    self.compute_tables.use(state.layout.root_signature.unwrap());
     list.lpVtbl.*.SetPipelineState.?(list, state.state.unwrap());
     self.active_compute_pipeline = state;
 }
@@ -350,22 +370,48 @@ fn setBindGroup(ptr: *anyopaque, slot: u32, value: @import("../../interface/bind
         expected_offsets += entry.count;
     };
     if (dynamic_offsets.len != expected_offsets) return;
-    var heaps = [_]?*dx.ID3D12DescriptorHeap{ device.resource_heap.get(), device.sampler_heap.get() };
-    self.list.unwrap().lpVtbl.*.SetDescriptorHeaps.?(self.list.unwrap(), 2, @ptrCast(&heaps));
-    var resource_handle = group.resources;
+    bindHeaps(self, device);
+    var resource_index = group.resource_index;
     if (dynamic_offsets.len != 0) {
-        if (self.dynamic_descriptor_count == self.dynamic_descriptors.len) return;
+        self.dynamic_descriptors.ensureUnusedCapacity(self.allocator, 1) catch return;
         const allocation = binding_impl.dynamicResources(device, group, dynamic_offsets) catch return;
-        self.dynamic_descriptors[self.dynamic_descriptor_count] = allocation;
-        self.dynamic_descriptor_count += 1;
-        resource_handle = allocation.gpu;
+        self.dynamic_descriptors.appendAssumeCapacity(allocation);
+        resource_index = allocation.index;
+        // Making them may have grown the heap.
+        bindHeaps(self, device);
     }
-    if (resource_handle) |handle| if (roots.resources) |root| {
-        if (compute) self.list.unwrap().lpVtbl.*.SetComputeRootDescriptorTable.?(self.list.unwrap(), root, handle) else self.list.unwrap().lpVtbl.*.SetGraphicsRootDescriptorTable.?(self.list.unwrap(), root, handle);
+    if (group.resource_count != 0) if (roots.resources) |root| setTable(self, compute, root, .{ .heap = .resources, .index = resource_index });
+    if (group.sampler_count != 0) if (roots.samplers) |root| setTable(self, compute, root, .{ .heap = .samplers, .index = group.sampler_index });
+}
+
+// Bind the device's current descriptor heaps if this list hasn't yet. After growth that means
+// new heaps, which drops every table set so far, so set them again (now in the new heaps).
+fn bindHeaps(self: *Dx12CommandBuffer, device: *Dx12Device) void {
+    const current = [2]u32{ device.resources.generation, device.samplers.generation };
+    if (self.bound_heaps) |bound| if (std.mem.eql(u32, &bound, &current)) return;
+    var heaps = [_]?*dx.ID3D12DescriptorHeap{ device.resources.visibleHeap(), device.samplers.visibleHeap() };
+    self.list.unwrap().lpVtbl.*.SetDescriptorHeaps.?(self.list.unwrap(), 2, @ptrCast(&heaps));
+    const rebinding = self.bound_heaps != null;
+    self.bound_heaps = current;
+    if (!rebinding) return;
+    for (self.graphics_tables.by_parameter, 0..) |table, root| if (table) |value| setTable(self, false, @intCast(root), value);
+    for (self.compute_tables.by_parameter, 0..) |table, root| if (table) |value| setTable(self, true, @intCast(root), value);
+}
+
+fn setTable(self: *Dx12CommandBuffer, compute: bool, root: u32, table: Dx12CommandBuffer.Table) void {
+    const device = self.device.?;
+    const handle = switch (table.heap) {
+        .resources => device.resources.gpu(table.index),
+        .samplers => device.samplers.gpu(table.index),
     };
-    if (group.samplers) |handle| if (roots.samplers) |root| {
-        if (compute) self.list.unwrap().lpVtbl.*.SetComputeRootDescriptorTable.?(self.list.unwrap(), root, handle) else self.list.unwrap().lpVtbl.*.SetGraphicsRootDescriptorTable.?(self.list.unwrap(), root, handle);
-    };
+    const list = self.list.unwrap();
+    if (compute) {
+        list.lpVtbl.*.SetComputeRootDescriptorTable.?(list, root, handle);
+        self.compute_tables.by_parameter[root] = table;
+    } else {
+        list.lpVtbl.*.SetGraphicsRootDescriptorTable.?(list, root, handle);
+        self.graphics_tables.by_parameter[root] = table;
+    }
 }
 
 fn setViewport(ptr: *anyopaque, value: command.Viewport) void {

@@ -108,7 +108,6 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         device.allocator.destroy(self);
     }
 
-
     const input_elements = try makeInputElements(device.allocator, desc.vertex_buffers);
     defer device.allocator.free(input_elements);
 

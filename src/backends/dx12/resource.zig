@@ -41,8 +41,8 @@ pub const Dx12Texture = struct {
 pub const Dx12TextureView = struct {
     owner: ?*Dx12Device,
     resource: *dx.ID3D12Resource,
+    /// A swapchain back buffer's render-target view; views the device made use `rtv_index`.
     rtv: dx.D3D12_CPU_DESCRIPTOR_HANDLE,
-    dsv: dx.D3D12_CPU_DESCRIPTOR_HANDLE = .{ .ptr = 0 },
     width: u32,
     height: u32,
     dimension: resource.TextureDimension = .d2,
@@ -64,6 +64,17 @@ pub const Dx12TextureView = struct {
     pub fn fromHandle(value: resource.TextureView) !*Dx12TextureView {
         if (value.handle == 0) return error.InvalidTextureView;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
+    }
+
+    /// The render-target view, looked up now: the device's heap moves when it grows.
+    pub fn rtvHandle(self: *const Dx12TextureView) ?dx.D3D12_CPU_DESCRIPTOR_HANDLE {
+        if (self.rtv_index) |index| return self.owner.?.rtvs.cpu(index);
+        return if (self.rtv.ptr == 0) null else self.rtv;
+    }
+
+    pub fn dsvHandle(self: *const Dx12TextureView) ?dx.D3D12_CPU_DESCRIPTOR_HANDLE {
+        const index = self.dsv_index orelse return null;
+        return self.owner.?.dsvs.cpu(index);
     }
 };
 
@@ -248,19 +259,17 @@ pub fn createTextureView(ptr: *anyopaque, desc: resource.TextureViewDescriptor) 
     }
     if (texture.desc.usage.color_attachment) {
         const allocation = try device.allocateRtv();
-        self.rtv = allocation.cpu;
         self.rtv_index = allocation.index;
         var rtv = renderTargetViewDesc(self.format, view_dimension, desc.base_mip, desc.base_layer, layer_count);
-        device.device.unwrap().lpVtbl.*.CreateRenderTargetView.?(device.device.unwrap(), self.resource, &rtv, self.rtv);
-        utils.setRenderDocDescriptorName(device.allocator, device.rtv_heap.unwrap(), allocation.index, desc.label);
+        device.device.unwrap().lpVtbl.*.CreateRenderTargetView.?(device.device.unwrap(), self.resource, &rtv, allocation.cpu);
+        device.rtvs.nameDescriptor(device.allocator, allocation.index, desc.label);
     }
     if (texture.desc.usage.depth_stencil_attachment) {
         const allocation = try device.allocateDsv();
-        self.dsv = allocation.cpu;
         self.dsv_index = allocation.index;
         var dsv = depthStencilViewDesc(self.format, view_dimension, desc.base_mip, desc.base_layer, layer_count);
-        device.device.unwrap().lpVtbl.*.CreateDepthStencilView.?(device.device.unwrap(), self.resource, &dsv, self.dsv);
-        utils.setRenderDocDescriptorName(device.allocator, device.dsv_heap.unwrap(), allocation.index, desc.label);
+        device.device.unwrap().lpVtbl.*.CreateDepthStencilView.?(device.device.unwrap(), self.resource, &dsv, allocation.cpu);
+        device.dsvs.nameDescriptor(device.allocator, allocation.index, desc.label);
     }
     log.debug("created DX12 texture view dimension={s} mips={} layers={}", .{ @tagName(view_dimension), mip_count, layer_count });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &texture_view_vtable };
