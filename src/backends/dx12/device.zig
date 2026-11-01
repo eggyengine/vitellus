@@ -14,6 +14,7 @@ const sync = @import("sync.zig");
 const binding = @import("binding.zig");
 const debug = @import("debug.zig");
 const d3d12ma = @import("d3d12ma.zig");
+const ShaderDiskCache = @import("../../shader_disk_cache.zig").ShaderDiskCache;
 const utils = @import("utils.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
@@ -36,6 +37,10 @@ pub const Dx12Device = struct {
     debug_device: debug.Dx12DebugDevice = .{},
     /// Where every buffer's and texture's memory comes from; set right after the device is made.
     memory: d3d12ma.Allocator = undefined,
+    /// Where compiled pipelines are kept between runs (`pipeline_cache.zig`), keyed partly by GPU.
+    disk: ?*const ShaderDiskCache = null,
+    vendor_id: u32 = 0,
+    device_id: u32 = 0,
 
     pub const resource_capacity = 4096;
     pub const sampler_capacity = 256;
@@ -101,6 +106,12 @@ pub const Dx12Device = struct {
         log.debug("ID3D12Device successfully initialised", .{});
         self.memory = try d3d12ma.createAllocator(self.device.unwrap(), @ptrCast(adapter.adapter.unwrap()));
         errdefer d3d12ma.destroyAllocator(self.memory);
+        self.disk = desc.pipeline_cache;
+        var adapter_desc: dx.DXGI_ADAPTER_DESC1 = undefined;
+        if (adapter.adapter.unwrap().lpVtbl.*.GetDesc1.?(adapter.adapter.unwrap(), &adapter_desc) >= 0) {
+            self.vendor_id = adapter_desc.VendorId;
+            self.device_id = adapter_desc.DeviceId;
+        }
 
         try self.createDescriptorHeap(&self.resource_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, resource_capacity, true);
         try self.createDescriptorHeap(&self.sampler_heap, dx.D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, sampler_capacity, true);

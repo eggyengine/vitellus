@@ -16,6 +16,10 @@ pub const DeviceDescriptor = struct {
     /// Optional name shown for the logical device in graphics debuggers.
     label: ?[]const u8 = null,
     required_features: @import("settings.zig").FeatureSet = .{},
+    /// Where compiled pipelines are kept between runs, so the driver needn't compile them
+    /// again: Vulkan saves its pipeline cache when the device is destroyed, DirectX 12 each
+    /// pipeline as it is made. Must outlive the device.
+    pipeline_cache: ?*const @import("../shader_disk_cache.zig").ShaderDiskCache = null,
 };
 
 /// Owning handle to a logical GPU device.

@@ -15,6 +15,8 @@ const binding_impl = @import("binding.zig");
 const pipeline_impl = @import("pipeline.zig");
 const command_impl = @import("command.zig");
 const vma = @import("vma.zig");
+const pipeline_cache = @import("pipeline_cache.zig");
+const ShaderDiskCache = @import("../../shader_disk_cache.zig").ShaderDiskCache;
 
 const log = std.log.scoped(.vk_device);
 
@@ -27,6 +29,10 @@ pub const vkDevice = struct {
     queues: @import("adapter.zig").QueueAllocation,
     /// Where every buffer's and image's memory comes from.
     memory: vma.Allocator,
+    /// Every pipeline is made through it, and it is saved to `disk` when the device goes.
+    pipeline_cache: vk.PipelineCache,
+    disk: ?*const ShaderDiskCache,
+    props: vk.PhysicalDeviceProperties,
 
     const vtable: Device.VTable = .{
         .deinitFn = deinitImpl,
@@ -109,6 +115,10 @@ pub const vkDevice = struct {
             adapter.instance.get_instance_proc_addr,
             get_device_proc_addr,
         );
+        errdefer vma.destroyAllocator(self.memory);
+        self.props = adapter.props;
+        self.disk = desc.pipeline_cache;
+        self.pipeline_cache = try pipeline_cache.open(self.proxy, adapter.props, desc.pipeline_cache, allocator);
 
         self.instance.nameObject(allocator, self.proxy, .device, @intFromPtr(handle), desc.label);
         log.debug("created Vulkan logical device with {} queue family/families", .{queue_info_count});
@@ -118,6 +128,8 @@ pub const vkDevice = struct {
     fn deinitImpl(ptr: *anyopaque, allocator: std.mem.Allocator) void {
         const self: *vkDevice = @ptrCast(@alignCast(ptr));
         _ = self.proxy.deviceWaitIdle() catch |err| log.warn("Vulkan device wait-idle failed during destruction: {}", .{err});
+        pipeline_cache.save(self.proxy, self.pipeline_cache, self.props, self.disk, allocator);
+        self.proxy.destroyPipelineCache(self.pipeline_cache, null);
         vma.destroyAllocator(self.memory);
         self.proxy.destroyDevice(null);
         allocator.destroy(self);

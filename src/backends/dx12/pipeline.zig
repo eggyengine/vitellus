@@ -8,6 +8,7 @@ const binding = @import("binding.zig");
 const Dx12Device = @import("device.zig").Dx12Device;
 const dx = @import("dx12_c");
 const utils = @import("utils.zig");
+const pipeline_cache = @import("pipeline_cache.zig");
 const ComPtr = utils.ComPtr;
 const checkHr = utils.checkHr;
 const log = std.log.scoped(.dx12_pipeline);
@@ -19,6 +20,8 @@ pub const Dx12PipelineLayout = struct {
     bind_group_roots: [8]BindGroupRoots = @splat(.{}),
     bind_group_count: u32 = 0,
     root_signature: ComPtr(dx.ID3D12RootSignature) = .{},
+    /// Of the serialized root signature, for pipeline cache keys.
+    root_signature_hash: [32]u8 = @splat(0),
     pub fn fromHandle(value: pipeline.PipelineLayout) !*Dx12PipelineLayout {
         if (value.handle == 0) return error.InvalidPipelineLayout;
         return @ptrFromInt(@as(usize, @intCast(value.handle)));
@@ -62,7 +65,7 @@ pub fn createLayout(ptr: *anyopaque, desc: pipeline.PipelineLayoutDescriptor) an
     self.* = .{ .allocator = device.allocator, .bind_group_count = @intCast(desc.bind_group_layouts.len) };
     errdefer device.allocator.destroy(self);
     for (desc.bind_group_layouts, 0..) |layout, i| self.bind_group_layouts[i] = try binding.Dx12BindGroupLayout.fromHandle(layout);
-    self.root_signature = try makeRootSignature(device, self.bind_group_layouts[0..self.bind_group_count], &self.bind_group_roots);
+    self.root_signature = try makeRootSignature(device, self.bind_group_layouts[0..self.bind_group_count], &self.bind_group_roots, &self.root_signature_hash);
     utils.setD3D12Name(device.allocator, self.root_signature.unwrap(), desc.label);
     log.debug("created DX12 pipeline layout bind-groups={}", .{self.bind_group_count});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &layout_vtable };
@@ -105,7 +108,6 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         device.allocator.destroy(self);
     }
 
-    const raw_device = device.device.unwrap();
 
     const input_elements = try makeInputElements(device.allocator, desc.vertex_buffers);
     defer device.allocator.free(input_elements);
@@ -133,20 +135,25 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
     state_desc.SampleDesc = .{ .Count = desc.multisample.count, .Quality = 0 };
     state_desc.Flags = dx.D3D12_PIPELINE_STATE_FLAG_NONE;
 
-    const hr = raw_device.lpVtbl.*.CreateGraphicsPipelineState.?(
-        raw_device,
-        &state_desc,
-        &dx.IID_ID3D12PipelineState,
-        @ptrCast(self.state.put()),
-    );
-    if (hr < 0) device.debug_device.logMessages();
-    try checkHr(hr);
+    const key = if (device.disk == null) null else key: {
+        var hasher = pipeline_cache.Hasher.init(device, "graphics");
+        hasher.bytes(&layout.root_signature_hash);
+        hasher.bytes(vertex.bytecode);
+        hasher.bytes(if (fragment) |value| value.bytecode else "");
+        for (input_elements) |element| {
+            hasher.bytes(std.mem.span(element.SemanticName));
+            hasher.value(element);
+        }
+        hasher.value(.{ state_desc.BlendState, state_desc.SampleMask, state_desc.RasterizerState, state_desc.DepthStencilState, state_desc.PrimitiveTopologyType, state_desc.NumRenderTargets, state_desc.RTVFormats, state_desc.DSVFormat, state_desc.SampleDesc, state_desc.Flags });
+        break :key hasher.finish();
+    };
+    try pipeline_cache.create(device, &state_desc, key, &self.state);
     utils.setD3D12Name(device.allocator, self.state.unwrap(), desc.label);
     log.debug("created DX12 graphics pipeline vertex-buffers={} color-targets={} topology={s}", .{ desc.vertex_buffers.len, desc.color_targets.len, @tagName(desc.topology) });
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &graphics_vtable };
 }
 
-fn makeRootSignature(device: *Dx12Device, layouts: []const ?*binding.Dx12BindGroupLayout, roots: *[8]BindGroupRoots) !ComPtr(dx.ID3D12RootSignature) {
+fn makeRootSignature(device: *Dx12Device, layouts: []const ?*binding.Dx12BindGroupLayout, roots: *[8]BindGroupRoots, hash: *[32]u8) !ComPtr(dx.ID3D12RootSignature) {
     var parameter_count: usize = 0;
     var range_count: usize = 0;
     for (layouts) |maybe| if (maybe) |layout| {
@@ -195,6 +202,8 @@ fn makeRootSignature(device: *Dx12Device, layouts: []const ?*binding.Dx12BindGro
     var result: ComPtr(dx.ID3D12RootSignature) = .{};
     const blob = signature_blob.unwrap();
     const raw = device.device.unwrap();
+    const serialized: [*]const u8 = @ptrCast(blob.lpVtbl.*.GetBufferPointer.?(blob));
+    std.crypto.hash.Blake3.hash(serialized[0..blob.lpVtbl.*.GetBufferSize.?(blob)], hash, .{});
     try checkHr(raw.lpVtbl.*.CreateRootSignature.?(raw, 0, blob.lpVtbl.*.GetBufferPointer.?(blob), blob.lpVtbl.*.GetBufferSize.?(blob), &dx.IID_ID3D12RootSignature, @ptrCast(result.put())));
     return result;
 }
@@ -247,9 +256,14 @@ pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) 
     const self = try device.allocator.create(Dx12ComputePipeline);
     self.* = .{ .allocator = device.allocator, .layout = layout };
     errdefer device.allocator.destroy(self);
-    const raw = device.device.unwrap();
-    const state_desc = dx.D3D12_COMPUTE_PIPELINE_STATE_DESC{ .pRootSignature = layout.root_signature.unwrap(), .CS = bytecode(compute), .NodeMask = 0, .CachedPSO = .{ .pCachedBlob = null, .CachedBlobSizeInBytes = 0 }, .Flags = dx.D3D12_PIPELINE_STATE_FLAG_NONE };
-    try checkHr(raw.lpVtbl.*.CreateComputePipelineState.?(raw, &state_desc, &dx.IID_ID3D12PipelineState, @ptrCast(self.state.put())));
+    var state_desc = dx.D3D12_COMPUTE_PIPELINE_STATE_DESC{ .pRootSignature = layout.root_signature.unwrap(), .CS = bytecode(compute), .NodeMask = 0, .CachedPSO = .{ .pCachedBlob = null, .CachedBlobSizeInBytes = 0 }, .Flags = dx.D3D12_PIPELINE_STATE_FLAG_NONE };
+    const key = if (device.disk == null) null else key: {
+        var hasher = pipeline_cache.Hasher.init(device, "compute");
+        hasher.bytes(&layout.root_signature_hash);
+        hasher.bytes(compute.bytecode);
+        break :key hasher.finish();
+    };
+    try pipeline_cache.create(device, &state_desc, key, &self.state);
     utils.setD3D12Name(device.allocator, self.state.unwrap(), desc.label);
     log.debug("created DX12 compute pipeline", .{});
     return .{ .handle = @intCast(@intFromPtr(self)), .vtable = &compute_vtable };

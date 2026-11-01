@@ -182,7 +182,7 @@ pub fn createGraphics(ptr: *anyopaque, desc: pipeline.GraphicsPipelineDescriptor
         .max_depth_bounds = 1,
     } else .{ .depth_test_enable = .false, .depth_write_enable = .false, .depth_compare_op = .always, .depth_bounds_test_enable = .false, .stencil_test_enable = .false, .front = stencilState(.{}, 0xff, 0xff), .back = stencilState(.{}, 0xff, 0xff), .min_depth_bounds = 0, .max_depth_bounds = 1 };
     var native: vk.Pipeline = .null;
-    const result = try device.proxy.createGraphicsPipelines(.null, &.{.{
+    const result = try device.proxy.createGraphicsPipelines(device.pipeline_cache, &.{.{
         .p_next = &rendering,
         .stage_count = @intCast(stage_count),
         .p_stages = &stages,
@@ -213,7 +213,7 @@ pub fn createCompute(ptr: *anyopaque, desc: pipeline.ComputePipelineDescriptor) 
     const shader = try shader_impl.vkShader.fromHandle(desc.compute);
     if (shader.stage != .compute) return error.InvalidComputeShader;
     var native: vk.Pipeline = .null;
-    const result = try device.proxy.createComputePipelines(.null, &.{.{ .stage = shaderStage(shader), .layout = layout.handle, .base_pipeline_index = -1 }}, null, @as([]vk.Pipeline, (&native)[0..1]));
+    const result = try device.proxy.createComputePipelines(device.pipeline_cache, &.{.{ .stage = shaderStage(shader), .layout = layout.handle, .base_pipeline_index = -1 }}, null, @as([]vk.Pipeline, (&native)[0..1]));
     if (result != .success) return error.PipelineCreationFailed;
     errdefer device.proxy.destroyPipeline(native, null);
     const self = try device.allocator.create(vkComputePipeline);

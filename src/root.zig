@@ -106,6 +106,7 @@ test {
         _ = @import("backends/dx12/resource.zig");
         _ = @import("backends/dx12/shader.zig");
         _ = @import("backends/dx12/pipeline.zig");
+        _ = @import("backends/dx12/pipeline_cache.zig");
         _ = @import("backends/dx12/command.zig");
         _ = @import("backends/dx12/tests.zig");
     }
@@ -116,5 +117,6 @@ test {
         _ = @import("backends/vulkan/device.zig");
         _ = @import("backends/vulkan/shader.zig");
         _ = @import("backends/vulkan/command.zig");
+        _ = @import("backends/vulkan/pipeline_cache.zig");
     }
 }
