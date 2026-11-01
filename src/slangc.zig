@@ -35,6 +35,9 @@ pub const SlangShaderModule = struct {
     }
 };
 
+/// The Slang release `build.zig.zon` pins; part of a cache key for Slang's output.
+pub const compiler_version = "slang 2026.18.2";
+
 pub const Stage = enum(u32) { vertex = 1, fragment = 5, compute = 6 };
 pub const Target = enum(u32) { spirv = 6, dxil = 10, wgsl = 28 };
 
