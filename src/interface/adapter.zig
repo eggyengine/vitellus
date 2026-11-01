@@ -68,9 +68,21 @@ fn cpuid(leaf: u32) [4]u32 {
 }
 
 pub const PowerPreference = enum { low_power, high_performance };
+/// Which kind of GPU `Adapter.init` takes.
+pub const AdapterSource = enum {
+    /// The strongest hardware GPU, or a software rasterizer when the system has none.
+    hardware_first,
+    /// Only a software rasterizer running on the CPU, for machines without a usable GPU or
+    /// for results that don't depend on one: WARP on DirectX 12 (every Windows has it), a CPU
+    /// device such as llvmpipe on Vulkan, the browser's fallback adapter on WebGPU. Fails with
+    /// `NoSoftwareAdapter` when the system has none. Far slower than any GPU.
+    software,
+};
+
 pub const AdapterDescriptor = struct {
     /// Optional name shown for the selected physical adapter in graphics debuggers.
     label: ?[]const u8 = null,
+    source: AdapterSource = .hardware_first,
 };
 pub const FeatureSet = settings_mod.FeatureSet;
 pub const Limits = struct {

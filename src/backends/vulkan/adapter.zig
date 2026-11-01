@@ -59,12 +59,19 @@ pub const vkAdapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
-    /// `Adapter.init` for Vulkan: the high-performance GPU when there is one, else the first.
-    pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, _: AdapterDescriptor) !Adapter {
+    /// `Adapter.init` for Vulkan: the high-performance GPU when there is one, else the first;
+    /// only a CPU device (llvmpipe, SwiftShader) for `desc.source == .software`.
+    pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
         const adapters = try enumerateSlice(instance_ptr, allocator);
         defer allocator.free(adapters);
+        errdefer for (adapters) |adapter| adapter.deinit();
 
-        const selected = Adapter.pick(adapters, .high_performance) orelse adapters[0];
+        const selected = switch (desc.source) {
+            .hardware_first => Adapter.pick(adapters, .high_performance) orelse adapters[0],
+            .software => for (adapters) |adapter| {
+                if (adapter.info().kind == .software) break adapter;
+            } else return error.NoSoftwareAdapter,
+        };
         for (adapters) |adapter| {
             if (adapter.ptr != selected.ptr) adapter.deinit();
         }
@@ -485,4 +492,15 @@ test "Vulkan instance enumerates and describes adapters" {
     if (std.mem.startsWith(u8, info.nameSlice(), "llvmpipe")) try std.testing.expectEqual(adapter_interface.Driver.llvmpipe, info.driver);
     try std.testing.expect(adapters[0].capabilities().limits.max_texture_dimension_2d > 0);
     try std.testing.expect(adapters[0].formatCapabilities(.rgba8_unorm).usage.sampled);
+}
+
+test "a software adapter request takes only a CPU device" {
+    const instance = vkInstance.init(std.testing.allocator, .{ .backend = .{ .vulkan = true }, .validation = .none }) catch return error.SkipZigTest;
+    defer instance.deinit();
+    const adapter = vkAdapter.init(instance.ptr, std.testing.allocator, .{ .source = .software }) catch |err| switch (err) {
+        error.NoSoftwareAdapter => return error.SkipZigTest,
+        else => return err,
+    };
+    defer adapter.deinit();
+    try std.testing.expectEqual(adapter_interface.Kind.software, adapter.info().kind);
 }

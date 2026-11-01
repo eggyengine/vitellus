@@ -32,6 +32,7 @@ pub const hal = struct {
 pub const Instance = hal.instance.Instance;
 pub const Adapter = hal.adapter.Adapter;
 pub const AdapterDescriptor = hal.adapter.AdapterDescriptor;
+pub const AdapterSource = hal.adapter.AdapterSource;
 pub const AdapterInfo = hal.adapter.AdapterInfo;
 pub const Device = hal.device.Device;
 pub const DeviceDescriptor = hal.device.DeviceDescriptor;

@@ -42,7 +42,8 @@ pub const Dx12Adapter = struct {
         .surfaceCapabilitiesFn = surfaceCapabilitiesImpl,
     };
 
-    /// `Adapter.init` for DirectX 12: the DXGI adapter `desc` prefers, by power preference.
+    /// `Adapter.init` for DirectX 12: the first D3D12-capable hardware adapter, else WARP;
+    /// only WARP for `desc.source == .software`.
     pub fn init(instance_ptr: *anyopaque, allocator: std.mem.Allocator, desc: AdapterDescriptor) !Adapter {
         const instance: *Dx12Instance = @ptrCast(@alignCast(instance_ptr));
         const self = try allocator.create(Dx12Adapter);
@@ -54,10 +55,12 @@ pub const Dx12Adapter = struct {
             allocator.destroy(self);
         }
 
-        log.debug("selecting DX12 hardware adapter", .{});
-        self.adapter = getHardwareAdapter(self.factory.get()) catch |err| fallback: {
-            log.warn("hardware adapter unavailable ({}); falling back to WARP", .{err});
-            break :fallback try getWarpAdapter(self.factory.get());
+        self.adapter = switch (desc.source) {
+            .software => try getSoftwareAdapter(self.factory.get()),
+            .hardware_first => getHardwareAdapter(self.factory.get()) catch |err| fallback: {
+                log.warn("hardware adapter unavailable ({}); falling back to WARP", .{err});
+                break :fallback try getWarpAdapter(self.factory.get());
+            },
         };
 
         utils.setDxgiName(self.adapter.unwrap(), desc.label);
@@ -545,6 +548,16 @@ fn getHardwareAdapter(factory: ?*dx.IDXGIFactory4) !ComPtr(dx.IDXGIAdapter1) {
     }
 
     return error.HrFailed;
+}
+
+// Wine hands back its first GPU for WARP, so a software request checks what it got.
+fn getSoftwareAdapter(factory: ?*dx.IDXGIFactory4) !ComPtr(dx.IDXGIAdapter1) {
+    var adapter = getWarpAdapter(factory) catch return error.NoSoftwareAdapter;
+    errdefer adapter.deinit();
+    var desc: dx.DXGI_ADAPTER_DESC1 = .{};
+    try checkHr(adapter.unwrap().lpVtbl.*.GetDesc1.?(adapter.unwrap(), &desc));
+    if ((desc.Flags & dx.DXGI_ADAPTER_FLAG_SOFTWARE) == 0) return error.NoSoftwareAdapter;
+    return adapter;
 }
 
 fn getWarpAdapter(factory: ?*dx.IDXGIFactory4) !ComPtr(dx.IDXGIAdapter1) {

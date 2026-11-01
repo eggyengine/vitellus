@@ -265,3 +265,21 @@ test "DX12 descriptor heaps grow past their first size and keep earlier descript
     defer readback.unmap(null);
     try std.testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, read[0..4]);
 }
+
+test "DX12 software adapter is WARP and makes a working device" {
+    if (@import("builtin").target.os.tag != .windows) return error.SkipZigTest;
+
+    const instance = try vit.Instance.init(std.testing.allocator, .{ .backend = .{ .dx12 = true }, .validation = .none });
+    defer instance.deinit();
+    const adapter = vit.Adapter.init(instance, .{ .source = .software }) catch |err| switch (err) {
+        error.NoSoftwareAdapter => return error.SkipZigTest, // Wine has no WARP
+        else => return err,
+    };
+    defer adapter.deinit();
+    try std.testing.expectEqual(vit.hal.adapter.Kind.software, adapter.info().kind);
+
+    const device = try vit.Device.init(adapter, .{});
+    defer device.deinit();
+    const buffer = try vit.Buffer.init(device, .{ .size = 256, .usage = .{ .uniform = true }, .memory = .upload });
+    defer buffer.deinit();
+}
