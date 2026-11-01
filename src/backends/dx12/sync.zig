@@ -98,6 +98,13 @@ pub fn waitFence(point: sync.FencePoint, timeout_ns: ?u64) anyerror!bool {
 
 pub fn submit(ptr: *anyopaque, desc: sync.SubmitDescriptor) anyerror!void {
     const self: *Dx12Queue = @ptrCast(@alignCast(ptr));
+    submitTo(self, desc) catch |err| {
+        queue_impl.noteLost(self, err);
+        return err;
+    };
+}
+
+fn submitTo(self: *Dx12Queue, desc: sync.SubmitDescriptor) !void {
     const queue = self.queue.unwrap();
     for (desc.wait_semaphores) |value| try waitSemaphore(queue, value);
     for (desc.wait_fences) |point| {

@@ -121,6 +121,13 @@ pub const Dx12Swapchain = struct {
 
     fn presentImpl(ptr: *anyopaque, waits: []const sync.Semaphore) anyerror!swapchain_interface.PresentStatus {
         const self: *Dx12Swapchain = @ptrCast(@alignCast(ptr));
+        return self.present(waits) catch |err| {
+            @import("queue.zig").noteLost(self.queue, err);
+            return err;
+        };
+    }
+
+    fn present(self: *Dx12Swapchain, waits: []const sync.Semaphore) !swapchain_interface.PresentStatus {
         for (waits) |value| try sync_impl.waitSemaphore(self.queue.queue.unwrap(), value);
         const interval: dx.UINT = if (self.present_mode == .fifo or self.present_mode == .fifo_relaxed) 1 else 0;
         const flags: dx.UINT = if (interval == 0 and (self.dx_desc.Flags & dx.DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0) dx.DXGI_PRESENT_ALLOW_TEARING else 0;

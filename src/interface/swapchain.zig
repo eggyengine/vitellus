@@ -99,7 +99,8 @@ pub const Swapchain = struct {
     pub fn acquireNextImage(self: Swapchain, signal: ?sync.Semaphore) !AcquireResult {
         return if (self.vtable.acquireNextImageFn) |f| f(self.ptr, signal) else error.Unsupported;
     }
-    /// Presents the current image after all synchronisation objects in `waits`.
+    /// Presents the current image after all synchronisation objects in `waits`. Fails with
+    /// `error.DeviceLost` once the device is gone (see `Queue`).
     pub fn present(self: Swapchain, waits: []const sync.Semaphore) !PresentStatus {
         return if (self.vtable.presentFn) |f| f(self.ptr, waits) else error.Unsupported;
     }

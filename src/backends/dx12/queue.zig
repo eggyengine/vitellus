@@ -17,6 +17,8 @@ pub const Dx12Queue = struct {
     fence: ComPtr(dx.ID3D12Fence) = .{},
     fence_value: u64 = 0,
     kind: QueueKind = .graphics,
+    /// Asked why it was removed when a call on this queue reports `DeviceLost`.
+    device: *dx.ID3D12Device = undefined,
 
     const vtable: Queue.VTable = .{
         .deinitFn = deinitImpl,
@@ -43,6 +45,7 @@ pub const Dx12Queue = struct {
 
         log.debug("initialising ID3D12CommandQueue", .{});
         const raw_device = device.device.unwrap();
+        self.device = raw_device;
         try checkHr(raw_device.lpVtbl.*.CreateCommandQueue.?(
             raw_device,
             &dx_desc,
@@ -74,6 +77,13 @@ pub const Dx12Queue = struct {
 };
 
 pub fn waitIdle(self: *Dx12Queue) !void {
+    waitForQueue(self) catch |err| {
+        noteLost(self, err);
+        return err;
+    };
+}
+
+fn waitForQueue(self: *Dx12Queue) !void {
     self.fence_value += 1;
     const queue = self.queue.unwrap();
     const fence = self.fence.unwrap();
@@ -83,6 +93,11 @@ pub fn waitIdle(self: *Dx12Queue) !void {
     defer _ = dx.CloseHandle(event);
     try checkHr(fence.lpVtbl.*.SetEventOnCompletion.?(fence, self.fence_value, event));
     if (dx.WaitForSingleObject(event, dx.INFINITE) != dx.WAIT_OBJECT_0) return error.FenceWaitFailed;
+}
+
+/// Log why the device went, when `err` says it did.
+pub fn noteLost(self: *const Dx12Queue, err: anyerror) void {
+    if (err == error.DeviceLost) utils.logRemovedReason(self.device);
 }
 
 fn toDxQueueKind(kind: QueueKind) dx.D3D12_COMMAND_LIST_TYPE {

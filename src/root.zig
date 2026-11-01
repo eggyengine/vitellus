@@ -110,6 +110,7 @@ test {
         _ = @import("backends/dx12/pipeline_cache.zig");
         _ = @import("backends/dx12/command.zig");
         _ = @import("backends/dx12/tests.zig");
+        _ = @import("backends/dx12/utils.zig");
     }
     _ = @import("backends/spirv_reflect.zig");
     if (comptime options.enable_vk) {

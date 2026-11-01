@@ -16,6 +16,7 @@ pub const WgpuQueue = struct {
     instance: c.WGPUInstance,
     device: c.WGPUDevice,
     handle: c.WGPUQueue,
+    owner: *const WgpuDevice,
 
     const vtable: queue_if.Queue.VTable = .{ .deinitFn = deinit, .submitFn = submit, .waitIdleFn = waitIdle };
 
@@ -24,7 +25,7 @@ pub const WgpuQueue = struct {
         const device: *WgpuDevice = @ptrCast(@alignCast(ptr));
         const self = try allocator.create(WgpuQueue);
         c.wgpuDeviceAddRef(device.handle);
-        self.* = .{ .instance = device.instance, .device = device.handle, .handle = c.wgpuDeviceGetQueue(device.handle) };
+        self.* = .{ .instance = device.instance, .device = device.handle, .handle = c.wgpuDeviceGetQueue(device.handle), .owner = device };
         return .{ .ptr = self, .vtable = &vtable, .allocator = allocator };
     }
 
@@ -37,6 +38,7 @@ pub const WgpuQueue = struct {
 
     fn submit(ptr: *anyopaque, desc: sync.SubmitDescriptor) anyerror!void {
         const self: *WgpuQueue = @ptrCast(@alignCast(ptr));
+        if (self.owner.lost.load(.acquire)) return error.DeviceLost;
         var buffers: [16]c.WGPUCommandBuffer = undefined;
         if (desc.command_buffers.len > buffers.len) return error.TooManyCommandBuffers;
         for (desc.command_buffers, buffers[0..desc.command_buffers.len]) |cmd, *out| {
@@ -54,6 +56,7 @@ pub const WgpuQueue = struct {
 
     fn waitIdle(ptr: *anyopaque) anyerror!void {
         const self: *WgpuQueue = @ptrCast(@alignCast(ptr));
+        if (self.owner.lost.load(.acquire)) return error.DeviceLost;
         const future = c.wgpuQueueOnSubmittedWorkDone(self.handle, .{
             .nextInChain = null,
             .mode = c.WGPUCallbackMode_WaitAnyOnly,

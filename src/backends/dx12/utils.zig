@@ -120,19 +120,44 @@ pub fn ComPtr(comptime T: type) type {
 pub const HrError = error{
     /// The operation returned a negative HRESULT (COM failure code).
     HrFailed,
+    /// The GPU was removed, reset or hung, or its driver failed: nothing made on the device
+    /// works any more. See `logRemovedReason`.
+    DeviceLost,
 };
+
+// DXGI_ERROR_DEVICE_REMOVED, _HUNG, _RESET and DXGI_ERROR_DRIVER_INTERNAL_ERROR.
+const device_lost_codes = [_]u32{ 0x887A0005, 0x887A0006, 0x887A0007, 0x887A0020 };
 
 /// Converts a COM `HRESULT` into a Zig error.
 ///
-/// Returns `void` on success (HRESULT ≥ 0) and `error.HrFailed` on failure
-/// (HRESULT < 0).  Use this to integrate COM calls into `try` expressions:
+/// Returns `void` on success (HRESULT ≥ 0), `error.DeviceLost` when the device is gone, and
+/// `error.HrFailed` on any other failure. Use this to integrate COM calls into `try` expressions:
 ///
 ///   try checkHr(device.lpVtbl.?.CreateCommandQueue.?(device, &desc, &IID_..., @ptrCast(queue.put())));
 pub fn checkHr(hr: HRESULT) HrError!void {
-    if (hr < 0) {
-        std.log.err("HRESULT 0x{X:0>8} ({})", .{ @as(u32, @bitCast(hr)), hr });
-        return error.HrFailed;
-    }
+    const err = failure(hr) orelse return;
+    const code: u32 = @bitCast(hr);
+    if (err == error.DeviceLost) std.log.err("DX12 device lost (HRESULT 0x{X:0>8})", .{code}) else std.log.err("HRESULT 0x{X:0>8} ({})", .{ code, hr });
+    return err;
+}
+
+fn failure(hr: HRESULT) ?HrError {
+    if (hr >= 0) return null;
+    if (std.mem.indexOfScalar(u32, &device_lost_codes, @bitCast(hr)) != null) return error.DeviceLost;
+    return error.HrFailed;
+}
+
+/// Log why `device` was removed, for a `DeviceLost` from a call on something it made.
+pub fn logRemovedReason(device: *dx.ID3D12Device) void {
+    const reason = device.lpVtbl.*.GetDeviceRemovedReason.?(device);
+    std.log.err("DX12 device removed reason: HRESULT 0x{X:0>8}", .{@as(u32, @bitCast(reason))});
+}
+
+test "removal HRESULTs become DeviceLost and other failures stay HrFailed" {
+    try std.testing.expectEqual(@as(?HrError, error.DeviceLost), failure(@bitCast(@as(u32, 0x887A0005))));
+    try std.testing.expectEqual(@as(?HrError, error.DeviceLost), failure(@bitCast(@as(u32, 0x887A0006))));
+    try std.testing.expectEqual(@as(?HrError, error.HrFailed), failure(@bitCast(@as(u32, 0x80070057))));
+    try std.testing.expectEqual(@as(?HrError, null), failure(0));
 }
 
 /// Assigns a UTF-8 debug label to an ID3D12Object-derived interface.

@@ -23,6 +23,10 @@ pub const QueueDescriptor = struct {
 };
 
 /// Owning handle to a device queue.
+///
+/// `submit` and `waitIdle` (like `Swapchain.present`) fail with `error.DeviceLost` on every
+/// backend once the GPU is removed, reset or hung: nothing made on the device works after
+/// that. Destroy everything made from it, then the device, and make new ones to go on.
 pub const Queue = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
