@@ -330,14 +330,16 @@ test "DX12 indexed draw binds uniforms and a sampled texture" {
         \\SamplerState image_sampler : register(s2, space0);
         \\float4 psMain(Output input) : SV_Target0 { return image.Sample(image_sampler, input.uv) * tint; }
     ;
+    // Shader model 6.0, as SPIR-V translation targets: nothing here needs newer, and vkd3d
+    // (Wine's D3D12) refuses 6.7 pipelines.
     const vertex = try vit.Shader.init(device, .{
         .stage = .vertex,
-        .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "vsMain", .profile = .vs_6_7 }),
+        .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "vsMain", .profile = .vs_6_0 }),
     });
     defer vertex.deinit();
     const fragment = try vit.Shader.init(device, .{
         .stage = .fragment,
-        .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "psMain", .profile = .ps_6_7 }),
+        .source = HLSLShaderModule.init(.{ .code = source, .entry_point = "psMain", .profile = .ps_6_0 }),
     });
     defer fragment.deinit();
     const targets = [_]vit.hal.pipeline.ColorTargetState{.{ .format = .rgba8_unorm }};

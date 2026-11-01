@@ -174,13 +174,16 @@ pub const Dx12Adapter = struct {
         if (!texture) return .{};
 
         const renderable = (s1 & dx.D3D12_FORMAT_SUPPORT1_RENDER_TARGET) != 0;
+        const depth_stencil = (s1 & dx.D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL) != 0;
         return .{
             .usage = .{
                 .sampled = (s1 & (dx.D3D12_FORMAT_SUPPORT1_SHADER_LOAD |
                     dx.D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE)) != 0,
-                .storage = (s1 & dx.D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0,
+                // D3D12 never lets a depth-stencil resource allow unordered access, whatever
+                // the driver says of the format (vkd3d reports D32_FLOAT as UAV-capable).
+                .storage = !depth_stencil and (s1 & dx.D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0,
                 .color_attachment = renderable,
-                .depth_stencil_attachment = (s1 & dx.D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL) != 0,
+                .depth_stencil_attachment = depth_stencil,
                 .transfer_src = true,
                 .transfer_dst = true,
             },
