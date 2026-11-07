@@ -10,7 +10,7 @@ Vitellus requires Zig `0.17.0`.
 ## Add the dependency
 
 ```bash
-zig fetch --save git+https://git.tirbo.fish/eggy/vitellus
+zig fetch --save git+https://github.com/eggyengine/vitellus
 ```
 
 Then import the module in `build.zig`:
@@ -63,7 +63,7 @@ DXC and Slang are shared libraries that Vitellus loads at runtime. A dependency 
 
 ## Windowing
 
-The core module doesn't depend on any windowing library. It takes a `vit.Window`, which is a pair of [candler](https://git.tirbo.fish/eggy/candler) display and window handles, so any library that exposes native handles can drive it.
+The core module doesn't depend on any windowing library. It takes a `vit.Window`, which is a pair of [candler](https://github.com/eggyengine/candler) display and window handles, so any library that exposes native handles can drive it.
 
 Vitellus ships an adapter for SDL3 in `src/windowing/sdl3.zig`. You build it as a separate module against your own SDL3 dependency, which avoids pulling in a second copy of SDL:
 

@@ -1,8 +1,5 @@
 # vitellus
 
-> [!NOTE]
-> This repository has migrated to [git.tirbo.fish/eggy/vitellus](https://git.tirbo.fish/eggy/vitellus).
-
 vitellus is a native-first rendering hardware interface written in Zig for building game engines and renderers on modern graphics APIs.
 
 guides and API reference: https://eggyengine.github.io/vitellus/
@@ -15,7 +12,7 @@ requires zig `0.17.0`
 
 to use this with the zig build system, import as so:
 ```bash
-zig fetch --save git+https://git.tirbo.fish/eggy/vitellus
+zig fetch --save git+https://github.com/eggyengine/vitellus
 ```
 
 and then in `build.zig`:

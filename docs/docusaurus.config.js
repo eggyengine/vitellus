@@ -16,7 +16,7 @@ export default {
       {
         docs: {
           routeBasePath: '/',
-          editUrl: `https://git.tirbo.fish/eggy/vitellus/_edit/${process.env.DOCS_BRANCH ?? 'main'}/docs/`,
+          editUrl: `https://github.com/eggyengine/vitellus/edit/${process.env.DOCS_BRANCH ?? 'main'}/docs/`,
         },
         blog: false,
       },
@@ -30,7 +30,7 @@ export default {
         { to: '/', label: 'Guide', position: 'left' },
         // Zig's generated docs are copied to build/api by the workflow.
         { to: 'pathname:///api/', label: 'API reference', position: 'left' },
-        { href: 'https://git.tirbo.fish/eggy/vitellus', label: 'Source', position: 'right' },
+        { href: 'https://github.com/eggyengine/vitellus', label: 'GitHub', position: 'right' },
       ],
     },
     prism: { additionalLanguages: ['zig', 'bash', 'hlsl'] },
